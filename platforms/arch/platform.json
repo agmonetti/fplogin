@@ -1,0 +1,95 @@
+{
+  "descriptor_schema_version": "1.0",
+  "platform_id": "org.fplogin.platform.arch",
+  "platform_version": "0.1.0",
+  "protocol_versions": [
+    {
+      "major": 1,
+      "minor": 0
+    }
+  ],
+  "minimum_core_version": "0.1.0",
+  "name": "Arch Linux Platform Provider",
+  "vendor": "fplogin",
+  "executable": "bin/fplogin-platform-arch",
+  "supported_platforms": [
+    {
+      "distribution": "arch",
+      "architecture": "x86_64"
+    },
+    {
+      "distribution": "arch",
+      "architecture": "aarch64"
+    }
+  ],
+  "capabilities": [
+    {
+      "id": "host.inspect",
+      "status": "provided",
+      "level": 1,
+      "constraints": {},
+      "evidence_requirements": ["os_release"]
+    },
+    {
+      "id": "package.query",
+      "status": "provided",
+      "level": 1,
+      "constraints": {},
+      "evidence_requirements": ["pacman_db"]
+    },
+    {
+      "id": "service.query",
+      "status": "provided",
+      "level": 1,
+      "constraints": {},
+      "evidence_requirements": ["systemd_dbus"]
+    },
+    {
+      "id": "analyzer.collect_facts",
+      "status": "provided",
+      "level": 1,
+      "constraints": {},
+      "evidence_requirements": ["pam_config", "systemd_units"]
+    },
+    {
+      "id": "artifact.stage",
+      "status": "provided",
+      "level": 1,
+      "constraints": {},
+      "evidence_requirements": ["staging_directory"]
+    },
+    {
+      "id": "op.apply",
+      "status": "provided",
+      "level": 1,
+      "constraints": {},
+      "evidence_requirements": ["pacman_transaction"]
+    }
+  ],
+  "operation_kinds": [
+    "create_directory",
+    "write_file_atomic",
+    "remove_owned_file",
+    "install_package_artifact",
+    "remove_owned_package",
+    "set_service_enabled",
+    "set_service_active",
+    "restore_service_state"
+  ],
+  "package_formats": [
+    "pkg.tar.zst",
+    "pkg.tar.xz"
+  ],
+  "service_manager": {
+    "kind": "systemd",
+    "capabilities": [
+      "enable",
+      "disable",
+      "start",
+      "stop",
+      "status",
+      "alias"
+    ]
+  },
+  "asset_root": "assets"
+}

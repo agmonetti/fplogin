@@ -1,0 +1,118 @@
+{
+  "descriptor_schema_version": "1.0",
+  "adapter_id": "org.fplogin.adapter.sddm",
+  "adapter_version": "0.1.0",
+  "protocol_versions": [
+    {
+      "major": 1,
+      "minor": 0
+    }
+  ],
+  "minimum_core_version": "0.1.0",
+  "name": "SDDM Biometric Login Adapter",
+  "vendor": "fplogin",
+  "executable": "bin/fplogin-adapter-sddm",
+  "supported_display_managers": [
+    {
+      "dm_id": "sddm",
+      "name": "Simple Desktop Display Manager",
+      "version_policy": ">= 0.20, <= 0.21",
+      "target_aliases": [
+        "sddm.service",
+        "display-manager.service"
+      ]
+    }
+  ],
+  "integration_strategies": [
+    "source_patch",
+    "configuration"
+  ],
+  "capabilities": [
+    {
+      "id": "auth.concurrent_methods",
+      "status": "provided",
+      "level": 1,
+      "constraints": {},
+      "evidence_requirements": ["pam_service_sddm_fingerprint"]
+    },
+    {
+      "id": "auth.password_fallback",
+      "status": "provided",
+      "level": 1,
+      "constraints": {},
+      "evidence_requirements": ["pam_service_sddm"]
+    },
+    {
+      "id": "auth.biometric_auto_start",
+      "status": "provided",
+      "level": 1,
+      "constraints": {},
+      "evidence_requirements": ["theme_greeter_proxy"]
+    },
+    {
+      "id": "auth.request_identity_binding",
+      "status": "provided",
+      "level": 1,
+      "constraints": {},
+      "evidence_requirements": ["helper_request_id"]
+    },
+    {
+      "id": "auth.cancellable_attempts",
+      "status": "provided",
+      "level": 1,
+      "constraints": {},
+      "evidence_requirements": ["helper_cancel_signal"]
+    },
+    {
+      "id": "auth.password_only_degradation",
+      "status": "provided",
+      "level": 1,
+      "constraints": {},
+      "evidence_requirements": ["fallback_to_password"]
+    },
+    {
+      "id": "auth.observable_method_state",
+      "status": "provided",
+      "level": 1,
+      "constraints": {},
+      "evidence_requirements": ["greeter_auth_state_events"]
+    }
+  ],
+  "prerequisites": [
+    {
+      "id": "service.fprintd",
+      "kind": "service",
+      "required": true,
+      "reason": "Biometric authentication requires fprintd daemon",
+      "remediation_policy": "Install and start fprintd"
+    },
+    {
+      "id": "package.sddm",
+      "kind": "package",
+      "required": true,
+      "reason": "SDDM must be present or candidate for installation",
+      "remediation_policy": "Install SDDM package"
+    },
+    {
+      "id": "hardware.fingerprint_reader",
+      "kind": "hardware",
+      "required": true,
+      "reason": "Supported fingerprint sensor must be present",
+      "remediation_policy": "Connect compatible fingerprint sensor"
+    }
+  ],
+  "supported_platforms": [
+    "any"
+  ],
+  "packaging_backends": [
+    "arch"
+  ],
+  "operation_modes": [
+    "fresh_install",
+    "upgrade",
+    "repair",
+    "reinstall",
+    "uninstall"
+  ],
+  "asset_root": "assets"
+}
