@@ -1,0 +1,24 @@
+{
+  "scenario": "requested_target_with_no_compatible_adapter",
+  "description": "User explicitly requested a target for which no compatible adapter exists.",
+  "requested_target": "lightdm",
+  "host_context": {
+    "detected_dms": [
+      {
+        "candidate_id": "cand-lightdm",
+        "display_name": "Light Display Manager",
+        "service_name": "lightdm.service",
+        "package_name": "lightdm"
+      }
+    ]
+  },
+  "adapter_detections": [],
+  "expected_outcome": {
+    "status": "selection_error",
+    "exit_code": 4,
+    "reason": "no_compatible_adapter",
+    "requested_target": "lightdm",
+    "stable_message": "No compatible fplogin adapter is available for the requested target 'lightdm'. Installed or detected targets were checked, but none satisfies the required adapter capabilities. No changes were made.",
+    "mutations_made": false
+  }
+}

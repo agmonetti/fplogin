@@ -1,0 +1,53 @@
+{
+  "scenario": "one_compatible_target",
+  "description": "Exactly one compatible target detected. Core presents it as proposed target and requires explicit user confirmation before planning.",
+  "host_context": {
+    "detected_dms": [
+      {
+        "candidate_id": "cand-sddm",
+        "display_name": "Simple Desktop Display Manager",
+        "service_name": "sddm.service",
+        "package_name": "sddm"
+      }
+    ]
+  },
+  "adapter_detections": [
+    {
+      "adapter_id": "org.fplogin.adapter.sddm",
+      "targets": [
+        {
+          "instance_id": "target-sddm-01",
+          "dm_id": "sddm",
+          "display_name": "SDDM (Simple Desktop Display Manager)",
+          "upstream_version": "0.21.0",
+          "compatibility": "compatible",
+          "confidence": "confirmed",
+          "evidence": [
+            {
+              "source": "adapter",
+              "kind": "service",
+              "subject": "sddm.service",
+              "observed_value": "active=no, enabled=yes",
+              "timestamp": "2026-09-10T12:00:00Z"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "expected_outcome": {
+    "status": "selection_ready",
+    "selectable_targets": [
+      {
+        "target_instance_id": "target-sddm-01",
+        "adapter_id": "org.fplogin.adapter.sddm",
+        "display_name": "SDDM (Simple Desktop Display Manager)",
+        "compatibility": "compatible",
+        "confidence": "confirmed"
+      }
+    ],
+    "proposed_target": "target-sddm-01",
+    "requires_confirmation": true,
+    "silent_install_permitted": false
+  }
+}

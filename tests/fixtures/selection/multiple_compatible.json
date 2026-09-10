@@ -1,0 +1,69 @@
+{
+  "scenario": "multiple_compatible_targets",
+  "description": "Multiple compatible targets detected. Core displays all in deterministic order; user must select one and confirm.",
+  "host_context": {
+    "detected_dms": [
+      {
+        "candidate_id": "cand-sddm",
+        "display_name": "Simple Desktop Display Manager",
+        "service_name": "sddm.service",
+        "package_name": "sddm"
+      },
+      {
+        "candidate_id": "cand-greetd",
+        "display_name": "greetd daemon",
+        "service_name": "greetd.service",
+        "package_name": "greetd"
+      }
+    ]
+  },
+  "adapter_detections": [
+    {
+      "adapter_id": "org.fplogin.adapter.greetd",
+      "targets": [
+        {
+          "instance_id": "target-greetd-01",
+          "dm_id": "greetd",
+          "display_name": "greetd",
+          "upstream_version": "0.9.0",
+          "compatibility": "compatible",
+          "confidence": "confirmed",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "adapter_id": "org.fplogin.adapter.sddm",
+      "targets": [
+        {
+          "instance_id": "target-sddm-01",
+          "dm_id": "sddm",
+          "display_name": "SDDM (Simple Desktop Display Manager)",
+          "upstream_version": "0.21.0",
+          "compatibility": "compatible",
+          "confidence": "confirmed",
+          "evidence": []
+        }
+      ]
+    }
+  ],
+  "expected_outcome": {
+    "status": "selection_required",
+    "selectable_targets": [
+      {
+        "target_instance_id": "target-greetd-01",
+        "adapter_id": "org.fplogin.adapter.greetd",
+        "display_name": "greetd"
+      },
+      {
+        "target_instance_id": "target-sddm-01",
+        "adapter_id": "org.fplogin.adapter.sddm",
+        "display_name": "SDDM (Simple Desktop Display Manager)"
+      }
+    ],
+    "ordering": "deterministic_lexical",
+    "auto_select_winner": false,
+    "requires_user_choice": true,
+    "requires_confirmation": true
+  }
+}

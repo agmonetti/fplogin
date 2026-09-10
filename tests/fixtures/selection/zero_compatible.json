@@ -1,0 +1,16 @@
+{
+  "scenario": "zero_compatible_targets",
+  "description": "Zero compatible installation targets detected on host. Core aborts without mutation.",
+  "host_context": {
+    "detected_dms": []
+  },
+  "adapter_detections": [],
+  "expected_outcome": {
+    "status": "selection_error",
+    "exit_code": 4,
+    "reason": "no_compatible_target",
+    "stable_message": "No compatible installation target was detected. No changes were made.",
+    "remediation": "Install a supported display manager such as SDDM and ensure fprintd is configured.",
+    "mutations_made": false
+  }
+}

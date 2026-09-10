@@ -1,0 +1,56 @@
+{
+  "scenario": "multiple_dms_installed_one_compatible",
+  "description": "Multiple DMs installed on host, but only one is compatible with an adapter. Excludes incompatible DMs, presents single compatible target with notice, requires explicit confirmation.",
+  "host_context": {
+    "detected_dms": [
+      {
+        "candidate_id": "cand-gdm",
+        "display_name": "GNOME Display Manager",
+        "service_name": "gdm.service",
+        "package_name": "gdm"
+      },
+      {
+        "candidate_id": "cand-sddm",
+        "display_name": "Simple Desktop Display Manager",
+        "service_name": "sddm.service",
+        "package_name": "sddm"
+      }
+    ]
+  },
+  "adapter_detections": [
+    {
+      "adapter_id": "org.fplogin.adapter.sddm",
+      "targets": [
+        {
+          "instance_id": "target-sddm-01",
+          "dm_id": "sddm",
+          "display_name": "SDDM (Simple Desktop Display Manager)",
+          "upstream_version": "0.21.0",
+          "compatibility": "compatible",
+          "confidence": "confirmed",
+          "evidence": []
+        }
+      ]
+    }
+  ],
+  "expected_outcome": {
+    "status": "selection_ready",
+    "selectable_targets": [
+      {
+        "target_instance_id": "target-sddm-01",
+        "adapter_id": "org.fplogin.adapter.sddm",
+        "display_name": "SDDM (Simple Desktop Display Manager)",
+        "compatibility": "compatible"
+      }
+    ],
+    "excluded_targets": [
+      {
+        "candidate_id": "cand-gdm",
+        "reason": "no_compatible_adapter"
+      }
+    ],
+    "notice": "Other detected display managers (cand-gdm) were excluded because no compatible adapter was found.",
+    "auto_select_winner": false,
+    "requires_confirmation": true
+  }
+}
