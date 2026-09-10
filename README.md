@@ -38,10 +38,13 @@ fplogin/
 ├── docs/                        # Architecture, plan, and sprint reviews
 │   ├── IMPLEMENTATION_PLAN.md
 │   └── LESSONS.md
+├── contracts/                   # Versioned adapter/platform/manifest schemas
 ├── core/                        # Universal components (DM-independent)
 │   ├── analyze/                 # System difference analyzer
 │   ├── install/                 # Installer logic and state machine
 │   └── manifest/                # Install manifest and rollback records
+├── platforms/                   # Distribution and service-manager integration
+│   └── arch/                    # Arch package/system provider for v1
 ├── adapters/                    # Display manager-specific integration
 │   └── sddm/
 │       ├── patches/             # Upstream-quality SDDM patch series
@@ -69,7 +72,7 @@ fplogin/
 |---|---|
 | `adapters/sddm/pam/sddm-fingerprint` | `/etc/pam.d/sddm-fingerprint` |
 | `adapters/sddm/theme/*` | `/usr/share/sddm/themes/fplogin/` |
-| `config/sddm.conf.d/fplogin.conf` | `/etc/sddm.conf.d/fplogin.conf` |
+| `adapters/sddm/config/sddm.conf.d/fplogin.conf` | `/etc/sddm.conf.d/fplogin.conf` |
 
 No existing system files are modified in place. The installer generates a manifest at `/var/lib/fplogin/manifest.json` containing everything installed, file checksums, and previous system state for clean rollback during uninstallation.
 
@@ -89,6 +92,7 @@ No existing system files are modified in place. The installer generates a manife
 ## Documentation
 
 - [Implementation Plan](docs/IMPLEMENTATION_PLAN.md): Detailed sprint roadmap, verification matrix, security model, and Definition of Done.
+- [Core Language and Adapter Contract](docs/architecture/CORE_ADAPTER_ANALYSIS.md): Language evaluation, exact adapter protocol, repository foundation, and early architectural risks.
 - [Research Lessons](docs/LESSONS.md): Grounded investigation, reference platforms (Windows Hello, Touch ID), failed experiments, and security analysis.
 
 ## License

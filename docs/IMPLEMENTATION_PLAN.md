@@ -88,18 +88,23 @@ fplogin/
 │   ├── IMPLEMENTATION_PLAN.md
 │   ├── architecture/
 │   └── reviews/
+├── contracts/
+│   ├── adapter/
+│   ├── platform/
+│   └── manifest/
 ├── core/
 │   ├── analyze/
 │   ├── install/
-│   ├── manifest/
-│   └── platform/
-│       └── arch/
+│   └── manifest/
+├── platforms/
+│   └── arch/
 ├── adapters/
 │   └── sddm/
 │       ├── patches/
 │       ├── pam/
 │       │   └── sddm-fingerprint
 │       ├── theme/
+│       ├── config/
 │       └── packaging/
 │           └── arch/
 ├── tests/
@@ -157,7 +162,7 @@ The analyzer answers a narrow question: **which installed and configured passwor
 
 It will inspect:
 
-- Active display manager and SDDM package/version.
+- Installed display-manager inventory, active/enabled state, and adapter-attributed implementation/version evidence.
 - fprintd service, devices, enrolled fingers, and PAM module presence.
 - Relevant PAM service files and their effective includes.
 - `pam_kwallet5.so`, `pam_gnome_keyring.so`, `pam_mount.so`, and `pam_systemd_home.so` presence and configuration.
@@ -186,29 +191,32 @@ The analyzer will not:
 
 ### 8.1 Installer phases
 
-1. Detect distribution, architecture, effective invoking user, and systemd.
-2. Detect SDDM and any enabled display-manager unit.
-3. Detect fprintd, PAM module, reader, and enrolled fingerprint.
-4. Produce a complete proposed change set before mutation.
-5. Ask for explicit approval when packages are installed or another DM is replaced.
-6. Build or install the pinned fplogin SDDM package.
-7. Install the dedicated PAM service and theme/configuration assets.
-8. Validate files, permissions, package ownership, and PAM service syntax.
-9. Write the installation manifest atomically.
-10. Enable SDDM only after all prior checks succeed.
-11. Run the analyzer and print the behavioral-difference report.
+1. Detect distribution, architecture, effective invoking user, and available platform provider.
+2. Obtain generic display-manager candidates and discover compatible adapters.
+3. If more than one compatible target/adapter pair exists, present explicit choices to the user.
+4. Ask the selected adapter to inspect state and verify its own DM, biometric, and integration prerequisites.
+5. Produce the complete adapter-authored, core-validated change plan before mutation.
+6. Ask for explicit approval when packages are installed or another DM is replaced.
+7. Persist and fsync a transaction journal before the first mutation.
+8. Ask the selected adapter to prepare its pinned artifacts without elevated privileges.
+9. Apply typed package, file, and service operations through the selected platform provider, journaling every result.
+10. Ask the adapter to verify files, permissions, package ownership, authentication configuration, capabilities, and fallback.
+11. Enable the selected DM only after all prior checks succeed.
+12. Publish the successful installation manifest atomically.
+13. Run the analyzer and print the behavioral-difference report.
 
 ### 8.2 Manifest
 
 `/var/lib/fplogin/manifest.json` records only operational metadata:
 
-- fplogin version.
-- Installed package versions.
-- Files created by fplogin and their checksums.
-- Previous enabled display manager.
-- Previous SDDM theme/configuration state.
+- fplogin version and manifest schema version.
+- Selected adapter ID, version, protocol version, and descriptor digest.
+- Selected display-manager target identity and adapter-attributed version evidence.
+- Platform-provider ID/version and installed package versions.
+- Applied operation receipts, artifact/file checksums, ownership, modes, and compensation data.
+- Previous active/enabled display-manager and adapter-scoped configuration state.
 - Services enabled or disabled by the installer.
-- Installation timestamp and platform information.
+- Installation timestamp, platform information, accepted plan digest, and verification evidence.
 
 It must never contain passwords, PAM responses, fingerprint templates, wallet contents, or other secrets.
 
