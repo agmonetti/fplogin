@@ -1,7 +1,7 @@
 # Core Language and Core–Adapter Architecture Analysis
 
-**Status:** Proposed architecture; no implementation has started.  
-**Decision point:** This document must be accepted before the foundation files or the SDDM adapter are written.
+**Status:** Accepted architecture decision; no implementation has started.  
+**Decision:** Adopted as the governing architecture before the Foundation Gate. The decisions are recorded in ADRs `0001`–`0003`; this document remains the detailed analysis and contract source.
 
 ## Scope and constraints
 
