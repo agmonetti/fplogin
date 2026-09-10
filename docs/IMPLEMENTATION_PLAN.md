@@ -6,10 +6,19 @@ fplogin will be a standalone project that packages, installs, diagnoses, and rem
 
 A theme-only implementation is not sufficient. The public SDDM greeter API exposes `login(user, password, sessionIndex)` but does not expose a way to start a second PAM service or report an independently verified fingerprint as an authenticated login. A QML theme also must not become an authentication authority.
 
-The project therefore has two layers:
+The project therefore has two layers, separated from the first commit:
 
-1. **Display-manager-independent core:** system analysis, installation state, manifests, rollback, and shared policy definitions.
-2. **SDDM adapter:** an upstream-quality patch that adds concurrent password and fingerprint PAM transactions, plus the SDDM greeter UI and Arch package integration.
+1. **Display-manager-independent core:** system analysis, installation state, manifests, rollback, shared policy definitions, and the adapter contract. The core defines interfaces for DM detection, prerequisite verification, asset installation/removal, DM state queries, and authentication capability negotiation. It never imports, calls, or assumes anything specific to any display manager.
+2. **Display-manager adapters:** each adapter implements the core interfaces for a specific DM. The SDDM adapter (the only one in v1) provides an upstream-quality patch that adds concurrent password and fingerprint PAM transactions, plus the SDDM greeter UI and Arch package integration.
+
+Each adapter must explicitly declare:
+
+- Display managers it supports and compatible versions.
+- Integration strategy (source patch, drop-in configuration, plugin, etc.).
+- Capabilities it can offer (concurrent authentication, fallback, observable states).
+- Its own prerequisites (packages, build dependencies, services, hardware).
+
+During installation, the core detects present DMs, queries which adapters are available and compatible, presents options to the user if more than one matches, and delegates control to the selected adapter for its installation phase. The manifest records which adapter was used so the uninstaller knows what to revert.
 
 Development will happen against an SDDM fork branch so the code can be reviewed and tested. Once stable, the SDDM changes will be submitted upstream as a focused pull request. fplogin remains useful even if the pull request is not merged because it can package the maintained patch against a supported SDDM release.
 
@@ -104,6 +113,12 @@ fplogin/
 ```
 
 The repository will not vendor a permanent copy of SDDM. The SDDM changes live as commits in the development fork and as a reproducible patch series pinned to a supported upstream tag in fplogin.
+
+### 4.1 Core-adapter boundary
+
+The `core/` tree must never import, reference, or branch on any display-manager-specific module. All DM-specific behavior lives under `adapters/<dm>/`. The core interacts with adapters exclusively through the interfaces defined in section 1. There must be no conditional paths of the form `if dm == "sddm"` anywhere in the core.
+
+Adapters are discovered by contract declaration, not by hardcoded name. The core maintains a registry/discovery mechanism that resolves available adapters based on what each adapter declares it supports, not on string matching against known DM names.
 
 ## 5. Supported platform for v1
 
@@ -490,7 +505,7 @@ After v1 stabilizes:
 - LightDM adapter.
 - greetd adapter.
 - Additional distributions and package backends.
-- A display-manager adapter contract shared by installers/analyzers.
+- Additional adapter implementations exercising the core-adapter contract established in v1 (see sections 1 and 4.1).
 - Additional tested fingerprint hardware.
 - Optional, separately threat-modeled wallet-unlock integrations if mature implementations emerge.
 - Localization and broader accessibility review.

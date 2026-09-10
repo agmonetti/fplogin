@@ -55,6 +55,14 @@ fplogin/
 └── README.md
 ```
 
+### Core-adapter contract
+
+`core/` is completely agnostic to any display manager from the first commit. It defines the interfaces, state machines, manifest generation, and analysis logic, but never imports, references, or branches on specific display managers:
+
+- **Core defines interfaces:** DM detection and versioning, prerequisite validation, asset install/uninstall, DM state inspection, and authentication capability negotiation.
+- **Adapters implement those interfaces:** `adapters/sddm/` implements the contract for SDDM in v1. Future adapters (e.g. LightDM, greetd) will implement the same interfaces without changing core logic.
+- **Discovery over hardcoding:** The core resolves adapters through capability/support declarations, never through conditional logic like `if dm == "sddm"`.
+
 ### Installation paths
 
 | Repository path | System destination |
