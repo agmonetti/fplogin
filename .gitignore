@@ -1,3 +1,20 @@
 exports/
 HANDOFF.md
 RUNBOOK.md
+
+# Build and binary artifacts
+/bin/
+/dist/
+*.exe
+*.test
+*.out
+
+# Test coverage and profiles
+*.coverprofile
+coverage.txt
+profile.out
+
+# Worktrees, temporary test roots, and caches
+.work/
+tmp/
+.cache/
