@@ -1,0 +1,412 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fplogin.org/contracts/adapter/v1/change-plan.schema.json",
+  "title": "ChangePlan",
+  "description": "Declarative, dependency-ordered change plan produced by an adapter and executed by the core",
+  "type": "object",
+  "required": [
+    "plan_id",
+    "adapter_id",
+    "adapter_version",
+    "protocol_version",
+    "target_instance_id",
+    "mode",
+    "created_at",
+    "input_hash",
+    "approvals",
+    "preconditions",
+    "postconditions",
+    "artifact_references",
+    "operations",
+    "expected_capabilities",
+    "canonical_plan_digest"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "plan_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9_-]+$"
+    },
+    "adapter_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(\\.[a-z0-9_-]+)+$"
+    },
+    "adapter_version": {
+      "type": "string"
+    },
+    "protocol_version": {
+      "type": "object",
+      "required": ["major", "minor"],
+      "additionalProperties": false,
+      "properties": {
+        "major": { "type": "integer", "minimum": 1 },
+        "minor": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "target_instance_id": {
+      "type": "string"
+    },
+    "mode": {
+      "type": "string",
+      "enum": ["fresh_install", "upgrade", "repair", "reinstall", "uninstall"]
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "input_hash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "approvals": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "statement", "risk_level"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string" },
+          "statement": { "type": "string" },
+          "risk_level": { "type": "string", "enum": ["low", "medium", "high", "critical"] }
+        }
+      }
+    },
+    "preconditions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "description"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string" },
+          "description": { "type": "string" },
+          "predicate": { "type": "object" }
+        }
+      }
+    },
+    "postconditions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "description"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string" },
+          "description": { "type": "string" },
+          "predicate": { "type": "object" }
+        }
+      }
+    },
+    "artifact_references": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["artifact_id", "media_type", "sha256", "size", "role"],
+        "additionalProperties": false,
+        "properties": {
+          "artifact_id": { "type": "string" },
+          "media_type": { "type": "string" },
+          "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+          "size": { "type": "integer", "minimum": 0 },
+          "role": { "type": "string" },
+          "canonical_path": { "type": "string" }
+        }
+      }
+    },
+    "operations": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/PlanOperation" }
+    },
+    "expected_capabilities": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "canonical_plan_digest": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    }
+  },
+  "$defs": {
+    "PlanOperation": {
+      "type": "object",
+      "oneOf": [
+        { "$ref": "#/$defs/OpCreateDirectory" },
+        { "$ref": "#/$defs/OpWriteFileAtomic" },
+        { "$ref": "#/$defs/OpRemoveOwnedFile" },
+        { "$ref": "#/$defs/OpInstallPackageArtifact" },
+        { "$ref": "#/$defs/OpRemoveOwnedPackage" },
+        { "$ref": "#/$defs/OpSetServiceEnabled" },
+        { "$ref": "#/$defs/OpSetServiceActive" },
+        { "$ref": "#/$defs/OpRestoreServiceState" }
+      ]
+    },
+    "OpCreateDirectory": {
+      "type": "object",
+      "required": ["operation_id", "kind", "dependencies", "parameters", "preconditions", "expected_before", "expected_after", "compensation"],
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": { "type": "string" },
+        "kind": { "const": "create_directory" },
+        "dependencies": { "type": "array", "items": { "type": "string" } },
+        "parameters": {
+          "type": "object",
+          "required": ["path", "mode", "owner", "group"],
+          "additionalProperties": false,
+          "properties": {
+            "path": { "type": "string", "pattern": "^/" },
+            "mode": { "type": "string", "pattern": "^0[0-7]{3}$" },
+            "owner": { "type": "string" },
+            "group": { "type": "string" }
+          }
+        },
+        "preconditions": { "type": "array", "items": { "type": "object" } },
+        "expected_before": { "type": "object" },
+        "expected_after": { "type": "object" },
+        "compensation": {
+          "type": "object",
+          "required": ["kind", "path"],
+          "additionalProperties": false,
+          "properties": {
+            "kind": { "const": "remove_directory" },
+            "path": { "type": "string", "pattern": "^/" }
+          }
+        }
+      }
+    },
+    "OpWriteFileAtomic": {
+      "type": "object",
+      "required": ["operation_id", "kind", "dependencies", "parameters", "preconditions", "expected_before", "expected_after", "compensation"],
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": { "type": "string" },
+        "kind": { "const": "write_file_atomic" },
+        "dependencies": { "type": "array", "items": { "type": "string" } },
+        "parameters": {
+          "type": "object",
+          "required": ["destination_path", "sha256", "mode", "owner", "group"],
+          "additionalProperties": false,
+          "properties": {
+            "destination_path": { "type": "string", "pattern": "^/" },
+            "source_artifact_id": { "type": "string" },
+            "content_base64": { "type": "string" },
+            "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+            "mode": { "type": "string", "pattern": "^0[0-7]{3}$" },
+            "owner": { "type": "string" },
+            "group": { "type": "string" }
+          }
+        },
+        "preconditions": { "type": "array", "items": { "type": "object" } },
+        "expected_before": { "type": "object" },
+        "expected_after": { "type": "object" },
+        "compensation": {
+          "type": "object",
+          "required": ["kind", "path"],
+          "additionalProperties": false,
+          "properties": {
+            "kind": { "type": "string", "enum": ["remove_file", "restore_file"] },
+            "path": { "type": "string", "pattern": "^/" },
+            "backup_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+            "backup_path": { "type": "string" }
+          }
+        }
+      }
+    },
+    "OpRemoveOwnedFile": {
+      "type": "object",
+      "required": ["operation_id", "kind", "dependencies", "parameters", "preconditions", "expected_before", "expected_after", "compensation"],
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": { "type": "string" },
+        "kind": { "const": "remove_owned_file" },
+        "dependencies": { "type": "array", "items": { "type": "string" } },
+        "parameters": {
+          "type": "object",
+          "required": ["path", "expected_sha256"],
+          "additionalProperties": false,
+          "properties": {
+            "path": { "type": "string", "pattern": "^/" },
+            "expected_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+          }
+        },
+        "preconditions": { "type": "array", "items": { "type": "object" } },
+        "expected_before": { "type": "object" },
+        "expected_after": { "type": "object" },
+        "compensation": {
+          "type": "object",
+          "required": ["kind", "path"],
+          "additionalProperties": false,
+          "properties": {
+            "kind": { "const": "restore_file" },
+            "path": { "type": "string", "pattern": "^/" },
+            "source_artifact_id": { "type": "string" },
+            "content_base64": { "type": "string" },
+            "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+            "mode": { "type": "string", "pattern": "^0[0-7]{3}$" },
+            "owner": { "type": "string" },
+            "group": { "type": "string" }
+          }
+        }
+      }
+    },
+    "OpInstallPackageArtifact": {
+      "type": "object",
+      "required": ["operation_id", "kind", "dependencies", "parameters", "preconditions", "expected_before", "expected_after", "compensation"],
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": { "type": "string" },
+        "kind": { "const": "install_package_artifact" },
+        "dependencies": { "type": "array", "items": { "type": "string" } },
+        "parameters": {
+          "type": "object",
+          "required": ["artifact_id", "package_reference", "sha256"],
+          "additionalProperties": false,
+          "properties": {
+            "artifact_id": { "type": "string" },
+            "package_reference": { "type": "string" },
+            "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+          }
+        },
+        "preconditions": { "type": "array", "items": { "type": "object" } },
+        "expected_before": { "type": "object" },
+        "expected_after": { "type": "object" },
+        "compensation": {
+          "type": "object",
+          "required": ["kind", "package_reference"],
+          "additionalProperties": false,
+          "properties": {
+            "kind": { "const": "remove_package" },
+            "package_reference": { "type": "string" }
+          }
+        }
+      }
+    },
+    "OpRemoveOwnedPackage": {
+      "type": "object",
+      "required": ["operation_id", "kind", "dependencies", "parameters", "preconditions", "expected_before", "expected_after", "compensation"],
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": { "type": "string" },
+        "kind": { "const": "remove_owned_package" },
+        "dependencies": { "type": "array", "items": { "type": "string" } },
+        "parameters": {
+          "type": "object",
+          "required": ["package_reference"],
+          "additionalProperties": false,
+          "properties": {
+            "package_reference": { "type": "string" }
+          }
+        },
+        "preconditions": { "type": "array", "items": { "type": "object" } },
+        "expected_before": { "type": "object" },
+        "expected_after": { "type": "object" },
+        "compensation": {
+          "type": "object",
+          "required": ["kind", "package_reference"],
+          "additionalProperties": false,
+          "properties": {
+            "kind": { "const": "install_package" },
+            "package_reference": { "type": "string" }
+          }
+        }
+      }
+    },
+    "OpSetServiceEnabled": {
+      "type": "object",
+      "required": ["operation_id", "kind", "dependencies", "parameters", "preconditions", "expected_before", "expected_after", "compensation"],
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": { "type": "string" },
+        "kind": { "const": "set_service_enabled" },
+        "dependencies": { "type": "array", "items": { "type": "string" } },
+        "parameters": {
+          "type": "object",
+          "required": ["service_reference", "enabled"],
+          "additionalProperties": false,
+          "properties": {
+            "service_reference": { "type": "string" },
+            "enabled": { "type": "boolean" }
+          }
+        },
+        "preconditions": { "type": "array", "items": { "type": "object" } },
+        "expected_before": { "type": "object" },
+        "expected_after": { "type": "object" },
+        "compensation": {
+          "type": "object",
+          "required": ["kind", "service_reference", "enabled"],
+          "additionalProperties": false,
+          "properties": {
+            "kind": { "const": "set_service_enabled" },
+            "service_reference": { "type": "string" },
+            "enabled": { "type": "boolean" }
+          }
+        }
+      }
+    },
+    "OpSetServiceActive": {
+      "type": "object",
+      "required": ["operation_id", "kind", "dependencies", "parameters", "preconditions", "expected_before", "expected_after", "compensation"],
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": { "type": "string" },
+        "kind": { "const": "set_service_active" },
+        "dependencies": { "type": "array", "items": { "type": "string" } },
+        "parameters": {
+          "type": "object",
+          "required": ["service_reference", "active"],
+          "additionalProperties": false,
+          "properties": {
+            "service_reference": { "type": "string" },
+            "active": { "type": "boolean" }
+          }
+        },
+        "preconditions": { "type": "array", "items": { "type": "object" } },
+        "expected_before": { "type": "object" },
+        "expected_after": { "type": "object" },
+        "compensation": {
+          "type": "object",
+          "required": ["kind", "service_reference", "active"],
+          "additionalProperties": false,
+          "properties": {
+            "kind": { "const": "set_service_active" },
+            "service_reference": { "type": "string" },
+            "active": { "type": "boolean" }
+          }
+        }
+      }
+    },
+    "OpRestoreServiceState": {
+      "type": "object",
+      "required": ["operation_id", "kind", "dependencies", "parameters", "preconditions", "expected_before", "expected_after", "compensation"],
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": { "type": "string" },
+        "kind": { "const": "restore_service_state" },
+        "dependencies": { "type": "array", "items": { "type": "string" } },
+        "parameters": {
+          "type": "object",
+          "required": ["service_reference", "enabled", "active"],
+          "additionalProperties": false,
+          "properties": {
+            "service_reference": { "type": "string" },
+            "enabled": { "type": "string", "enum": ["yes", "no", "unknown"] },
+            "active": { "type": "string", "enum": ["yes", "no", "unknown"] }
+          }
+        },
+        "preconditions": { "type": "array", "items": { "type": "object" } },
+        "expected_before": { "type": "object" },
+        "expected_after": { "type": "object" },
+        "compensation": {
+          "type": "object",
+          "required": ["kind", "service_reference", "enabled", "active"],
+          "additionalProperties": false,
+          "properties": {
+            "kind": { "const": "restore_service_state" },
+            "service_reference": { "type": "string" },
+            "enabled": { "type": "string", "enum": ["yes", "no", "unknown"] },
+            "active": { "type": "string", "enum": ["yes", "no", "unknown"] }
+          }
+        }
+      }
+    }
+  }
+}

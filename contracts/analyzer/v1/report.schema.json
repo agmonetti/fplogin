@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fplogin.org/contracts/analyzer/v1/report.schema.json",
+  "title": "AnalyzerReport",
+  "description": "Complete machine-readable system analysis report emitted by the fplogin analyzer",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "analyzer_version",
+    "generated_at",
+    "platform_provider",
+    "target",
+    "findings",
+    "limitations"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+$"
+    },
+    "analyzer_version": {
+      "type": "string"
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "platform_provider": {
+      "type": "object",
+      "required": ["id", "version", "descriptor_sha256"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
+        "version": { "type": "string" },
+        "descriptor_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+      }
+    },
+    "target": {
+      "type": "object",
+      "required": ["adapter_id", "instance_id"],
+      "additionalProperties": false,
+      "properties": {
+        "adapter_id": { "type": ["string", "null"] },
+        "instance_id": { "type": ["string", "null"] }
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": { "$ref": "finding.schema.json" }
+    },
+    "limitations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["code", "message", "evidence"],
+        "additionalProperties": false,
+        "properties": {
+          "code": { "type": "string" },
+          "message": { "type": "string" },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["source", "kind", "subject", "observed_value", "timestamp"],
+              "additionalProperties": false,
+              "properties": {
+                "source": { "type": "string" },
+                "kind": { "type": "string" },
+                "subject": { "type": "string" },
+                "observed_value": { "type": "string" },
+                "timestamp": { "type": "string", "format": "date-time" },
+                "error": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

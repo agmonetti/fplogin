@@ -1,0 +1,23 @@
+{
+  "protocol_version": { "major": 1, "minor": 0 },
+  "request_id": "22222222-3333-4444-5555-666666666666",
+  "operation": "InspectHost",
+  "core_version": "0.1.0",
+  "context": {
+    "root": "/",
+    "platform": { "os": "linux" },
+    "architecture": "x86_64",
+    "package_manager": "pacman",
+    "service_manager": "systemd",
+    "display_manager_candidates": [],
+    "invoking_uid": 1000,
+    "invoking_gid": 1000,
+    "elevated": false,
+    "locale": "C",
+    "dry_run": false,
+    "deadline": "2026-09-10T12:05:00Z"
+  },
+  "payload": {
+    "requested_fact_classes": ["os_release", "service_state"]
+  }
+}

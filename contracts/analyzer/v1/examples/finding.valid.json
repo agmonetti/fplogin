@@ -1,0 +1,35 @@
+{
+  "finding_id": "kwallet5_pam_autounlock",
+  "component": {
+    "id": "kwallet5",
+    "label": "KWallet Secret Storage"
+  },
+  "evidence": [
+    {
+      "source": "platform",
+      "kind": "path",
+      "subject": "/etc/pam.d/sddm",
+      "observed_value": "-auth optional pam_kwallet5.so",
+      "timestamp": "2026-09-10T12:00:00Z"
+    },
+    {
+      "source": "platform",
+      "kind": "path",
+      "subject": "/etc/pam.d/sddm-fingerprint",
+      "observed_value": "no pam_kwallet5.so configured",
+      "timestamp": "2026-09-10T12:00:00Z"
+    }
+  ],
+  "fingerprint_login_impact": "KWallet remains locked after login; applications requesting secrets prompt for password",
+  "password_login_comparison": "KWallet is automatically unlocked by password during PAM authentication",
+  "impact": {
+    "severity": "degraded",
+    "description": "Wallet unlock does not occur over biometric authentication path"
+  },
+  "confidence": "confirmed",
+  "suggested_action": {
+    "action_id": "suggest_kwallet_prompt",
+    "description": "Unlock wallet on first prompt or configure pam_kwallet auto-prompting",
+    "next_step": "None required unless user expects silent wallet unlock"
+  }
+}

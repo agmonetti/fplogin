@@ -1,0 +1,80 @@
+{
+  "plan_id": "plan-fake-001",
+  "adapter_id": "org.fplogin.adapter.fake",
+  "adapter_version": "1.0.0",
+  "protocol_version": { "major": 1, "minor": 0 },
+  "target_instance_id": "inst-fake-001",
+  "mode": "fresh_install",
+  "created_at": "2026-09-10T12:00:00Z",
+  "input_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "approvals": [
+    {
+      "id": "appr-001",
+      "statement": "Install biometric PAM configuration",
+      "risk_level": "low"
+    }
+  ],
+  "preconditions": [
+    {
+      "id": "pre-001",
+      "description": "Host root must be accessible"
+    }
+  ],
+  "postconditions": [
+    {
+      "id": "post-001",
+      "description": "Configuration file must be present and owned by root"
+    }
+  ],
+  "artifact_references": [
+    {
+      "artifact_id": "art-conf-001",
+      "media_type": "text/plain",
+      "sha256": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+      "size": 128,
+      "role": "configuration"
+    }
+  ],
+  "operations": [
+    {
+      "operation_id": "op-001",
+      "kind": "create_directory",
+      "dependencies": [],
+      "parameters": {
+        "path": "/etc/fplogin",
+        "mode": "0755",
+        "owner": "root",
+        "group": "root"
+      },
+      "preconditions": [],
+      "expected_before": { "exists": false },
+      "expected_after": { "exists": true, "mode": "0755" },
+      "compensation": {
+        "kind": "remove_directory",
+        "path": "/etc/fplogin"
+      }
+    },
+    {
+      "operation_id": "op-002",
+      "kind": "write_file_atomic",
+      "dependencies": ["op-001"],
+      "parameters": {
+        "destination_path": "/etc/fplogin/fplogin.conf",
+        "source_artifact_id": "art-conf-001",
+        "sha256": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+        "mode": "0644",
+        "owner": "root",
+        "group": "root"
+      },
+      "preconditions": [],
+      "expected_before": { "exists": false },
+      "expected_after": { "exists": true, "mode": "0644" },
+      "compensation": {
+        "kind": "remove_file",
+        "path": "/etc/fplogin/fplogin.conf"
+      }
+    }
+  ],
+  "expected_capabilities": ["auth.concurrent_methods"],
+  "canonical_plan_digest": "4b227777d4dd1fc61c6f884f48641d02b4d121d3fd328cb08b5531fcacdabf8a"
+}

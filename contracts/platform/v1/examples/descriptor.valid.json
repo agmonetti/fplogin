@@ -1,0 +1,37 @@
+{
+  "descriptor_schema_version": "1.0",
+  "platform_id": "org.fplogin.platform.fake",
+  "platform_version": "1.0.0",
+  "protocol_versions": [
+    { "major": 1, "minor": 0 }
+  ],
+  "minimum_core_version": "0.1.0",
+  "name": "Fake Platform Provider",
+  "vendor": "fplogin-test",
+  "executable": "bin/fake-platform",
+  "supported_platforms": [
+    {
+      "distribution": "fake-distro",
+      "architecture": "x86_64"
+    }
+  ],
+  "capabilities": [
+    {
+      "id": "host.inspect",
+      "status": "provided",
+      "level": 1,
+      "constraints": {},
+      "evidence_requirements": ["fake_os_release"]
+    }
+  ],
+  "operation_kinds": [
+    "create_directory",
+    "write_file_atomic"
+  ],
+  "package_formats": ["pkg.tar.zst"],
+  "service_manager": {
+    "kind": "fake-init",
+    "capabilities": ["enable", "disable", "status"]
+  },
+  "asset_root": "assets"
+}

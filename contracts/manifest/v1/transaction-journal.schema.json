@@ -1,0 +1,174 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fplogin.org/contracts/manifest/v1/transaction-journal.schema.json",
+  "title": "TransactionJournal",
+  "description": "Durable transaction journal record written before mutations and updated atomically (/var/lib/fplogin/transactions/<id>.json)",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "transaction_id",
+    "state",
+    "created_at",
+    "updated_at",
+    "target",
+    "adapter",
+    "platform_provider",
+    "accepted_plan",
+    "operation_order",
+    "applied_operations"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+$"
+    },
+    "transaction_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9_-]+$"
+    },
+    "state": {
+      "type": "string",
+      "enum": [
+        "planned",
+        "prepared",
+        "applying",
+        "rollback_required",
+        "rolling_back",
+        "rolled_back",
+        "verification_failed",
+        "completed",
+        "aborted"
+      ]
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "updated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "target": {
+      "type": "object",
+      "required": ["instance_id", "dm_id", "display_name"],
+      "additionalProperties": false,
+      "properties": {
+        "instance_id": { "type": "string" },
+        "dm_id": { "type": "string" },
+        "display_name": { "type": "string" }
+      }
+    },
+    "adapter": {
+      "type": "object",
+      "required": ["id", "version", "protocol_version", "descriptor_sha256"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
+        "version": { "type": "string" },
+        "protocol_version": {
+          "type": "object",
+          "required": ["major", "minor"],
+          "additionalProperties": false,
+          "properties": {
+            "major": { "type": "integer" },
+            "minor": { "type": "integer" }
+          }
+        },
+        "descriptor_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+      }
+    },
+    "platform_provider": {
+      "type": "object",
+      "required": ["id", "version", "protocol_version", "descriptor_sha256"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
+        "version": { "type": "string" },
+        "protocol_version": {
+          "type": "object",
+          "required": ["major", "minor"],
+          "additionalProperties": false,
+          "properties": {
+            "major": { "type": "integer" },
+            "minor": { "type": "integer" }
+          }
+        },
+        "descriptor_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+      }
+    },
+    "accepted_plan": {
+      "type": "object",
+      "required": ["plan_id", "plan_digest", "input_hash", "mode"],
+      "additionalProperties": false,
+      "properties": {
+        "plan_id": { "type": "string" },
+        "plan_digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "input_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "mode": {
+          "type": "string",
+          "enum": ["fresh_install", "upgrade", "repair", "reinstall", "uninstall"]
+        }
+      }
+    },
+    "operation_order": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "applied_operations": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/OperationReceipt" }
+    },
+    "verification_results": {
+      "type": "array",
+      "items": { "type": "object" }
+    },
+    "rollback_records": {
+      "type": "array",
+      "items": { "type": "object" }
+    }
+  },
+  "$defs": {
+    "OperationReceipt": {
+      "type": "object",
+      "required": [
+        "operation_id",
+        "kind",
+        "started_at",
+        "completed_at",
+        "status",
+        "before_state",
+        "after_state",
+        "compensation"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": { "type": "string" },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "create_directory",
+            "write_file_atomic",
+            "remove_owned_file",
+            "install_package_artifact",
+            "remove_owned_package",
+            "set_service_enabled",
+            "set_service_active",
+            "restore_service_state"
+          ]
+        },
+        "started_at": { "type": "string", "format": "date-time" },
+        "completed_at": { "type": "string", "format": "date-time" },
+        "status": {
+          "type": "string",
+          "enum": ["success", "failed", "rolled_back", "rollback_failed"]
+        },
+        "before_state": { "type": "object" },
+        "after_state": { "type": "object" },
+        "evidence": { "type": "array", "items": { "type": "object" } },
+        "compensation": { "type": "object" },
+        "error": { "type": ["object", "null"] }
+      }
+    }
+  }
+}

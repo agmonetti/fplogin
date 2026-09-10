@@ -1,0 +1,16 @@
+{
+  "adapter_id": "org.fplogin.adapter.invalid",
+  "adapter_version": "1.0.0",
+  "protocol_versions": [],
+  "minimum_core_version": "0.1.0",
+  "name": "Invalid Adapter",
+  "vendor": "fplogin-test",
+  "executable": "/usr/bin/absolute-path-forbidden",
+  "supported_display_managers": [],
+  "integration_strategies": ["unknown_strategy"],
+  "capabilities": [],
+  "prerequisites": [],
+  "supported_platforms": [],
+  "operation_modes": [],
+  "asset_root": "/absolute/path/forbidden"
+}

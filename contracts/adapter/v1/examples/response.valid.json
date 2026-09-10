@@ -1,0 +1,10 @@
+{
+  "protocol_version": { "major": 1, "minor": 0 },
+  "request_id": "11111111-2222-3333-4444-555555555555",
+  "ok": true,
+  "result": {
+    "status": "success",
+    "details": {}
+  },
+  "error": null
+}

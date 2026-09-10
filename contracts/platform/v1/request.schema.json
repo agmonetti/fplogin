@@ -1,0 +1,255 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fplogin.org/contracts/platform/v1/request.schema.json",
+  "title": "PlatformRequest",
+  "description": "Versioned JSON request envelope sent to a platform provider on stdin",
+  "type": "object",
+  "required": [
+    "protocol_version",
+    "request_id",
+    "operation",
+    "core_version",
+    "context",
+    "payload"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "protocol_version": {
+      "type": "object",
+      "required": ["major", "minor"],
+      "additionalProperties": false,
+      "properties": {
+        "major": { "type": "integer", "minimum": 1 },
+        "minor": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "request_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "operation": {
+      "type": "string",
+      "enum": [
+        "Describe",
+        "InspectHost",
+        "ListPackageCandidates",
+        "ListServiceCandidates",
+        "CollectAnalyzerFacts",
+        "PrepareArtifactInstall",
+        "ApplyOperation",
+        "VerifyOperation"
+      ]
+    },
+    "core_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "context": {
+      "$ref": "#/$defs/HostContext"
+    },
+    "payload": {
+      "type": "object"
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "operation": { "const": "Describe" } } },
+      "then": { "properties": { "payload": { "$ref": "#/$defs/DescribePayload" } } }
+    },
+    {
+      "if": { "properties": { "operation": { "const": "InspectHost" } } },
+      "then": { "properties": { "payload": { "$ref": "#/$defs/InspectHostPayload" } } }
+    },
+    {
+      "if": { "properties": { "operation": { "const": "ListPackageCandidates" } } },
+      "then": { "properties": { "payload": { "$ref": "#/$defs/ListPackageCandidatesPayload" } } }
+    },
+    {
+      "if": { "properties": { "operation": { "const": "ListServiceCandidates" } } },
+      "then": { "properties": { "payload": { "$ref": "#/$defs/ListServiceCandidatesPayload" } } }
+    },
+    {
+      "if": { "properties": { "operation": { "const": "CollectAnalyzerFacts" } } },
+      "then": { "properties": { "payload": { "$ref": "#/$defs/CollectAnalyzerFactsPayload" } } }
+    },
+    {
+      "if": { "properties": { "operation": { "const": "PrepareArtifactInstall" } } },
+      "then": { "properties": { "payload": { "$ref": "#/$defs/PrepareArtifactInstallPayload" } } }
+    },
+    {
+      "if": { "properties": { "operation": { "const": "ApplyOperation" } } },
+      "then": { "properties": { "payload": { "$ref": "#/$defs/ApplyOperationPayload" } } }
+    },
+    {
+      "if": { "properties": { "operation": { "const": "VerifyOperation" } } },
+      "then": { "properties": { "payload": { "$ref": "#/$defs/VerifyOperationPayload" } } }
+    }
+  ],
+  "$defs": {
+    "HostContext": {
+      "type": "object",
+      "required": [
+        "root",
+        "platform",
+        "architecture",
+        "invoking_uid",
+        "invoking_gid",
+        "elevated",
+        "locale",
+        "dry_run",
+        "deadline"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "root": { "type": "string" },
+        "platform": { "type": "object" },
+        "architecture": { "type": "string" },
+        "package_manager": { "type": ["object", "string", "null"] },
+        "service_manager": { "type": ["object", "string", "null"] },
+        "display_manager_candidates": { "type": "array", "items": { "type": "object" } },
+        "invoking_uid": { "type": "integer", "minimum": 0 },
+        "invoking_gid": { "type": "integer", "minimum": 0 },
+        "elevated": { "type": "boolean" },
+        "locale": { "type": "string", "const": "C" },
+        "dry_run": { "type": "boolean" },
+        "deadline": { "type": "string", "format": "date-time" }
+      }
+    },
+    "DescribePayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "supported_protocol_range": {
+          "type": "object",
+          "required": ["min_major", "max_major"],
+          "additionalProperties": false,
+          "properties": {
+            "min_major": { "type": "integer", "minimum": 1 },
+            "max_major": { "type": "integer", "minimum": 1 }
+          }
+        }
+      }
+    },
+    "InspectHostPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "requested_fact_classes": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "ListPackageCandidatesPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "predicates": { "type": "array", "items": { "type": "string" } },
+        "package_hints": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "ListServiceCandidatesPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "aliases": { "type": "array", "items": { "type": "string" } },
+        "capability_queries": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "CollectAnalyzerFactsPayload": {
+      "type": "object",
+      "required": ["scope", "probe_ids"],
+      "additionalProperties": false,
+      "properties": {
+        "scope": { "type": "string" },
+        "target_context": { "type": "object" },
+        "probe_ids": { "type": "array", "items": { "type": "string" } },
+        "deadline": { "type": "string", "format": "date-time" }
+      }
+    },
+    "PrepareArtifactInstallPayload": {
+      "type": "object",
+      "required": ["selected_capabilities", "plan_digest", "artifact_references", "operation_ids", "staging_handoff"],
+      "additionalProperties": false,
+      "properties": {
+        "selected_capabilities": { "type": "array", "items": { "type": "string" } },
+        "plan_digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "artifact_references": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["artifact_id", "media_type", "sha256", "size"],
+            "additionalProperties": false,
+            "properties": {
+              "artifact_id": { "type": "string" },
+              "media_type": { "type": "string" },
+              "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+              "size": { "type": "integer", "minimum": 0 },
+              "canonical_path": { "type": "string" },
+              "role": { "type": "string" }
+            }
+          }
+        },
+        "operation_ids": { "type": "array", "items": { "type": "string" } },
+        "staging_handoff": {
+          "type": "object",
+          "required": ["workspace", "source_cache"],
+          "additionalProperties": false,
+          "properties": {
+            "workspace": { "type": "string" },
+            "source_cache": { "type": "string" }
+          }
+        }
+      }
+    },
+    "ApplyOperationPayload": {
+      "type": "object",
+      "required": ["operation", "plan_digest"],
+      "additionalProperties": false,
+      "properties": {
+        "operation": {
+          "type": "object",
+          "required": ["operation_id", "kind", "dependencies", "parameters", "preconditions", "expected_before", "expected_after", "compensation"],
+          "properties": {
+            "operation_id": { "type": "string" },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "create_directory",
+                "write_file_atomic",
+                "remove_owned_file",
+                "install_package_artifact",
+                "remove_owned_package",
+                "set_service_enabled",
+                "set_service_active",
+                "restore_service_state"
+              ]
+            },
+            "dependencies": { "type": "array", "items": { "type": "string" } },
+            "parameters": { "type": "object" },
+            "preconditions": { "type": "array", "items": { "type": "object" } },
+            "expected_before": { "type": "object" },
+            "expected_after": { "type": "object" },
+            "compensation": { "type": "object" }
+          }
+        },
+        "plan_digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "prepared_artifact_reference": { "type": ["object", "null"] }
+      }
+    },
+    "VerifyOperationPayload": {
+      "type": "object",
+      "required": ["operation_id", "plan_digest", "expected_postcondition", "phase"],
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": { "type": "string" },
+        "plan_digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "expected_postcondition": { "type": "object" },
+        "phase": {
+          "type": "string",
+          "enum": ["pre_apply", "post_install", "post_rollback", "post_uninstall"]
+        }
+      }
+    }
+  }
+}

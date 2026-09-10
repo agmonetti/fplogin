@@ -1,0 +1,91 @@
+{
+  "schema_version": "1.0",
+  "fplogin_version": "0.1.0",
+  "installed_at": "2026-09-10T12:05:00Z",
+  "target": {
+    "instance_id": "inst-sddm-001",
+    "dm_id": "sddm",
+    "display_name": "Simple Desktop Display Manager",
+    "version_evidence": {
+      "package_version": "0.21.0-2"
+    }
+  },
+  "adapter": {
+    "id": "org.fplogin.adapter.sddm",
+    "version": "0.1.0",
+    "protocol_version": { "major": 1, "minor": 0 },
+    "descriptor_sha256": "4b227777d4dd1fc61c6f884f48641d02b4d121d3fd328cb08b5531fcacdabf8a",
+    "installed_capabilities": [
+      "auth.concurrent_methods",
+      "auth.password_fallback",
+      "auth.biometric_auto_start"
+    ]
+  },
+  "platform_provider": {
+    "id": "org.fplogin.platform.arch",
+    "version": "0.1.0",
+    "protocol_version": { "major": 1, "minor": 0 },
+    "descriptor_sha256": "3a7b93a8d8e57922d4f828a2a7f5d475ef213f565b93d3957f4955bfa0ef9923"
+  },
+  "accepted_plan": {
+    "plan_id": "plan-sddm-001",
+    "plan_digest": "4b227777d4dd1fc61c6f884f48641d02b4d121d3fd328cb08b5531fcacdabf8a",
+    "mode": "fresh_install"
+  },
+  "installed_files": [
+    {
+      "path": "/etc/pam.d/sddm-fingerprint",
+      "sha256": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+      "mode": "0644",
+      "owner": "root",
+      "group": "root",
+      "size": 345
+    }
+  ],
+  "installed_packages": [
+    {
+      "package_reference": "sddm-fplogin",
+      "version": "0.21.0-1",
+      "sha256": "4b227777d4dd1fc61c6f884f48641d02b4d121d3fd328cb08b5531fcacdabf8a"
+    }
+  ],
+  "services": {
+    "enabled": ["sddm.service"],
+    "disabled": [],
+    "prior_states": [
+      {
+        "service_reference": "sddm.service",
+        "enabled": "yes",
+        "active": "no"
+      }
+    ]
+  },
+  "previous_dm_state": {
+    "service_name": "sddm.service",
+    "enabled": "yes",
+    "active": "no"
+  },
+  "operation_receipts": [
+    {
+      "operation_id": "op-001",
+      "kind": "write_file_atomic",
+      "status": "success",
+      "completed_at": "2026-09-10T12:04:50Z",
+      "compensation": {
+        "kind": "remove_file",
+        "path": "/etc/pam.d/sddm-fingerprint"
+      }
+    }
+  ],
+  "verification": {
+    "report_id": "rep-001",
+    "verified_at": "2026-09-10T12:04:55Z",
+    "checks": [
+      {
+        "check_id": "pam_file_exists",
+        "status": "passed",
+        "evidence": []
+      }
+    ]
+  }
+}

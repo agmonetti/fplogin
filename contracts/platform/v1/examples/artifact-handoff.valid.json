@@ -1,0 +1,28 @@
+{
+  "platform_context": {
+    "platform_id": "org.fplogin.platform.arch",
+    "platform_version": "0.1.0",
+    "protocol_version": { "major": 1, "minor": 0 },
+    "descriptor_sha256": "3a7b93a8d8e57922d4f828a2a7f5d475ef213f565b93d3957f4955bfa0ef9923",
+    "target_architecture": "x86_64",
+    "package_formats": ["pkg.tar.zst"],
+    "provider_capabilities": ["artifact.stage", "op.apply"],
+    "plan_id": "plan-sddm-001",
+    "plan_digest": "4b227777d4dd1fc61c6f884f48641d02b4d121d3fd328cb08b5531fcacdabf8a",
+    "consuming_operation_ids": ["op-install-001"],
+    "workspace": "/tmp/fplogin-workspace",
+    "source_cache": "/var/cache/fplogin/sources",
+    "network_policy": "forbidden",
+    "deadline": "2026-09-10T12:10:00Z"
+  },
+  "artifact_references": [
+    {
+      "artifact_id": "art-sddm-pkg",
+      "media_type": "application/x-tar+zstd",
+      "sha256": "4b227777d4dd1fc61c6f884f48641d02b4d121d3fd328cb08b5531fcacdabf8a",
+      "size": 4194304,
+      "canonical_path": "/tmp/fplogin-workspace/sddm-biometric-0.21.0-1-x86_64.pkg.tar.zst",
+      "role": "display_manager_package"
+    }
+  ]
+}

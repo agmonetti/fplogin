@@ -1,0 +1,16 @@
+{
+  "finding_id": "invalid_finding",
+  "component": {
+    "id": "kwallet",
+    "label": "KWallet"
+  },
+  "evidence": [],
+  "fingerprint_login_impact": "",
+  "password_login_comparison": "",
+  "impact": {
+    "severity": "invalid_severity",
+    "description": ""
+  },
+  "confidence": "inferred_guess",
+  "suggested_action": null
+}

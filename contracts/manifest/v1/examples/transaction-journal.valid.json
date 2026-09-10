@@ -1,0 +1,64 @@
+{
+  "schema_version": "1.0",
+  "transaction_id": "tx-20260910-001",
+  "state": "completed",
+  "created_at": "2026-09-10T12:00:00Z",
+  "updated_at": "2026-09-10T12:01:30Z",
+  "target": {
+    "instance_id": "inst-sddm-001",
+    "dm_id": "sddm",
+    "display_name": "Simple Desktop Display Manager"
+  },
+  "adapter": {
+    "id": "org.fplogin.adapter.sddm",
+    "version": "0.1.0",
+    "protocol_version": { "major": 1, "minor": 0 },
+    "descriptor_sha256": "4b227777d4dd1fc61c6f884f48641d02b4d121d3fd328cb08b5531fcacdabf8a"
+  },
+  "platform_provider": {
+    "id": "org.fplogin.platform.arch",
+    "version": "0.1.0",
+    "protocol_version": { "major": 1, "minor": 0 },
+    "descriptor_sha256": "3a7b93a8d8e57922d4f828a2a7f5d475ef213f565b93d3957f4955bfa0ef9923"
+  },
+  "accepted_plan": {
+    "plan_id": "plan-sddm-001",
+    "plan_digest": "4b227777d4dd1fc61c6f884f48641d02b4d121d3fd328cb08b5531fcacdabf8a",
+    "input_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "mode": "fresh_install"
+  },
+  "operation_order": ["op-001"],
+  "applied_operations": [
+    {
+      "operation_id": "op-001",
+      "kind": "create_directory",
+      "started_at": "2026-09-10T12:00:10Z",
+      "completed_at": "2026-09-10T12:00:11Z",
+      "status": "success",
+      "before_state": { "exists": false },
+      "after_state": { "exists": true, "mode": "0755" },
+      "evidence": [
+        {
+          "source": "platform",
+          "kind": "path",
+          "subject": "/etc/sddm.conf.d",
+          "observed_value": "created",
+          "timestamp": "2026-09-10T12:00:11Z"
+        }
+      ],
+      "compensation": {
+        "kind": "remove_directory",
+        "path": "/etc/sddm.conf.d"
+      },
+      "error": null
+    }
+  ],
+  "verification_results": [
+    {
+      "check_id": "check-dir-exists",
+      "status": "passed",
+      "evidence": []
+    }
+  ],
+  "rollback_records": []
+}

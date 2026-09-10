@@ -1,0 +1,10 @@
+{
+  "protocol_version": { "major": 0, "minor": 0 },
+  "request_id": "",
+  "operation": "ExecuteArbitraryShell",
+  "core_version": "0.1.0",
+  "context": {
+    "root": ""
+  },
+  "payload": {}
+}

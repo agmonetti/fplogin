@@ -1,0 +1,26 @@
+{
+  "protocol_version": { "major": 1, "minor": 0 },
+  "request_id": "11111111-2222-3333-4444-555555555555",
+  "operation": "Describe",
+  "core_version": "0.1.0",
+  "context": {
+    "root": "/",
+    "platform": { "os": "linux" },
+    "architecture": "x86_64",
+    "package_manager": "pacman",
+    "service_manager": "systemd",
+    "display_manager_candidates": [],
+    "invoking_uid": 1000,
+    "invoking_gid": 1000,
+    "elevated": false,
+    "locale": "C",
+    "dry_run": false,
+    "deadline": "2026-09-10T12:05:00Z"
+  },
+  "payload": {
+    "supported_protocol_range": {
+      "min_major": 1,
+      "max_major": 1
+    }
+  }
+}

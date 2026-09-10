@@ -1,0 +1,42 @@
+{
+  "descriptor_schema_version": "1.0",
+  "adapter_id": "org.fplogin.adapter.fake",
+  "adapter_version": "1.0.0",
+  "protocol_versions": [
+    { "major": 1, "minor": 0 }
+  ],
+  "minimum_core_version": "0.1.0",
+  "name": "Fake Display Manager Adapter",
+  "vendor": "fplogin-test",
+  "executable": "bin/fake-adapter",
+  "supported_display_managers": [
+    {
+      "dm_id": "fake-dm",
+      "name": "Fake DM",
+      "version_policy": ">= 1.0",
+      "target_aliases": ["fake-dm.service"]
+    }
+  ],
+  "integration_strategies": ["configuration"],
+  "capabilities": [
+    {
+      "id": "auth.concurrent_methods",
+      "status": "provided",
+      "level": 1,
+      "constraints": {},
+      "evidence_requirements": ["fake_evidence"]
+    }
+  ],
+  "prerequisites": [
+    {
+      "id": "package.fake-dm",
+      "kind": "package",
+      "required": true,
+      "reason": "Fake DM package needed",
+      "remediation_policy": "Install fake-dm"
+    }
+  ],
+  "supported_platforms": ["any"],
+  "operation_modes": ["fresh_install", "uninstall"],
+  "asset_root": "assets"
+}

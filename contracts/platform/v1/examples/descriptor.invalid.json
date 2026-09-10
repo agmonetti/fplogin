@@ -1,0 +1,19 @@
+{
+  "descriptor_schema_version": "1.0",
+  "platform_id": "Invalid-Platform-Id",
+  "platform_version": "1.0.0",
+  "protocol_versions": [],
+  "minimum_core_version": "0.1.0",
+  "name": "Invalid Platform",
+  "vendor": "fplogin-test",
+  "executable": "/bin/absolute-path-forbidden",
+  "supported_platforms": [],
+  "capabilities": [],
+  "operation_kinds": ["arbitrary_bash_command"],
+  "package_formats": [],
+  "service_manager": {
+    "kind": "systemd",
+    "capabilities": []
+  },
+  "asset_root": "/absolute/path"
+}

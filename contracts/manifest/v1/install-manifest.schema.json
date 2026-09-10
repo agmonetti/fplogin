@@ -1,0 +1,203 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fplogin.org/contracts/manifest/v1/install-manifest.schema.json",
+  "title": "InstallManifest",
+  "description": "Atomically published installation manifest (/var/lib/fplogin/manifest.json)",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "fplogin_version",
+    "installed_at",
+    "target",
+    "adapter",
+    "platform_provider",
+    "accepted_plan",
+    "installed_files",
+    "installed_packages",
+    "services",
+    "previous_dm_state",
+    "operation_receipts",
+    "verification"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+$"
+    },
+    "fplogin_version": {
+      "type": "string"
+    },
+    "installed_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "target": {
+      "type": "object",
+      "required": ["instance_id", "dm_id", "display_name"],
+      "additionalProperties": false,
+      "properties": {
+        "instance_id": { "type": "string" },
+        "dm_id": { "type": "string" },
+        "display_name": { "type": "string" },
+        "version_evidence": { "type": ["object", "array", "null"] }
+      }
+    },
+    "adapter": {
+      "type": "object",
+      "required": ["id", "version", "protocol_version", "descriptor_sha256", "installed_capabilities"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
+        "version": { "type": "string" },
+        "protocol_version": {
+          "type": "object",
+          "required": ["major", "minor"],
+          "additionalProperties": false,
+          "properties": {
+            "major": { "type": "integer" },
+            "minor": { "type": "integer" }
+          }
+        },
+        "descriptor_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "installed_capabilities": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "platform_provider": {
+      "type": "object",
+      "required": ["id", "version", "protocol_version", "descriptor_sha256"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
+        "version": { "type": "string" },
+        "protocol_version": {
+          "type": "object",
+          "required": ["major", "minor"],
+          "additionalProperties": false,
+          "properties": {
+            "major": { "type": "integer" },
+            "minor": { "type": "integer" }
+          }
+        },
+        "descriptor_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+      }
+    },
+    "accepted_plan": {
+      "type": "object",
+      "required": ["plan_id", "plan_digest", "mode"],
+      "additionalProperties": false,
+      "properties": {
+        "plan_id": { "type": "string" },
+        "plan_digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "mode": {
+          "type": "string",
+          "enum": ["fresh_install", "upgrade", "repair", "reinstall", "uninstall"]
+        }
+      }
+    },
+    "installed_files": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["path", "sha256", "mode", "owner", "group", "size"],
+        "additionalProperties": false,
+        "properties": {
+          "path": { "type": "string", "pattern": "^/" },
+          "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+          "mode": { "type": "string", "pattern": "^0[0-7]{3}$" },
+          "owner": { "type": "string" },
+          "group": { "type": "string" },
+          "size": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    "installed_packages": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["package_reference", "version"],
+        "additionalProperties": false,
+        "properties": {
+          "package_reference": { "type": "string" },
+          "version": { "type": "string" },
+          "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+        }
+      }
+    },
+    "services": {
+      "type": "object",
+      "required": ["enabled", "disabled", "prior_states"],
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "array", "items": { "type": "string" } },
+        "disabled": { "type": "array", "items": { "type": "string" } },
+        "prior_states": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["service_reference", "enabled", "active"],
+            "additionalProperties": false,
+            "properties": {
+              "service_reference": { "type": "string" },
+              "enabled": { "type": "string", "enum": ["yes", "no", "unknown"] },
+              "active": { "type": "string", "enum": ["yes", "no", "unknown"] }
+            }
+          }
+        }
+      }
+    },
+    "previous_dm_state": {
+      "type": "object",
+      "required": ["service_name", "enabled", "active"],
+      "additionalProperties": false,
+      "properties": {
+        "service_name": { "type": "string" },
+        "enabled": { "type": "string", "enum": ["yes", "no", "unknown"] },
+        "active": { "type": "string", "enum": ["yes", "no", "unknown"] }
+      }
+    },
+    "operation_receipts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["operation_id", "kind", "status", "completed_at", "compensation"],
+        "properties": {
+          "operation_id": { "type": "string" },
+          "kind": { "type": "string" },
+          "status": { "type": "string" },
+          "completed_at": { "type": "string", "format": "date-time" },
+          "before_state": { "type": "object" },
+          "after_state": { "type": "object" },
+          "evidence": { "type": "array", "items": { "type": "object" } },
+          "compensation": { "type": "object" }
+        }
+      }
+    },
+    "verification": {
+      "type": "object",
+      "required": ["report_id", "verified_at", "checks"],
+      "additionalProperties": false,
+      "properties": {
+        "report_id": { "type": "string" },
+        "verified_at": { "type": "string", "format": "date-time" },
+        "checks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["check_id", "status", "evidence"],
+            "additionalProperties": false,
+            "properties": {
+              "check_id": { "type": "string" },
+              "status": { "type": "string", "enum": ["passed", "failed", "unknown"] },
+              "evidence": { "type": "array", "items": { "type": "object" } },
+              "message": { "type": "string" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

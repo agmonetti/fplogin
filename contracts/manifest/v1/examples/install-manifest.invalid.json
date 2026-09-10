@@ -1,0 +1,17 @@
+{
+  "schema_version": "1.0",
+  "fplogin_version": "0.1.0",
+  "installed_at": "invalid-timestamp",
+  "target": {},
+  "adapter": {},
+  "platform_provider": {},
+  "accepted_plan": {},
+  "installed_files": [],
+  "installed_packages": [],
+  "services": {},
+  "previous_dm_state": {},
+  "operation_receipts": [],
+  "verification": {
+    "report_id": ""
+  }
+}

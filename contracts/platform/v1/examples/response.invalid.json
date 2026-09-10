@@ -1,0 +1,12 @@
+{
+  "protocol_version": { "major": 1, "minor": 0 },
+  "request_id": "22222222-3333-4444-5555-666666666666",
+  "ok": false,
+  "result": null,
+  "error": {
+    "code": "illegal_error_code_not_in_enum",
+    "message": "Error message",
+    "retryable": false,
+    "evidence": []
+  }
+}

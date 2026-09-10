@@ -1,0 +1,166 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fplogin.org/contracts/adapter/v1/descriptor.schema.json",
+  "title": "AdapterDescriptor",
+  "description": "Static discovery descriptor for an fplogin display manager adapter (adapter.json)",
+  "type": "object",
+  "required": [
+    "descriptor_schema_version",
+    "adapter_id",
+    "adapter_version",
+    "protocol_versions",
+    "minimum_core_version",
+    "name",
+    "vendor",
+    "executable",
+    "supported_display_managers",
+    "integration_strategies",
+    "capabilities",
+    "prerequisites",
+    "supported_platforms",
+    "operation_modes",
+    "asset_root"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "descriptor_schema_version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+$"
+    },
+    "adapter_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(\\.[a-z0-9_-]+)+$"
+    },
+    "adapter_version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+(\\.[0-9]+)?(-[a-zA-Z0-9._-]+)?"
+    },
+    "protocol_versions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["major", "minor"],
+        "additionalProperties": false,
+        "properties": {
+          "major": { "type": "integer", "minimum": 1 },
+          "minor": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    "minimum_core_version": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "vendor": {
+      "type": "string",
+      "minLength": 1
+    },
+    "executable": {
+      "type": "string",
+      "pattern": "^(?!/)(?!.*\\.\\.)[a-zA-Z0-9_./-]+$"
+    },
+    "supported_display_managers": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["dm_id", "name", "version_policy", "target_aliases"],
+        "additionalProperties": false,
+        "properties": {
+          "dm_id": {
+            "type": "string",
+            "pattern": "^[a-z0-9_-]+$"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "version_policy": {
+            "type": "string",
+            "minLength": 1
+          },
+          "target_aliases": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      }
+    },
+    "integration_strategies": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "enum": ["native", "source_patch", "configuration", "plugin"]
+      }
+    },
+    "capabilities": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "status", "level", "constraints", "evidence_requirements"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z0-9_.]+$"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["native", "provided", "unsupported"]
+          },
+          "level": {
+            "type": ["string", "integer"]
+          },
+          "constraints": {
+            "type": "object"
+          },
+          "evidence_requirements": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      }
+    },
+    "prerequisites": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "kind", "required", "reason", "remediation_policy"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string" },
+          "kind": { "type": "string" },
+          "required": { "type": "boolean" },
+          "reason": { "type": "string" },
+          "remediation_policy": { "type": "string" }
+        }
+      }
+    },
+    "supported_platforms": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "packaging_backends": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "operation_modes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "enum": ["fresh_install", "upgrade", "repair", "reinstall", "uninstall"]
+      }
+    },
+    "asset_root": {
+      "type": "string",
+      "pattern": "^(?!/)(?!.*\\.\\.)[a-zA-Z0-9_./-]+$"
+    }
+  }
+}

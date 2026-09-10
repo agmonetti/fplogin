@@ -1,0 +1,30 @@
+{
+  "plan_id": "plan-invalid-001",
+  "adapter_id": "org.fplogin.adapter.invalid",
+  "adapter_version": "1.0.0",
+  "protocol_version": { "major": 1, "minor": 0 },
+  "target_instance_id": "inst-invalid-001",
+  "mode": "fresh_install",
+  "created_at": "2026-09-10T12:00:00Z",
+  "input_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "approvals": [],
+  "preconditions": [],
+  "postconditions": [],
+  "artifact_references": [],
+  "operations": [
+    {
+      "operation_id": "op-illegal-001",
+      "kind": "run_as_root",
+      "dependencies": [],
+      "parameters": {
+        "command": "rm -rf /"
+      },
+      "preconditions": [],
+      "expected_before": {},
+      "expected_after": {},
+      "compensation": {}
+    }
+  ],
+  "expected_capabilities": [],
+  "canonical_plan_digest": "4b227777d4dd1fc61c6f884f48641d02b4d121d3fd328cb08b5531fcacdabf8a"
+}

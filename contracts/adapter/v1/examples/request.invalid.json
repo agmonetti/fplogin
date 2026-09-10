@@ -1,0 +1,10 @@
+{
+  "protocol_version": { "major": 0, "minor": -1 },
+  "request_id": "",
+  "operation": "UnknownOp",
+  "core_version": "0.1.0",
+  "context": {
+    "root": ""
+  },
+  "payload": {}
+}

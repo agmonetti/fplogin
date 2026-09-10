@@ -1,0 +1,51 @@
+{
+  "schema_version": "1.0",
+  "analyzer_version": "0.1.0",
+  "generated_at": "2026-09-10T12:00:00Z",
+  "platform_provider": {
+    "id": "org.fplogin.platform.arch",
+    "version": "0.1.0",
+    "descriptor_sha256": "3a7b93a8d8e57922d4f828a2a7f5d475ef213f565b93d3957f4955bfa0ef9923"
+  },
+  "target": {
+    "adapter_id": "org.fplogin.adapter.sddm",
+    "instance_id": "inst-sddm-001"
+  },
+  "findings": [
+    {
+      "finding_id": "kwallet5_pam_autounlock",
+      "component": {
+        "id": "kwallet5",
+        "label": "KWallet Secret Storage"
+      },
+      "evidence": [
+        {
+          "source": "platform",
+          "kind": "path",
+          "subject": "/etc/pam.d/sddm",
+          "observed_value": "-auth optional pam_kwallet5.so",
+          "timestamp": "2026-09-10T12:00:00Z"
+        }
+      ],
+      "fingerprint_login_impact": "KWallet remains locked",
+      "password_login_comparison": "KWallet auto-unlocks on password login",
+      "impact": {
+        "severity": "degraded",
+        "description": "Wallet unlock not triggered"
+      },
+      "confidence": "confirmed",
+      "suggested_action": {
+        "action_id": "action_none",
+        "description": "Unlock manually when prompted",
+        "next_step": null
+      }
+    }
+  ],
+  "limitations": [
+    {
+      "code": "unscanned_user_sessions",
+      "message": "Only system and root configuration paths were inspected; active user sessions were not probed",
+      "evidence": []
+    }
+  ]
+}

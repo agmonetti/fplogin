@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fplogin.org/contracts/analyzer/v1/finding.schema.json",
+  "title": "AnalyzerFinding",
+  "description": "Evidence-backed finding emitted by the system analyzer for password-derived facilities",
+  "type": "object",
+  "required": [
+    "finding_id",
+    "component",
+    "evidence",
+    "fingerprint_login_impact",
+    "password_login_comparison",
+    "impact",
+    "confidence",
+    "suggested_action"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "finding_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9_.-]+$"
+    },
+    "component": {
+      "type": "object",
+      "required": ["id", "label"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
+        "label": { "type": "string" }
+      }
+    },
+    "evidence": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/EvidenceRecord" }
+    },
+    "fingerprint_login_impact": {
+      "type": "string",
+      "minLength": 1
+    },
+    "password_login_comparison": {
+      "type": "string",
+      "minLength": 1
+    },
+    "impact": {
+      "type": "object",
+      "required": ["severity", "description"],
+      "additionalProperties": false,
+      "properties": {
+        "severity": {
+          "type": "string",
+          "enum": ["none", "informational", "degraded", "blocked"]
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "confidence": {
+      "type": "string",
+      "enum": ["confirmed", "likely", "unknown"]
+    },
+    "suggested_action": {
+      "type": ["object", "null"],
+      "required": ["action_id", "description"],
+      "additionalProperties": false,
+      "properties": {
+        "action_id": { "type": "string" },
+        "description": { "type": "string" },
+        "next_step": { "type": "string" }
+      }
+    }
+  },
+  "$defs": {
+    "EvidenceRecord": {
+      "type": "object",
+      "required": ["source", "kind", "subject", "observed_value", "timestamp"],
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "type": "string",
+          "enum": ["core", "adapter", "platform"]
+        },
+        "kind": {
+          "type": "string",
+          "enum": ["path", "command", "package", "service", "adapter_report", "derived"]
+        },
+        "subject": {
+          "type": "string",
+          "minLength": 1
+        },
+        "observed_value": {
+          "type": "string"
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "error": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

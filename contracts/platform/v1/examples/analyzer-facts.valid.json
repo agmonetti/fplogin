@@ -1,0 +1,28 @@
+{
+  "scope": "biometric_login_difference",
+  "collected_at": "2026-09-10T12:00:00Z",
+  "evidence": [
+    {
+      "source": "platform",
+      "kind": "package",
+      "subject": "fprintd",
+      "observed_value": "version=1.94.3-1, status=installed",
+      "timestamp": "2026-09-10T12:00:00Z"
+    },
+    {
+      "source": "platform",
+      "kind": "service",
+      "subject": "fprintd.service",
+      "observed_value": "active=inactive, enabled=yes",
+      "timestamp": "2026-09-10T12:00:00Z"
+    },
+    {
+      "source": "platform",
+      "kind": "path",
+      "subject": "/etc/pam.d/sddm",
+      "observed_value": "includes=system-login",
+      "timestamp": "2026-09-10T12:00:00Z"
+    }
+  ],
+  "probe_errors": []
+}

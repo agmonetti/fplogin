@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fplogin.org/contracts/adapter/v1/response.schema.json",
+  "title": "AdapterResponse",
+  "description": "Versioned JSON response envelope emitted by an adapter on stdout",
+  "type": "object",
+  "required": ["protocol_version", "request_id", "ok"],
+  "additionalProperties": false,
+  "properties": {
+    "protocol_version": {
+      "type": "object",
+      "required": ["major", "minor"],
+      "additionalProperties": false,
+      "properties": {
+        "major": { "type": "integer", "minimum": 1 },
+        "minor": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "request_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "ok": {
+      "type": "boolean"
+    },
+    "result": {
+      "type": ["object", "null"]
+    },
+    "error": {
+      "type": ["object", "null"],
+      "$ref": "#/$defs/AdapterError"
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "ok": { "const": true } } },
+      "then": {
+        "required": ["result"],
+        "properties": {
+          "result": { "type": "object" },
+          "error": { "type": "null" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "ok": { "const": false } } },
+      "then": {
+        "required": ["error"],
+        "properties": {
+          "result": { "type": "null" },
+          "error": { "type": "object" }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "AdapterError": {
+      "type": "object",
+      "required": ["code", "message", "retryable", "evidence"],
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "type": "string",
+          "enum": [
+            "invalid_request",
+            "protocol_mismatch",
+            "unsupported_target",
+            "timeout",
+            "host_read_failed",
+            "artifact_failed",
+            "internal_error"
+          ]
+        },
+        "message": { "type": "string", "minLength": 1 },
+        "retryable": { "type": "boolean" },
+        "evidence": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/EvidenceItem" }
+        },
+        "details": { "type": "object" }
+      }
+    },
+    "EvidenceItem": {
+      "type": "object",
+      "required": ["source", "kind", "subject", "observed_value", "timestamp"],
+      "additionalProperties": false,
+      "properties": {
+        "source": { "type": "string", "enum": ["core", "adapter", "platform"] },
+        "kind": { "type": "string", "enum": ["path", "command", "package", "service", "adapter_report", "derived"] },
+        "subject": { "type": "string", "minLength": 1 },
+        "observed_value": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "error": { "type": "string" }
+      }
+    }
+  }
+}

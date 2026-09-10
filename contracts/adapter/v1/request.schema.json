@@ -1,0 +1,322 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fplogin.org/contracts/adapter/v1/request.schema.json",
+  "title": "AdapterRequest",
+  "description": "Versioned JSON request envelope sent to an adapter on stdin",
+  "type": "object",
+  "required": [
+    "protocol_version",
+    "request_id",
+    "operation",
+    "core_version",
+    "context",
+    "payload"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "protocol_version": {
+      "type": "object",
+      "required": ["major", "minor"],
+      "additionalProperties": false,
+      "properties": {
+        "major": { "type": "integer", "minimum": 1 },
+        "minor": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "request_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "operation": {
+      "type": "string",
+      "enum": [
+        "Describe",
+        "Detect",
+        "CheckPrerequisites",
+        "InspectState",
+        "PlanInstall",
+        "PrepareArtifacts",
+        "PlanUninstall",
+        "Verify"
+      ]
+    },
+    "core_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "context": {
+      "$ref": "#/$defs/HostContext"
+    },
+    "payload": {
+      "type": "object"
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "operation": { "const": "Describe" } } },
+      "then": { "properties": { "payload": { "$ref": "#/$defs/DescribePayload" } } }
+    },
+    {
+      "if": { "properties": { "operation": { "const": "Detect" } } },
+      "then": { "properties": { "payload": { "$ref": "#/$defs/DetectPayload" } } }
+    },
+    {
+      "if": { "properties": { "operation": { "const": "CheckPrerequisites" } } },
+      "then": { "properties": { "payload": { "$ref": "#/$defs/CheckPrerequisitesPayload" } } }
+    },
+    {
+      "if": { "properties": { "operation": { "const": "InspectState" } } },
+      "then": { "properties": { "payload": { "$ref": "#/$defs/InspectStatePayload" } } }
+    },
+    {
+      "if": { "properties": { "operation": { "const": "PlanInstall" } } },
+      "then": { "properties": { "payload": { "$ref": "#/$defs/PlanInstallPayload" } } }
+    },
+    {
+      "if": { "properties": { "operation": { "const": "PrepareArtifacts" } } },
+      "then": { "properties": { "payload": { "$ref": "#/$defs/PrepareArtifactsPayload" } } }
+    },
+    {
+      "if": { "properties": { "operation": { "const": "PlanUninstall" } } },
+      "then": { "properties": { "payload": { "$ref": "#/$defs/PlanUninstallPayload" } } }
+    },
+    {
+      "if": { "properties": { "operation": { "const": "Verify" } } },
+      "then": { "properties": { "payload": { "$ref": "#/$defs/VerifyPayload" } } }
+    }
+  ],
+  "$defs": {
+    "HostContext": {
+      "type": "object",
+      "required": [
+        "root",
+        "platform",
+        "architecture",
+        "invoking_uid",
+        "invoking_gid",
+        "elevated",
+        "locale",
+        "dry_run",
+        "deadline"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "root": { "type": "string" },
+        "platform": { "type": "object" },
+        "architecture": { "type": "string" },
+        "package_manager": { "type": ["object", "string", "null"] },
+        "service_manager": { "type": ["object", "string", "null"] },
+        "display_manager_candidates": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/DisplayManagerCandidate" }
+        },
+        "invoking_uid": { "type": "integer", "minimum": 0 },
+        "invoking_gid": { "type": "integer", "minimum": 0 },
+        "elevated": { "type": "boolean" },
+        "locale": { "type": "string", "const": "C" },
+        "dry_run": { "type": "boolean" },
+        "deadline": { "type": "string", "format": "date-time" }
+      }
+    },
+    "DisplayManagerCandidate": {
+      "type": "object",
+      "required": ["candidate_id", "display_name", "service_name"],
+      "additionalProperties": false,
+      "properties": {
+        "candidate_id": { "type": "string" },
+        "display_name": { "type": "string" },
+        "service_name": { "type": "string" },
+        "package_name": { "type": "string" },
+        "evidence": { "type": "array", "items": { "type": "object" } }
+      }
+    },
+    "DetectedTarget": {
+      "type": "object",
+      "required": [
+        "instance_id",
+        "dm_id",
+        "display_name",
+        "compatibility",
+        "confidence",
+        "evidence"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "instance_id": { "type": "string" },
+        "dm_id": { "type": "string" },
+        "display_name": { "type": "string" },
+        "upstream_version": { "type": "string" },
+        "package_references": { "type": "array", "items": { "type": "string" } },
+        "service_references": { "type": "array", "items": { "type": "string" } },
+        "compatibility": { "type": "string", "enum": ["compatible", "incompatible", "unknown"] },
+        "confidence": { "type": "string", "enum": ["confirmed", "likely", "unknown"] },
+        "evidence": { "type": "array", "items": { "type": "object" } }
+      }
+    },
+    "DisplayManagerState": {
+      "type": "object",
+      "required": ["active", "enabled", "configurable"],
+      "additionalProperties": false,
+      "properties": {
+        "active": { "type": "string", "enum": ["yes", "no", "unknown"] },
+        "enabled": { "type": "string", "enum": ["yes", "no", "unknown"] },
+        "configurable": { "type": "string", "enum": ["yes", "no", "unknown"] },
+        "conflicting_instances": { "type": "array", "items": { "type": "string" } },
+        "installed_assets": { "type": "array", "items": { "type": "string" } },
+        "effective_capabilities": { "type": "array", "items": { "type": "string" } },
+        "evidence": { "type": "array", "items": { "type": "object" } }
+      }
+    },
+    "DescribePayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "supported_protocol_range": {
+          "type": "object",
+          "required": ["min_major", "max_major"],
+          "additionalProperties": false,
+          "properties": {
+            "min_major": { "type": "integer", "minimum": 1 },
+            "max_major": { "type": "integer", "minimum": 1 }
+          }
+        }
+      }
+    },
+    "DetectPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "candidates": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/DisplayManagerCandidate" }
+        }
+      }
+    },
+    "CheckPrerequisitesPayload": {
+      "type": "object",
+      "required": ["target", "requested_capabilities", "mode"],
+      "additionalProperties": false,
+      "properties": {
+        "target": { "$ref": "#/$defs/DetectedTarget" },
+        "requested_capabilities": { "type": "array", "items": { "type": "string" } },
+        "mode": {
+          "type": "string",
+          "enum": ["fresh_install", "upgrade", "repair", "reinstall", "uninstall"]
+        },
+        "host_facts": { "type": "object" }
+      }
+    },
+    "InspectStatePayload": {
+      "type": "object",
+      "required": ["target"],
+      "additionalProperties": false,
+      "properties": {
+        "target": { "$ref": "#/$defs/DetectedTarget" },
+        "host_facts": { "type": "object" }
+      }
+    },
+    "PlanInstallPayload": {
+      "type": "object",
+      "required": ["target", "requested_capabilities", "remediation_policy", "current_state", "prerequisite_report", "mode"],
+      "additionalProperties": false,
+      "properties": {
+        "target": { "$ref": "#/$defs/DetectedTarget" },
+        "requested_capabilities": { "type": "array", "items": { "type": "string" } },
+        "remediation_policy": { "type": "object" },
+        "current_state": { "$ref": "#/$defs/DisplayManagerState" },
+        "prerequisite_report": { "type": "object" },
+        "existing_install": { "type": ["object", "null"] },
+        "mode": {
+          "type": "string",
+          "enum": ["fresh_install", "upgrade", "repair", "reinstall"]
+        }
+      }
+    },
+    "PrepareArtifactsPayload": {
+      "type": "object",
+      "required": ["plan_id", "plan_digest", "workspace", "source_cache", "network_policy", "platform_context"],
+      "additionalProperties": false,
+      "properties": {
+        "plan_id": { "type": "string" },
+        "plan_digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "workspace": { "type": "string" },
+        "source_cache": { "type": "string" },
+        "network_policy": { "type": "string", "enum": ["forbidden", "isolated", "allowed"] },
+        "deadline": { "type": "string", "format": "date-time" },
+        "platform_context": {
+          "type": "object",
+          "required": [
+            "platform_id",
+            "platform_version",
+            "protocol_version",
+            "descriptor_sha256",
+            "target_architecture",
+            "package_formats",
+            "provider_capabilities",
+            "plan_id",
+            "plan_digest",
+            "consuming_operation_ids",
+            "workspace",
+            "source_cache",
+            "network_policy",
+            "deadline"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "platform_id": { "type": "string" },
+            "platform_version": { "type": "string" },
+            "protocol_version": {
+              "type": "object",
+              "required": ["major", "minor"],
+              "additionalProperties": false,
+              "properties": {
+                "major": { "type": "integer", "minimum": 1 },
+                "minor": { "type": "integer", "minimum": 0 }
+              }
+            },
+            "descriptor_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+            "target_architecture": { "type": "string" },
+            "package_formats": { "type": "array", "items": { "type": "string" } },
+            "provider_capabilities": { "type": "array", "items": { "type": "string" } },
+            "plan_id": { "type": "string" },
+            "plan_digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+            "consuming_operation_ids": { "type": "array", "items": { "type": "string" } },
+            "workspace": { "type": "string" },
+            "source_cache": { "type": "string" },
+            "network_policy": { "type": "string" },
+            "deadline": { "type": "string", "format": "date-time" }
+          }
+        }
+      }
+    },
+    "PlanUninstallPayload": {
+      "type": "object",
+      "required": ["install_record", "current_state", "drift_findings", "modified_files_policy"],
+      "additionalProperties": false,
+      "properties": {
+        "install_record": { "type": "object" },
+        "current_state": { "$ref": "#/$defs/DisplayManagerState" },
+        "drift_findings": { "type": "array", "items": { "type": "object" } },
+        "modified_files_policy": {
+          "type": "string",
+          "enum": ["preserve", "overwrite", "abort", "prompt"]
+        }
+      }
+    },
+    "VerifyPayload": {
+      "type": "object",
+      "required": ["target", "phase", "expected_capabilities", "expected_postconditions"],
+      "additionalProperties": false,
+      "properties": {
+        "target": { "$ref": "#/$defs/DetectedTarget" },
+        "phase": {
+          "type": "string",
+          "enum": ["pre_apply", "post_install", "post_rollback", "post_uninstall"]
+        },
+        "expected_capabilities": { "type": "array", "items": { "type": "string" } },
+        "expected_postconditions": { "type": "array", "items": { "type": "object" } },
+        "install_record": { "type": ["object", "null"] }
+      }
+    }
+  }
+}

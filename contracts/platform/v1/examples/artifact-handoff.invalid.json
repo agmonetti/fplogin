@@ -1,0 +1,16 @@
+{
+  "platform_context": {
+    "platform_id": "",
+    "platform_version": "0.1.0"
+  },
+  "artifact_references": [
+    {
+      "artifact_id": "art-invalid",
+      "media_type": "unknown",
+      "sha256": "invalid_digest",
+      "size": -10,
+      "canonical_path": "../../etc/shadow",
+      "role": "unconfined_file"
+    }
+  ]
+}

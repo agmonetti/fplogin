@@ -1,0 +1,13 @@
+{
+  "schema_version": "1.0",
+  "transaction_id": "",
+  "state": "unknown_illegal_state",
+  "created_at": "invalid-time",
+  "updated_at": "invalid-time",
+  "target": {},
+  "adapter": {},
+  "platform_provider": {},
+  "accepted_plan": {},
+  "operation_order": [],
+  "applied_operations": []
+}

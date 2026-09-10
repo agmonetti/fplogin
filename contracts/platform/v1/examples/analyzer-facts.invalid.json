@@ -1,0 +1,14 @@
+{
+  "scope": "invalid_scope",
+  "collected_at": "invalid-date",
+  "evidence": [
+    {
+      "source": "unknown",
+      "kind": "secret_memory",
+      "subject": "user_password",
+      "observed_value": "PROHIBITED_SECRET_VALUE",
+      "timestamp": "invalid"
+    }
+  ],
+  "probe_errors": "not_an_array"
+}

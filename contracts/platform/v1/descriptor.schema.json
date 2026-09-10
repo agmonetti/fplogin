@@ -1,0 +1,143 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fplogin.org/contracts/platform/v1/descriptor.schema.json",
+  "title": "PlatformDescriptor",
+  "description": "Static discovery descriptor for an fplogin platform provider (platform.json)",
+  "type": "object",
+  "required": [
+    "descriptor_schema_version",
+    "platform_id",
+    "platform_version",
+    "protocol_versions",
+    "minimum_core_version",
+    "name",
+    "vendor",
+    "executable",
+    "supported_platforms",
+    "capabilities",
+    "operation_kinds",
+    "package_formats",
+    "service_manager",
+    "asset_root"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "descriptor_schema_version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+$"
+    },
+    "platform_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(\\.[a-z0-9_-]+)+$"
+    },
+    "platform_version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+(\\.[0-9]+)?(-[a-zA-Z0-9._-]+)?"
+    },
+    "protocol_versions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["major", "minor"],
+        "additionalProperties": false,
+        "properties": {
+          "major": { "type": "integer", "minimum": 1 },
+          "minor": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    "minimum_core_version": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "vendor": {
+      "type": "string",
+      "minLength": 1
+    },
+    "executable": {
+      "type": "string",
+      "pattern": "^(?!/)(?!.*\\.\\.)[a-zA-Z0-9_./-]+$"
+    },
+    "supported_platforms": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["distribution", "architecture"],
+        "additionalProperties": false,
+        "properties": {
+          "distribution": { "type": "string" },
+          "architecture": { "type": "string" },
+          "version_constraint": { "type": "string" }
+        }
+      }
+    },
+    "capabilities": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "status", "level", "constraints", "evidence_requirements"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z0-9_.]+$"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["native", "provided", "unsupported"]
+          },
+          "level": {
+            "type": ["string", "integer"]
+          },
+          "constraints": {
+            "type": "object"
+          },
+          "evidence_requirements": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      }
+    },
+    "operation_kinds": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "enum": [
+          "create_directory",
+          "write_file_atomic",
+          "remove_owned_file",
+          "install_package_artifact",
+          "remove_owned_package",
+          "set_service_enabled",
+          "set_service_active",
+          "restore_service_state"
+        ]
+      }
+    },
+    "package_formats": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "service_manager": {
+      "type": "object",
+      "required": ["kind", "capabilities"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "type": "string" },
+        "capabilities": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "asset_root": {
+      "type": "string",
+      "pattern": "^(?!/)(?!.*\\.\\.)[a-zA-Z0-9_./-]+$"
+    }
+  }
+}
