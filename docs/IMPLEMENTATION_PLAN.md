@@ -82,40 +82,87 @@ flowchart LR
 
 ## 4. Repository model
 
-```text
 fplogin/
-├── docs/
-│   ├── IMPLEMENTATION_PLAN.md
-│   ├── architecture/
-│   └── reviews/
+├── cmd/
+│   ├── fplogin/
+│   │   └── main.go
+│   ├── fplogin-adapter-sddm/
+│   │   └── main.go
+│   └── fplogin-platform-arch/
+│       └── main.go
+├── internal/
+│   ├── core/
+│   │   ├── app/
+│   │   ├── discovery/
+│   │   ├── selection/
+│   │   ├── analyze/
+│   │   ├── install/
+│   │   ├── transaction/
+│   │   ├── manifest/
+│   │   └── report/
+│   ├── protocol/
+│   │   ├── adapter/v1/
+│   │   ├── platform/v1/
+│   │   └── manifest/v1/
+│   ├── adapterclient/
+│   ├── platformclient/
+│   └── executor/
 ├── contracts/
-│   ├── adapter/
-│   ├── platform/
-│   └── manifest/
-├── core/
-│   ├── analyze/
-│   ├── install/
-│   └── manifest/
-├── platforms/
-│   └── arch/
+│   ├── adapter/v1/
+│   │   ├── descriptor.schema.json
+│   │   ├── request.schema.json
+│   │   ├── response.schema.json
+│   │   ├── change-plan.schema.json
+│   │   └── examples/
+│   ├── platform/v1/
+│   │   ├── descriptor.schema.json
+│   │   ├── request.schema.json
+│   │   ├── response.schema.json
+│   │   └── examples/
+│   ├── manifest/v1/
+│   │   ├── transaction-journal.schema.json
+│   │   ├── install-manifest.schema.json
+│   │   └── examples/
+│   └── analyzer/v1/
+│       ├── finding.schema.json
+│       ├── report.schema.json
+│       └── examples/
 ├── adapters/
 │   └── sddm/
+│       ├── adapter.json
+│       ├── adapter/
 │       ├── patches/
-│       ├── pam/
-│       │   └── sddm-fingerprint
-│       ├── theme/
-│       ├── config/
-│       └── packaging/
-│           └── arch/
+│       ├── assets/
+│       │   ├── pam/
+│       │   └── theme/
+│       ├── packaging/
+│       │   └── arch/
+│       └── testdata/
+├── platforms/
+│   └── arch/
+│       ├── platform.json
+│       ├── provider/
+│       └── testdata/
 ├── tests/
+│   ├── contract/
 │   ├── fixtures/
+│   │   ├── hosts/
+│   │   ├── adapters/
+│   │   └── manifests/
 │   ├── integration/
 │   └── vm/
+├── docs/
+│   ├── architecture/
+│   │   ├── CORE_ADAPTER_ANALYSIS.md
+│   │   └── decisions/
+│   ├── reviews/
+│   ├── IMPLEMENTATION_PLAN.md
+│   └── LESSONS.md
 ├── install.sh
 ├── uninstall.sh
 ├── LICENSE
+├── .gitignore
 └── README.md
-```
 
 The repository will not vendor a permanent copy of SDDM. The SDDM changes live as commits in the development fork and as a reproducible patch series pinned to a supported upstream tag in fplogin.
 
@@ -245,6 +292,48 @@ Every sprint is a complete cycle:
 A sprint review is not a progress summary. It must include commands/scenarios executed, observed results, unresolved defects, and an explicit `accepted`, `repeat`, or `stop` decision.
 
 ## 10. Sprint plan
+
+### Foundation Gate — Contracts, schemas, and conformance baseline
+
+Sprint 0 is blocked until this gate passes. The gate establishes the versioned contracts, trusted discovery boundaries, transaction schemas, analyzer schemas, and conformance baseline before any SDDM-specific implementation is started.
+
+**Required files**
+
+1. `docs/architecture/CORE_ADAPTER_ANALYSIS.md` — accepted architecture decision analysis.
+2. `docs/architecture/decisions/0001-core-language.md` — accepted language, toolchain, and build policy.
+3. `docs/architecture/decisions/0002-adapter-process-protocol.md` — accepted process, privilege, discovery, and compatibility rules.
+4. `docs/architecture/decisions/0003-transaction-journal.md` — accepted journaling, fsync, rollback, and manifest publication rules.
+5. `go.mod` and `go.sum` — exact Go language/toolchain floor and initial dependency closure.
+6. `contracts/adapter/v1/*.schema.json` — descriptor, envelopes, methods, change plan, and closed operation kinds.
+7. `contracts/platform/v1/*.schema.json` — `platform.json`, shared envelope, provider operation payloads/results, `PlatformError`, artifact handoff, and closed operation vocabulary; no Arch/pacman fields in core-facing types.
+8. `contracts/manifest/v1/*.schema.json` — interrupted transaction and successful installation formats.
+9. `contracts/**/examples/` — at least one valid and one invalid fixture per schema family, including platform descriptors, provider envelopes, analyzer facts, artifact handoffs, selection results, and analyzer reports.
+10. `internal/protocol/{adapter,platform,manifest}/v1/` — Go representations and validation boundaries matching the schemas, including platform host facts, analyzer facts, provider receipts, and artifact staging references.
+11. `internal/adapterclient/` and `internal/platformclient/` — bounded process runners and descriptor validation for adapters and platform providers; no SDDM imports.
+12. `tests/contract/` — fake adapter/provider executables and conformance tests for discovery, protocol mismatch, duplicate IDs, timeouts, malformed stdout, capability insufficiency, unknown typed-operation rejection, artifact digest/path validation, and analyzer-fact evidence handling.
+13. `adapters/sddm/adapter.json` — metadata and declared contract only; platform-neutral identity, packaging backends, and capability requirements; implementation may still return `not_implemented` until Sprint 0.
+14. An architecture-boundary check proving that `internal/core/...` does not depend on `adapters/...` or `platforms/...`, and that core has no imports or branches for `sddm`, `arch`, or any provider/adapter ID.
+15. `LICENSE` and `.gitignore` entries for build/worktree artifacts.
+16. `platforms/arch/platform.json` — v1 provider descriptor and descriptor/schema-valid test fixtures.
+17. `contracts/analyzer/v1/` — analyzer contract schemas and examples for `Finding`, evidence records, limitations, and machine-readable reports.
+18. Selection-flow fixtures covering one compatible target, multiple compatible targets, multiple installed DMs with one compatible target, a requested target with no compatible adapter, and zero compatible targets.
+
+**Acceptance criteria**
+
+- A fake adapter is discovered without any DM-name branch in core.
+- Two compatible fake adapters produce a user-selection set rather than an implicit winner.
+- Invalid or untrusted adapter and platform descriptors are rejected before execution.
+- Adapter and provider protocol major mismatch is reported deterministically.
+- A fixture manifest validates and includes adapter identity plus generic rollback receipts.
+- Dependency inspection proves the core does not import the SDDM adapter or Arch provider.
+- A fake provider is discovered and selected through generic capabilities without a distro-name branch.
+- Provider capability insufficiency, malformed provider output, unknown typed operations, and artifact digest/path violations are rejected before mutation.
+- Analyzer schemas validate machine-readable reports, findings, evidence, limitations, and the `confirmed`/`likely`/`unknown` confidence model.
+- Analyzer evidence handling preserves source and provenance and does not classify package presence alone as confirmed.
+- Selection fixtures prove deterministic filtering and explicit confirmation for every one/multiple/zero compatible-target case.
+- No Foundation Gate schema or conformance fixture permits secrets, arbitrary privileged commands, or an operation outside the closed operation vocabulary.
+
+**Gate:** Sprint 0 begins only after every Foundation Gate criterion passes. No SDDM-specific code before this point.
 
 ### Sprint 0 — Feasibility, baseline, and architecture correction
 
