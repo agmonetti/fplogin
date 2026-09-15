@@ -1,26 +1,28 @@
 # fplogin
 
-Biometric login for Linux. Use your fingerprint to log in from SDDM — no Enter key, no system file modifications, no password storage.
+Biometric login for Linux, under active development. The v1 target is fingerprint login from SDDM with no Enter key, no in-place edits to existing system configuration, and no password storage.
 
 ## The problem
 
 SDDM does not natively support fingerprint authentication. Users must type their password or, with manual PAM tweaks, press Enter and then place their finger. There is no built-in experience where the reader activates automatically and works in parallel with the password field.
 
-## Approach
+## Planned approach
 
-fplogin provides a reproducible package, installer, and analyzer for biometric authentication on SDDM. It adds:
+The Foundation Gate is complete. Sprint 0 has pinned and built the stock SDDM baseline and approved the runtime patch boundary; the patched SDDM, theme, installer, and analyzer are not implemented yet.
 
-- A minimal, upstream-quality patch to SDDM enabling concurrent PAM authentication methods.
+The planned product has:
+
+- A minimal, upstream-quality SDDM patch coordinating concurrent PAM authentication methods.
 - A dedicated PAM service for biometric authentication (`sddm-fingerprint`).
-- An SDDM theme that displays biometric status and coordinates with the greeter.
+- An SDDM theme that displays daemon-reported biometric status and requests method start/cancellation.
 - An installer that manages SDDM, PAM, and theme assets without in-place edits to existing configuration.
-- A system analysis tool that informs the user about password-derived facilities affected by biometric login.
+- A system analysis tool that reports password-derived facilities affected by biometric login.
 
-The greeter coordinates authentication: when displayed, it requests fingerprint verification for the selected user. If the fingerprint matches, that transaction wins and the session starts. If the user types a password, the password transaction is evaluated concurrently. The first method to succeed wins; the losing attempt is cancelled and cleaned up.
+The SDDM daemon—not the greeter theme or fplogin adapter—coordinates login-time authentication. For one daemon-bound user/session request, it runs separate password and fingerprint helpers. The first successful method wins; the daemon cancels and observes the losing helper before authorizing exactly one PAM transaction to establish credentials, open the session, and start it. The fplogin adapter is an install-time component only.
 
-## What it does vs what it doesn't
+## Planned v1 scope
 
-| Does | Does not |
+| Will | Will not |
 |---|---|
 | Fingerprint login from SDDM | Store, inject, or recover the user's password |
 | Activate the reader automatically when the greeter appears | Unlock wallets (KWallet, GNOME Keyring) via fingerprint |
@@ -33,67 +35,67 @@ The greeter coordinates authentication: when displayed, it requests fingerprint 
 
 ## Architecture
 
-```
+```text
 fplogin/
-├── docs/                        # Architecture, plan, and sprint reviews
-│   ├── IMPLEMENTATION_PLAN.md
-│   └── LESSONS.md
-├── contracts/                   # Versioned adapter/platform/manifest schemas
-├── core/                        # Universal components (DM-independent)
-│   ├── analyze/                 # System difference analyzer
-│   ├── install/                 # Installer logic and state machine
-│   └── manifest/                # Install manifest and rollback records
-├── platforms/                   # Distribution and service-manager integration
-│   └── arch/                    # Arch package/system provider for v1
-├── adapters/                    # Display manager-specific integration
+├── cmd/                         # Core, adapter, and platform executables
+├── internal/
+│   ├── core/                    # DM-independent selection/install/analyzer logic
+│   ├── protocol/                # Versioned Go wire and manifest types
+│   ├── adapterclient/           # Bounded adapter process client
+│   └── platformclient/          # Bounded platform process client
+├── contracts/                   # Versioned JSON schemas and examples
+├── platforms/
+│   └── arch/                    # Arch package/service provider
+├── adapters/
 │   └── sddm/
-│       ├── patches/             # Upstream-quality SDDM patch series
-│       ├── pam/
-│       │   └── sddm-fingerprint # Dedicated PAM service
-│       ├── theme/               # SDDM greeter theme
-│       └── packaging/           # Arch PKGBUILD and packaging assets
-├── install.sh
-├── uninstall.sh
-├── .gitignore
-└── README.md
+│       ├── patches/             # Pinned SDDM patch series
+│       ├── assets/
+│       │   ├── pam/             # Dedicated fingerprint PAM service
+│       │   └── theme/           # SDDM greeter theme
+│       └── packaging/
+│           └── arch/            # Arch package recipe
+├── tests/                       # Contract, integration, fixture, and VM checks
+└── docs/                        # Architecture, plans, hardware, and sprint reviews
 ```
 
 ### Core-adapter contract
 
-`core/` is completely agnostic to any display manager from the first commit. It defines the interfaces, state machines, manifest generation, and analysis logic, but never imports, references, or branches on specific display managers:
+`internal/core/` must remain completely agnostic to any display manager. It defines interfaces, state machines, manifest generation, and analysis logic, but never imports, references, or branches on specific display managers:
 
 - **Core defines interfaces:** DM detection and versioning, prerequisite validation, asset install/uninstall, DM state inspection, and authentication capability negotiation.
-- **Adapters implement those interfaces:** `adapters/sddm/` implements the contract for SDDM in v1. Future adapters (e.g. LightDM, greetd) will implement the same interfaces without changing core logic.
+- **Adapters implement those interfaces:** the planned `adapters/sddm/` executable will implement the contract for SDDM v1. Future adapters (for example LightDM or greetd) implement the same interfaces without changing core logic.
 - **Discovery over hardcoding:** The core resolves adapters through capability/support declarations, never through conditional logic like `if dm == "sddm"`.
 
-### Installation paths
+### Planned installation paths
 
 | Repository path | System destination |
 |---|---|
-| `adapters/sddm/pam/sddm-fingerprint` | `/etc/pam.d/sddm-fingerprint` |
-| `adapters/sddm/theme/*` | `/usr/share/sddm/themes/fplogin/` |
-| `adapters/sddm/config/sddm.conf.d/fplogin.conf` | `/etc/sddm.conf.d/fplogin.conf` |
+| `adapters/sddm/assets/pam/sddm-fingerprint` | `/etc/pam.d/sddm-fingerprint` |
+| `adapters/sddm/assets/theme/*` | `/usr/share/sddm/themes/fplogin/` |
+| `adapters/sddm/assets/config/sddm.conf.d/fplogin.conf` | `/etc/sddm.conf.d/fplogin.conf` |
 
-No existing system files are modified in place. The installer generates a manifest at `/var/lib/fplogin/manifest.json` containing everything installed, file checksums, and previous system state for clean rollback during uninstallation.
+No existing system files will be modified in place. The installer will generate a manifest at `/var/lib/fplogin/manifest.json` containing installed assets, checksums, and previous system state for clean rollback during uninstallation.
 
-## Requirements
+## Planned v1 requirements
 
 | Requirement | Required | Notes |
 |---|---|---|
 | Arch Linux | Yes | Only supported distro in v1 |
 | systemd | Yes | DM service management |
-| fprintd | Yes | Installed automatically if missing |
+| fprintd | Yes | Installer will add it when missing |
 | libfprint | Yes | fprintd dependency |
 | Compatible fingerprint reader | Yes | Verified during installation |
-| Enrolled fingerprint | Yes | Guided during installation if missing |
-| SDDM | Yes | Installed and configured via fplogin packaging |
+| Enrolled fingerprint | Yes | Required before login verification; enrollment is outside the greeter |
+| SDDM | Yes | Patched package will be installed and configured through the selected adapter/platform provider |
 | qt6-declarative | Yes | Required for SDDM QML themes |
 
 ## Documentation
 
-- [Implementation Plan](docs/IMPLEMENTATION_PLAN.md): Detailed sprint roadmap, verification matrix, security model, and Definition of Done.
-- [Core Language and Adapter Contract](docs/architecture/CORE_ADAPTER_ANALYSIS.md): Language evaluation, exact adapter protocol, repository foundation, and early architectural risks.
-- [Research Lessons](docs/LESSONS.md): Grounded investigation, reference platforms (Windows Hello, Touch ID), failed experiments, and security analysis.
+- [Implementation Plan](docs/IMPLEMENTATION_PLAN.md): Sprint roadmap, verification matrix, security model, and Definition of Done.
+- [Core Language and Adapter Contract](docs/architecture/CORE_ADAPTER_ANALYSIS.md): Language evaluation, adapter protocol, repository foundation, and architectural risks.
+- [SDDM Concurrent Authentication Design](docs/architecture/SDDM_AUTHENTICATION_DESIGN.md): Pinned baseline, stock message flow, winner gate, cancellation boundary, and proposed SDDM IPC.
+- [Synaptics Test Hardware](docs/hardware/SYNAPTICS_06CB_00BD.md): Primary physical-reader record and scenario matrix.
+- [Research Lessons](docs/LESSONS.md): Grounded investigation, reference platforms, failed experiments, and security analysis.
 
 ## License
 

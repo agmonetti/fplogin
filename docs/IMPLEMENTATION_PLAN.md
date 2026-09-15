@@ -154,7 +154,9 @@ fplogin/
 ├── docs/
 │   ├── architecture/
 │   │   ├── CORE_ADAPTER_ANALYSIS.md
+│   │   ├── SDDM_AUTHENTICATION_DESIGN.md
 │   │   └── decisions/
+│   ├── hardware/
 │   ├── reviews/
 │   ├── IMPLEMENTATION_PLAN.md
 │   └── LESSONS.md
@@ -168,7 +170,7 @@ The repository will not vendor a permanent copy of SDDM. The SDDM changes live a
 
 ### 4.1 Core-adapter boundary
 
-The `core/` tree must never import, reference, or branch on any display-manager-specific module. All DM-specific behavior lives under `adapters/<dm>/`. The core interacts with adapters exclusively through the interfaces defined in section 1. There must be no conditional paths of the form `if dm == "sddm"` anywhere in the core.
+The `internal/core/` tree must never import, reference, or branch on any display-manager-specific module. All DM-specific behavior lives under `adapters/<dm>/`. The core interacts with adapters exclusively through the interfaces defined in section 1. There must be no conditional paths of the form `if dm == "sddm"` anywhere in the core.
 
 Adapters are discovered by contract declaration, not by hardcoded name. The core maintains a registry/discovery mechanism that resolves available adapters based on what each adapter declares it supports, not on string matching against known DM names.
 
@@ -178,7 +180,7 @@ Adapters are discovered by contract declaration, not by hardcoded name. The core
 |---|---|
 | Distribution | Arch Linux |
 | Init/service manager | systemd |
-| Display manager | SDDM 0.21-compatible baseline, exact version pinned during Sprint 0 |
+| Display manager | SDDM `v0.21.0` (`63780fcd79f1dbf81a30eef48c28c699ab15aded`) on Arch `sddm 0.21.0-7` (`d31bfcbb0a8d2a8ca7ee4fd01d5d8dacdb1de729`) |
 | Greeter runtime | Qt/QML version provided by the selected SDDM package |
 | Fingerprint stack | fprintd + libfprint + `pam_fprintd.so` |
 | Sensor | Any reader successfully supported by the installed libfprint stack |
