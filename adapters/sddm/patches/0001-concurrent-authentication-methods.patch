@@ -1,8 +1,16 @@
 diff --git a/src/auth/Auth.cpp b/src/auth/Auth.cpp
-index 6c9b5c6..0a375e6 100644
+index 6c9b5c6..b4aa453 100644
 --- a/src/auth/Auth.cpp
 +++ b/src/auth/Auth.cpp
-@@ -33,6 +33,7 @@
+@@ -24,6 +24,7 @@
+ #include "SafeDataStream.h"
+ 
+ #include <QtCore/QProcess>
++#include <QtCore/QTimer>
+ #include <QtCore/QUuid>
+ #include <QtNetwork/QLocalServer>
+ #include <QtNetwork/QLocalSocket>
+@@ -33,6 +34,7 @@
  #include <memory>
  
  #include <unistd.h>
@@ -10,7 +18,15 @@ index 6c9b5c6..0a375e6 100644
  
  namespace SDDM {
      class Auth::SocketServer : public QLocalServer {
-@@ -53,6 +54,7 @@ namespace SDDM {
+@@ -43,6 +45,7 @@ namespace SDDM {
+         static SocketServer *instance();
+ 
+         QMap<qint64, Auth::Private*> helpers;
++        int pendingHandshakes { 0 };
+     private:
+         SocketServer();
+     };
+@@ -53,6 +56,7 @@ namespace SDDM {
          Private(Auth *parent);
          ~Private();
          void setSocket(QLocalSocket *socket);
@@ -18,7 +34,7 @@ index 6c9b5c6..0a375e6 100644
      public slots:
          void dataPending();
          void childExited(int exitCode, QProcess::ExitStatus exitStatus);
-@@ -68,6 +70,12 @@ namespace SDDM {
+@@ -68,6 +72,12 @@ namespace SDDM {
          QByteArray cookie { };
          bool autologin { false };
          bool greeter { false };
@@ -31,7 +47,7 @@ index 6c9b5c6..0a375e6 100644
          QProcessEnvironment environment { };
          qint64 id { 0 };
          static qint64 lastId;
-@@ -84,17 +92,43 @@ namespace SDDM {
+@@ -84,17 +94,71 @@ namespace SDDM {
  
      void Auth::SocketServer::handleNewConnection()  {
          while (hasPendingConnections()) {
@@ -45,7 +61,21 @@ index 6c9b5c6..0a375e6 100644
 -                helpers[id]->setSocket(socket);
 -                if (socket->bytesAvailable() > 0)
 -                    helpers[id]->dataPending();
--            }
++            socket->setReadBufferSize(1024 * 1024);
++            if (++pendingHandshakes > 16) {
++                --pendingHandshakes;
++                socket->abort();
++                socket->deleteLater();
++                continue;
+             }
++            socket->setProperty("sddm-auth-handshake-pending", true);
++            QTimer::singleShot(5000, socket, [this, socket] {
++                if (!socket->property("sddm-auth-handshake-pending").toBool())
++                    return;
++                socket->setProperty("sddm-auth-handshake-pending", false);
++                --pendingHandshakes;
++                socket->abort();
++            });
 +            connect(socket, &QLocalSocket::readyRead, this, [this, socket] {
 +                if (socket->bytesAvailable() < qint64(sizeof(qint64)))
 +                    return;
@@ -68,24 +98,37 @@ index 6c9b5c6..0a375e6 100644
 +                str >> message >> id >> requestId >> method;
 +                if (str.status() != QDataStream::Ok || !str.atEnd() || message != Msg::HELLO || !id
 +                    || !helpers.contains(id) || !helpers[id]->acceptHello(socket)) {
++                    socket->setProperty("sddm-auth-handshake-pending", false);
++                    --pendingHandshakes;
 +                    socket->abort();
 +                    socket->deleteLater();
 +                    return;
 +                }
 +                Auth::Private *helper = helpers[id];
 +                if (helper->helloAccepted || helper->requestId != requestId || helper->method != method) {
++                    socket->setProperty("sddm-auth-handshake-pending", false);
++                    --pendingHandshakes;
 +                    socket->abort();
 +                    socket->deleteLater();
 +                    return;
 +                }
 +                helper->helloAccepted = true;
++                socket->setProperty("sddm-auth-hello-accepted", true);
++                socket->setProperty("sddm-auth-handshake-pending", false);
++                --pendingHandshakes;
 +                helper->setSocket(socket);
 +            });
-+            connect(socket, &QLocalSocket::disconnected, socket, &QObject::deleteLater);
++            connect(socket, &QLocalSocket::disconnected, this, [this, socket] {
++                if (socket->property("sddm-auth-handshake-pending").toBool()) {
++                    socket->setProperty("sddm-auth-handshake-pending", false);
++                    --pendingHandshakes;
++                }
++                socket->deleteLater();
++            });
          }
      }
  
-@@ -144,23 +178,60 @@ namespace SDDM {
+@@ -144,23 +208,60 @@ namespace SDDM {
      }
  
  
@@ -150,7 +193,7 @@ index 6c9b5c6..0a375e6 100644
                      Q_EMIT auth->error(message, type);
                      break;
                  }
-@@ -168,26 +239,28 @@ namespace SDDM {
+@@ -168,26 +269,28 @@ namespace SDDM {
                      QString message;
                      Info type = INFO_NONE;
                      str >> message >> type;
@@ -184,7 +227,7 @@ index 6c9b5c6..0a375e6 100644
                          Q_EMIT auth->authentication(user, false);
                      }
                      break;
-@@ -195,42 +268,48 @@ namespace SDDM {
+@@ -195,42 +298,58 @@ namespace SDDM {
                  case SESSION_STATUS: {
                      bool status;
                      str >> status;
@@ -226,6 +269,16 @@ index 6c9b5c6..0a375e6 100644
 -            qWarning("Auth: sddm-helper (%s) crashed (exit code %d)",
 -                     qPrintable(child->arguments().join(QLatin1Char(' '))),
 -                     HelperExitStatus(exitStatus));
++        helloAccepted = false;
++        awaitingAuthorization = false;
++        authorizationSent = false;
++        if (socket) {
++            QLocalSocket *oldSocket = socket;
++            socket = nullptr;
++            oldSocket->disconnect(this);
++            oldSocket->abort();
++            oldSocket->deleteLater();
++        }
 +        Auth::HelperExitStatus status = Auth::HELPER_OTHER_ERROR;
 +        if (exitStatus == QProcess::NormalExit
 +            && exitCode >= Auth::HELPER_SUCCESS && exitCode <= Auth::HELPER_TTY_ERROR) {
@@ -247,7 +300,7 @@ index 6c9b5c6..0a375e6 100644
      }
  
      void Auth::Private::childError(QProcess::ProcessError error) {
-@@ -241,7 +320,7 @@ namespace SDDM {
+@@ -241,7 +360,7 @@ namespace SDDM {
      void Auth::Private::requestFinished() {
          SafeDataStream str(socket);
          Request r = request->request();
@@ -256,7 +309,7 @@ index 6c9b5c6..0a375e6 100644
          str.send();
          request->setRequest();
      }
-@@ -301,6 +380,18 @@ namespace SDDM {
+@@ -301,6 +420,18 @@ namespace SDDM {
          return d->request;
      }
  
@@ -275,7 +328,7 @@ index 6c9b5c6..0a375e6 100644
      bool Auth::isActive() const {
          return d->child->state() != QProcess::NotRunning;
      }
-@@ -357,6 +448,43 @@ namespace SDDM {
+@@ -357,6 +488,43 @@ namespace SDDM {
          }
      }
  
@@ -319,12 +372,21 @@ index 6c9b5c6..0a375e6 100644
      void Auth::setVerbose(bool on) {
          if (on != verbose()) {
              if (on)
-@@ -368,9 +496,15 @@ namespace SDDM {
+@@ -368,9 +536,24 @@ namespace SDDM {
      }
  
      void Auth::start() {
++        if (d->child->state() != QProcess::NotRunning)
++            return;
++        d->helloAccepted = false;
 +        d->awaitingAuthorization = false;
 +        d->authorizationSent = false;
++        if (d->socket) {
++            d->socket->disconnect(d);
++            d->socket->abort();
++            d->socket->deleteLater();
++            d->socket = nullptr;
++        }
          QStringList args;
          args << QStringLiteral("--socket") << SocketServer::instance()->fullServerName();
          args << QStringLiteral("--id") << QString::number(d->id);
@@ -335,8 +397,14 @@ index 6c9b5c6..0a375e6 100644
          if (!d->sessionPath.isEmpty())
              args << QStringLiteral("--start") << d->sessionPath;
          if (!d->user.isEmpty())
-@@ -384,16 +518,22 @@ namespace SDDM {
+@@ -382,18 +565,28 @@ namespace SDDM {
+         if (d->greeter)
+             args << QStringLiteral("--greeter");
          d->child->start(QStringLiteral("%1/sddm-helper").arg(QStringLiteral(LIBEXEC_INSTALL_DIR)), args);
++        QTimer::singleShot(5000, d, [privateData = d] {
++            if (privateData->child->state() != QProcess::NotRunning && !privateData->helloAccepted)
++                privateData->child->kill();
++        });
      }
  
 -    void Auth::stop() {
@@ -478,7 +546,7 @@ index f79a9db..0c57b42 100644
  
      enum Capability {
 diff --git a/src/daemon/Display.cpp b/src/daemon/Display.cpp
-index 4014e0d..4da9cb0 100644
+index 4014e0d..4e9b63d 100644
 --- a/src/daemon/Display.cpp
 +++ b/src/daemon/Display.cpp
 @@ -34,6 +34,7 @@
@@ -586,7 +654,7 @@ index 4014e0d..4da9cb0 100644
          m_socket = socket;
  
          //the SDDM user has special privileges that skip password checking so that we can load the greeter
-@@ -327,8 +366,169 @@ namespace SDDM {
+@@ -327,8 +366,178 @@ namespace SDDM {
              return;
          }
  
@@ -634,7 +702,7 @@ index 4014e0d..4da9cb0 100644
 +
 +    void Display::startFingerprint(QLocalSocket *socket, const QString &user, const Session &session) {
 +        if (user.isEmpty() || user == QLatin1String("sddm") || !session.isValid()
-+            || !m_started || m_fingerprintAuth->isActive()) {
++            || !m_started || (m_fingerprintAuth->isActive() && !m_methodAttemptActive)) {
 +            emit loginFailed(socket);
 +            return;
 +        }
@@ -680,9 +748,18 @@ index 4014e0d..4da9cb0 100644
 +    }
 +
 +    void Display::cancelFingerprint(QLocalSocket *socket, const QString &requestId) {
-+        if (!m_methodAttemptActive || socket != m_attemptSocket || requestId != m_requestId)
++        if (!m_methodAttemptActive || m_methodWinnerChosen || socket != m_attemptSocket
++            || requestId != m_requestId || !m_fingerprintAuth->isActive()
++            || m_fingerprintAuth->requestId() != requestId)
 +            return;
-+        cancelMethodAttempt();
++        m_cancelledHelpers.insert(m_fingerprintAuth);
++        m_fingerprintAuth->authorizeSession(false);
++        m_fingerprintAuth->terminate();
++        QPointer<Auth> guarded(m_fingerprintAuth);
++        QTimer::singleShot(5000, m_fingerprintAuth, [guarded] {
++            if (guarded && guarded->isActive())
++                guarded->kill();
++        });
 +    }
 +
 +    void Display::cancelMethodAttempt() {
@@ -758,7 +835,7 @@ index 4014e0d..4da9cb0 100644
      }
  
      QString Display::findGreeterTheme() const {
-@@ -372,14 +572,22 @@ namespace SDDM {
+@@ -372,14 +581,22 @@ namespace SDDM {
          return false;
      }
  
@@ -785,7 +862,7 @@ index 4014e0d..4da9cb0 100644
  
          // sanity check
          if (!session.isValid()) {
-@@ -448,21 +656,64 @@ namespace SDDM {
+@@ -448,21 +665,64 @@ namespace SDDM {
            if (m_displayServerType == X11DisplayServerType)
              env.insert(QStringLiteral("DISPLAY"), name());
            else
@@ -858,7 +935,7 @@ index 4014e0d..4da9cb0 100644
          if (m_auth->autologin() && !success) {
              handleAutologinFailure();
              return;
-@@ -478,7 +729,7 @@ namespace SDDM {
+@@ -478,7 +738,7 @@ namespace SDDM {
                  m_started = true;
              } else {
                  if (qobject_cast<XorgDisplayServer *>(m_displayServer))
@@ -867,7 +944,7 @@ index 4014e0d..4da9cb0 100644
              }
  
              // save last user and last session
-@@ -503,25 +754,91 @@ namespace SDDM {
+@@ -503,25 +763,94 @@ namespace SDDM {
  
      void Display::slotAuthInfo(const QString &message, Auth::Info info) {
          qWarning() << "Authentication information:" << info << message;
@@ -916,6 +993,9 @@ index 4014e0d..4da9cb0 100644
      void Display::slotHelperFinished(Auth::HelperExitStatus status) {
 +        Auth *auth = qobject_cast<Auth *>(sender());
 +        if (m_cancelledHelpers.remove(auth)) {
++            if (auth && auth->method() == AuthMethod::Fingerprint && m_methodAttemptActive
++                && auth->requestId() == m_requestId && m_attemptSocket)
++                m_socketServer->authenticationMethodState(m_attemptSocket, m_requestId, 6, QStringLiteral("cancelled"));
 +            startPendingLogin();
 +            return;
 +        }
@@ -968,7 +1048,7 @@ index 4014e0d..4da9cb0 100644
          // Don't restart greeter and display server unless sddm-helper exited
          // with an internal error or the user session finished successfully,
          // we want to avoid greeter from restarting when an authentication
-@@ -532,20 +849,43 @@ namespace SDDM {
+@@ -532,20 +861,43 @@ namespace SDDM {
      }
  
      void Display::slotRequestChanged() {
@@ -1079,19 +1159,40 @@ index 98ca006..df9bd07 100644
          Seat *m_seat { nullptr };
          SocketServer *m_socketServer { nullptr };
 diff --git a/src/daemon/SocketServer.cpp b/src/daemon/SocketServer.cpp
-index 488f9a5..308063f 100644
+index 488f9a5..c1d7128 100644
 --- a/src/daemon/SocketServer.cpp
 +++ b/src/daemon/SocketServer.cpp
-@@ -111,7 +111,7 @@ namespace SDDM {
+@@ -93,6 +93,7 @@ namespace SDDM {
+     void SocketServer::newConnection() {
+         // get pending connection
+         QLocalSocket *socket = m_server->nextPendingConnection();
++        socket->setReadBufferSize(1024 * 1024);
  
-         // Qt's QLocalSocket::readyRead is not designed to be called at every socket.write(), 
+         // connect signals
+         connect(socket, &QLocalSocket::readyRead, this, &SocketServer::readyRead);
+@@ -109,12 +110,18 @@ namespace SDDM {
+         // input stream
+         QDataStream input(socket);
+ 
+-        // Qt's QLocalSocket::readyRead is not designed to be called at every socket.write(), 
++        // Qt's QLocalSocket::readyRead is not designed to be called at every socket.write(),
          // so we need to use a loop to read all the signals.
 -        while(socket->bytesAvailable()) {
+-            // read message
++        if (socket->bytesAvailable() >= 1024 * 1024) { socket->abort(); return; }
 +        while(socket->bytesAvailable() >= qint64(sizeof(quint32))) {
-             // read message
++            input.startTransaction();
              quint32 message;
              input >> message;
-@@ -126,24 +126,36 @@ namespace SDDM {
++            if (input.status() == QDataStream::ReadPastEnd) {
++                input.rollbackTransaction();
++                return;
++            }
++            if (input.status() != QDataStream::Ok) { socket->abort(); return; }
+ 
+             switch (GreeterMessages(message)) {
+                 case GreeterMessages::Connect: {
+@@ -126,24 +133,39 @@ namespace SDDM {
  
                      // send host name
                      SocketWriter(socket) << quint32(DaemonMessages::HostName) << daemonApp->hostName();
@@ -1112,6 +1213,7 @@ index 488f9a5..308063f 100644
                      input >> user >> password >> session;
 -
 -                    // emit signal
++                    if (input.status() == QDataStream::ReadPastEnd) { input.rollbackTransaction(); return; }
 +                    if (input.status() != QDataStream::Ok) { socket->abort(); return; }
                      emit login(socket, user, password, session);
                  }
@@ -1120,6 +1222,7 @@ index 488f9a5..308063f 100644
 +                    QString user;
 +                    Session session;
 +                    input >> user >> session;
++                    if (input.status() == QDataStream::ReadPastEnd) { input.rollbackTransaction(); return; }
 +                    if (input.status() != QDataStream::Ok) { socket->abort(); return; }
 +                    emit startFingerprint(socket, user, session);
 +                }
@@ -1127,6 +1230,7 @@ index 488f9a5..308063f 100644
 +                case GreeterMessages::CancelFingerprint: {
 +                    QString requestId;
 +                    input >> requestId;
++                    if (input.status() == QDataStream::ReadPastEnd) { input.rollbackTransaction(); return; }
 +                    if (input.status() != QDataStream::Ok || requestId.isEmpty()) { socket->abort(); return; }
 +                    emit cancelFingerprint(socket, requestId);
 +                }
@@ -1134,7 +1238,16 @@ index 488f9a5..308063f 100644
                  case GreeterMessages::PowerOff: {
                      // log message
                      qDebug() << "Message received from greeter: PowerOff";
-@@ -203,4 +215,16 @@ namespace SDDM {
+@@ -188,6 +210,8 @@ namespace SDDM {
+                     qWarning() << "Unknown message" << message;
+                 }
+             }
++            if (!input.commitTransaction())
++                return;
+         }
+ 
+     }
+@@ -203,4 +227,16 @@ namespace SDDM {
      void SocketServer::informationMessage(QLocalSocket *socket, const QString &message) {
          SocketWriter(socket) << quint32(DaemonMessages::InformationMessage) << message;
      }
@@ -1634,6 +1747,47 @@ index 4aba328..bf154dc 100644
          virtual bool openSession();
          virtual bool closeSession();
  
+diff --git a/test/AuthMessagesTest.cpp b/test/AuthMessagesTest.cpp
+new file mode 100644
+index 0000000..163273a
+--- /dev/null
++++ b/test/AuthMessagesTest.cpp
+@@ -0,0 +1,35 @@
++#include <QtTest/QtTest>
++
++#include "AuthMessages.h"
++
++using namespace SDDM;
++
++class AuthMessagesTest : public QObject {
++    Q_OBJECT
++private slots:
++    void methodRoundTrip() {
++        QByteArray bytes;
++        QDataStream output(&bytes, QIODevice::WriteOnly);
++        output << AuthMethod::Fingerprint;
++
++        QDataStream input(bytes);
++        AuthMethod method = AuthMethod::Password;
++        input >> method;
++        QCOMPARE(input.status(), QDataStream::Ok);
++        QCOMPARE(method, AuthMethod::Fingerprint);
++    }
++
++    void rejectsUnknownMethod() {
++        QByteArray bytes;
++        QDataStream output(&bytes, QIODevice::WriteOnly);
++        output << qint32(2);
++
++        QDataStream input(bytes);
++        AuthMethod method = AuthMethod::Password;
++        input >> method;
++        QCOMPARE(input.status(), QDataStream::ReadCorruptData);
++    }
++};
++
++QTEST_GUILESS_MAIN(AuthMessagesTest)
++#include "AuthMessagesTest.moc"
 diff --git a/test/CMakeLists.txt b/test/CMakeLists.txt
 index c76fefb..767fdf3 100644
 --- a/test/CMakeLists.txt
