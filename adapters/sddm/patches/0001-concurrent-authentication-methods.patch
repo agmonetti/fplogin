@@ -1,61 +1,138 @@
 diff --git a/src/auth/Auth.cpp b/src/auth/Auth.cpp
-index 6c9b5c6..12fc9ba 100644
+index 6c9b5c6..0a375e6 100644
 --- a/src/auth/Auth.cpp
 +++ b/src/auth/Auth.cpp
-@@ -68,6 +68,11 @@ namespace SDDM {
+@@ -33,6 +33,7 @@
+ #include <memory>
+ 
+ #include <unistd.h>
++#include <sys/socket.h>
+ 
+ namespace SDDM {
+     class Auth::SocketServer : public QLocalServer {
+@@ -53,6 +54,7 @@ namespace SDDM {
+         Private(Auth *parent);
+         ~Private();
+         void setSocket(QLocalSocket *socket);
++        bool acceptHello(QLocalSocket *socket);
+     public slots:
+         void dataPending();
+         void childExited(int exitCode, QProcess::ExitStatus exitStatus);
+@@ -68,6 +70,12 @@ namespace SDDM {
          QByteArray cookie { };
          bool autologin { false };
          bool greeter { false };
 +        bool deferredAuthorization { false };
 +        bool awaitingAuthorization { false };
 +        bool authorizationSent { false };
++        bool helloAccepted { false };
 +        AuthMethod method { AuthMethod::Password };
 +        QString requestId { QUuid::createUuid().toString(QUuid::WithoutBraces) };
          QProcessEnvironment environment { };
          qint64 id { 0 };
          static qint64 lastId;
-@@ -89,11 +94,18 @@ namespace SDDM {
+@@ -84,17 +92,43 @@ namespace SDDM {
+ 
+     void Auth::SocketServer::handleNewConnection()  {
+         while (hasPendingConnections()) {
+-            Msg m = Msg::MSG_UNKNOWN;
+-            qint64 id;
              QLocalSocket *socket = nextPendingConnection();
-             SafeDataStream str(socket);
-             str.receive();
+-            SafeDataStream str(socket);
+-            str.receive();
 -            str >> m >> id;
 -            if (m == Msg::HELLO && id && SocketServer::instance()->helpers.contains(id)) {
-+            QString requestId;
-+            AuthMethod method = AuthMethod::Password;
-+            str >> m >> id >> requestId >> method;
-+            if (str.status() == QDataStream::Ok && m == Msg::HELLO && id && SocketServer::instance()->helpers.contains(id)
-+                && (!helpers[id]->socket || helpers[id]->socket->state() == QLocalSocket::UnconnectedState)
-+                && helpers[id]->requestId == requestId && helpers[id]->method == method) {
-                 helpers[id]->setSocket(socket);
-                 if (socket->bytesAvailable() > 0)
-                     helpers[id]->dataPending();
-+            } else {
-+                socket->abort();
-+                socket->deleteLater();
-             }
+-                helpers[id]->setSocket(socket);
+-                if (socket->bytesAvailable() > 0)
+-                    helpers[id]->dataPending();
+-            }
++            connect(socket, &QLocalSocket::readyRead, this, [this, socket] {
++                if (socket->bytesAvailable() < qint64(sizeof(qint64)))
++                    return;
++                qint64 length = -1;
++                if (socket->peek(reinterpret_cast<char *>(&length), sizeof(length)) != sizeof(length)
++                    || length < 0 || length > 1024 * 1024) {
++                    socket->abort();
++                    socket->deleteLater();
++                    return;
++                }
++                if (socket->bytesAvailable() < qint64(sizeof(length)) + length)
++                    return;
++                socket->read(reinterpret_cast<char *>(&length), sizeof(length));
++                QByteArray payload = socket->read(length);
++                QDataStream str(payload);
++                Msg message = Msg::MSG_UNKNOWN;
++                qint64 id = 0;
++                QString requestId;
++                AuthMethod method = AuthMethod::Password;
++                str >> message >> id >> requestId >> method;
++                if (str.status() != QDataStream::Ok || !str.atEnd() || message != Msg::HELLO || !id
++                    || !helpers.contains(id) || !helpers[id]->acceptHello(socket)) {
++                    socket->abort();
++                    socket->deleteLater();
++                    return;
++                }
++                Auth::Private *helper = helpers[id];
++                if (helper->helloAccepted || helper->requestId != requestId || helper->method != method) {
++                    socket->abort();
++                    socket->deleteLater();
++                    return;
++                }
++                helper->helloAccepted = true;
++                helper->setSocket(socket);
++            });
++            connect(socket, &QLocalSocket::disconnected, socket, &QObject::deleteLater);
          }
      }
-@@ -145,8 +157,15 @@ namespace SDDM {
+ 
+@@ -144,23 +178,60 @@ namespace SDDM {
+     }
  
  
++    bool Auth::Private::acceptHello(QLocalSocket *socket) {
++#ifdef SO_PEERCRED
++        struct ucred credentials { };
++        socklen_t size = sizeof(credentials);
++        return getsockopt(socket->socketDescriptor(), SOL_SOCKET, SO_PEERCRED, &credentials, &size) == 0
++            && credentials.pid == child->processId() && credentials.uid == geteuid();
++#else
++        Q_UNUSED(socket);
++        return false;
++#endif
++    }
++
      void Auth::Private::setSocket(QLocalSocket *socket) {
-+        if (this->socket && this->socket != socket)
-+            this->socket->deleteLater();
          this->socket = socket;
          connect(socket, &QLocalSocket::readyRead, this, &Auth::Private::dataPending);
 +        connect(socket, &QLocalSocket::disconnected, this, [this, socket] {
-+            if (this->socket == socket)
++            if (this->socket == socket) {
 +                this->socket = nullptr;
++                if (child->state() != QProcess::NotRunning)
++                    child->kill();
++            }
 +            socket->deleteLater();
 +        });
      }
  
      void Auth::Private::dataPending() {
-@@ -155,7 +174,14 @@ namespace SDDM {
-         SafeDataStream str(socket);
-         while (socket->bytesAvailable() > 0) {
-             str.receive();
+         Auth *auth = qobject_cast<Auth*>(parent());
+         Msg m = MSG_UNKNOWN;
+-        SafeDataStream str(socket);
+-        while (socket->bytesAvailable() > 0) {
+-            str.receive();
 -            str >> m;
++        while (socket && socket->bytesAvailable() >= qint64(sizeof(qint64))) {
++            qint64 length = -1;
++            if (socket->peek(reinterpret_cast<char *>(&length), sizeof(length)) != sizeof(length)
++                || length < 0 || length > 1024 * 1024) {
++                child->kill();
++                return;
++            }
++            if (socket->bytesAvailable() < qint64(sizeof(length)) + length)
++                return;
++            socket->read(reinterpret_cast<char *>(&length), sizeof(length));
++            QByteArray payload = socket->read(length);
++            QDataStream str(payload);
 +            QString incomingRequestId;
 +            AuthMethod incomingMethod = AuthMethod::Password;
 +            str >> m >> incomingRequestId >> incomingMethod;
@@ -67,9 +144,31 @@ index 6c9b5c6..12fc9ba 100644
              switch (m) {
                  case ERROR: {
                      QString message;
-@@ -181,13 +207,12 @@ namespace SDDM {
+                     Error type = ERROR_NONE;
+                     str >> message >> type;
++                    if (str.status() != QDataStream::Ok || !str.atEnd()) { child->kill(); return; }
+                     Q_EMIT auth->error(message, type);
+                     break;
+                 }
+@@ -168,26 +239,28 @@ namespace SDDM {
+                     QString message;
+                     Info type = INFO_NONE;
+                     str >> message >> type;
++                    if (str.status() != QDataStream::Ok || !str.atEnd()) { child->kill(); return; }
+                     Q_EMIT auth->info(message, type);
+                     break;
+                 }
+                 case REQUEST: {
+                     Request r;
+                     str >> r;
++                    if (str.status() != QDataStream::Ok || !str.atEnd()) { child->kill(); return; }
+                     request->setRequest(&r);
+                     break;
+                 }
+                 case AUTHENTICATED: {
                      QString user;
                      str >> user;
++                    if (str.status() != QDataStream::Ok || !str.atEnd()) { child->kill(); return; }
                      if (!user.isEmpty()) {
 +                        awaitingAuthorization = true;
                          auth->setUser(user);
@@ -85,25 +184,41 @@ index 6c9b5c6..12fc9ba 100644
                          Q_EMIT auth->authentication(user, false);
                      }
                      break;
-@@ -197,7 +222,7 @@ namespace SDDM {
+@@ -195,42 +268,48 @@ namespace SDDM {
+                 case SESSION_STATUS: {
+                     bool status;
                      str >> status;
++                    if (str.status() != QDataStream::Ok || !str.atEnd()) { child->kill(); return; }
                      Q_EMIT auth->sessionStarted(status);
-                     str.reset();
+-                    str.reset();
 -                    str << SESSION_STATUS;
-+                    str << SESSION_STATUS << this->requestId << this->method;
-                     str.send();
+-                    str.send();
++                    SafeDataStream reply(socket);
++                    reply << SESSION_STATUS << this->requestId << this->method;
++                    reply.send();
                      break;
                  }
-@@ -206,7 +231,7 @@ namespace SDDM {
+                 case DISPLAY_SERVER_STARTED: {
+                     QString displayName;
                      str >> displayName;
++                    if (str.status() != QDataStream::Ok || !str.atEnd()) { child->kill(); return; }
                      Q_EMIT auth->displayServerReady(displayName);
-                     str.reset();
+-                    str.reset();
 -                    str << DISPLAY_SERVER_STARTED;
-+                    str << DISPLAY_SERVER_STARTED << this->requestId << this->method;
-                     str.send();
+-                    str.send();
++                    SafeDataStream reply(socket);
++                    reply << DISPLAY_SERVER_STARTED << this->requestId << this->method;
++                    reply.send();
                      break;
                  }
-@@ -218,19 +243,21 @@ namespace SDDM {
+                 default: {
+-                    Q_EMIT auth->error(QStringLiteral("Auth: Unexpected value received: %1").arg(m), ERROR_INTERNAL);
++                    qWarning() << "Auth: rejected unknown helper opcode" << qint32(m);
++                    child->kill();
++                    return;
+                 }
+             }
+         }
      }
  
      void Auth::Private::childExited(int exitCode, QProcess::ExitStatus exitStatus) {
@@ -132,7 +247,7 @@ index 6c9b5c6..12fc9ba 100644
      }
  
      void Auth::Private::childError(QProcess::ProcessError error) {
-@@ -241,7 +268,7 @@ namespace SDDM {
+@@ -241,7 +320,7 @@ namespace SDDM {
      void Auth::Private::requestFinished() {
          SafeDataStream str(socket);
          Request r = request->request();
@@ -141,7 +256,7 @@ index 6c9b5c6..12fc9ba 100644
          str.send();
          request->setRequest();
      }
-@@ -301,6 +328,14 @@ namespace SDDM {
+@@ -301,6 +380,18 @@ namespace SDDM {
          return d->request;
      }
  
@@ -153,10 +268,14 @@ index 6c9b5c6..12fc9ba 100644
 +        return d->requestId;
 +    }
 +
++    bool Auth::isDeferredAuthorization() const {
++        return d->deferredAuthorization;
++    }
++
      bool Auth::isActive() const {
          return d->child->state() != QProcess::NotRunning;
      }
-@@ -357,6 +392,43 @@ namespace SDDM {
+@@ -357,6 +448,43 @@ namespace SDDM {
          }
      }
  
@@ -200,7 +319,7 @@ index 6c9b5c6..12fc9ba 100644
      void Auth::setVerbose(bool on) {
          if (on != verbose()) {
              if (on)
-@@ -368,9 +440,15 @@ namespace SDDM {
+@@ -368,9 +496,15 @@ namespace SDDM {
      }
  
      void Auth::start() {
@@ -216,7 +335,7 @@ index 6c9b5c6..12fc9ba 100644
          if (!d->sessionPath.isEmpty())
              args << QStringLiteral("--start") << d->sessionPath;
          if (!d->user.isEmpty())
-@@ -384,16 +462,22 @@ namespace SDDM {
+@@ -384,16 +518,22 @@ namespace SDDM {
          d->child->start(QStringLiteral("%1/sddm-helper").arg(QStringLiteral(LIBEXEC_INSTALL_DIR)), args);
      }
  
@@ -247,7 +366,7 @@ index 6c9b5c6..12fc9ba 100644
  }
  
 diff --git a/src/auth/Auth.h b/src/auth/Auth.h
-index c78da55..20ada0e 100644
+index c78da55..6829547 100644
 --- a/src/auth/Auth.h
 +++ b/src/auth/Auth.h
 @@ -28,6 +28,11 @@
@@ -262,16 +381,17 @@ index c78da55..20ada0e 100644
      /**
      * \brief
      * Main class triggering the authentication and handling all communication
-@@ -99,6 +104,8 @@ namespace SDDM {
+@@ -99,6 +104,9 @@ namespace SDDM {
          const QString &user() const;
          const QString &session() const;
          AuthRequest *request();
 +        AuthMethod method() const;
 +        const QString &requestId() const;
++        bool isDeferredAuthorization() const;
          /**
           * True if an authentication or session is in progress
           */
-@@ -155,6 +162,10 @@ namespace SDDM {
+@@ -155,6 +163,10 @@ namespace SDDM {
          * @param path Path of the session executable to be started
          */
          void setSession(const QString &path);
@@ -282,7 +402,7 @@ index c78da55..20ada0e 100644
  
          /**
           * Set the display server cookie, to be inserted into the user's $XAUTHORITY
-@@ -172,6 +183,8 @@ namespace SDDM {
+@@ -172,6 +184,8 @@ namespace SDDM {
           * Indicates that we do not need the process anymore.
           */
          void stop();
@@ -291,7 +411,7 @@ index c78da55..20ada0e 100644
  
      Q_SIGNALS:
          void autologinChanged();
-@@ -182,6 +195,8 @@ namespace SDDM {
+@@ -182,6 +196,8 @@ namespace SDDM {
          void displayServerCommandChanged();
          void sessionChanged();
          void requestChanged();
@@ -358,7 +478,7 @@ index f79a9db..0c57b42 100644
  
      enum Capability {
 diff --git a/src/daemon/Display.cpp b/src/daemon/Display.cpp
-index 4014e0d..b181cde 100644
+index 4014e0d..4da9cb0 100644
 --- a/src/daemon/Display.cpp
 +++ b/src/daemon/Display.cpp
 @@ -34,6 +34,7 @@
@@ -400,7 +520,24 @@ index 4014e0d..b181cde 100644
  
          // connect login result signals
          connect(this, &Display::loginFailed, m_socketServer, &SocketServer::loginFailed);
-@@ -183,7 +194,7 @@ namespace SDDM {
+@@ -168,8 +179,15 @@ namespace SDDM {
+     }
+ 
+     Display::~Display() {
+-        disconnect(m_auth, &Auth::finished, this, &Display::slotHelperFinished);
+         stop();
++        for (Auth *auth : {m_auth, m_fingerprintAuth}) {
++            if (auth->isActive()) {
++                disconnect(auth, nullptr, this, nullptr);
++                auth->setParent(nullptr);
++                connect(auth, &Auth::finished, auth, &QObject::deleteLater);
++                auth->kill();
++            }
++        }
+     }
+ 
+     Display::DisplayServerType Display::displayServerType() const
+@@ -183,7 +201,7 @@ namespace SDDM {
      }
  
      int Display::terminalId() const {
@@ -409,10 +546,13 @@ index 4014e0d..b181cde 100644
      }
  
      const QString &Display::name() const {
-@@ -295,10 +306,24 @@ namespace SDDM {
+@@ -295,10 +313,27 @@ namespace SDDM {
          if (!m_started)
              return;
  
++        m_pendingLogin = false;
++        m_pendingPassword.clear();
++        m_pendingSocket.clear();
 +        cancelMethodAttempt();
 +
          // stop the greeter
@@ -435,7 +575,7 @@ index 4014e0d..b181cde 100644
  
          // stop socket server
          m_socketServer->stop();
-@@ -318,6 +343,10 @@ namespace SDDM {
+@@ -318,6 +353,10 @@ namespace SDDM {
      void Display::login(QLocalSocket *socket,
                          const QString &user, const QString &password,
                          const Session &session) {
@@ -446,7 +586,7 @@ index 4014e0d..b181cde 100644
          m_socket = socket;
  
          //the SDDM user has special privileges that skip password checking so that we can load the greeter
-@@ -327,8 +356,116 @@ namespace SDDM {
+@@ -327,8 +366,169 @@ namespace SDDM {
              return;
          }
  
@@ -459,29 +599,63 @@ index 4014e0d..b181cde 100644
 +            }
 +            if (user != m_attemptUser || session.type() != m_attemptSession.type()
 +                || session.fileName() != m_attemptSession.fileName()) {
++                m_pendingLogin = true;
++                m_pendingSocket = socket;
++                m_pendingUser = user;
++                m_pendingPassword = password;
++                m_pendingSession = session;
 +                cancelMethodAttempt();
++                startPendingLogin();
++                return;
++            }
++            if (m_auth->isActive()) {
 +                emit loginFailed(m_socket);
 +                return;
 +            }
++        } else {
++            m_requestId = QUuid::createUuid().toString(QUuid::WithoutBraces);
++            m_attemptUser = user;
++            m_attemptSession = session;
++            m_attemptSocket = socket;
++            m_methodAttemptActive = true;
++            m_methodWinnerChosen = false;
++            m_waitingForLoser = false;
++            const QString requestId = m_requestId;
++            connect(socket, &QLocalSocket::disconnected, this, [this, requestId] {
++                if (m_methodAttemptActive && m_requestId == requestId)
++                    cancelMethodAttempt();
++            });
 +        }
-+        startAuth(user, password, session, AuthMethod::Password);
++        if (!startAuth(user, password, session, AuthMethod::Password)) {
++            emit loginFailed(m_attemptSocket);
++            finishMethodAttempt(false);
++        }
 +    }
 +
 +    void Display::startFingerprint(QLocalSocket *socket, const QString &user, const Session &session) {
 +        if (user.isEmpty() || user == QLatin1String("sddm") || !session.isValid()
-+            || !m_started || m_auth->isActive() || m_fingerprintAuth->isActive()) {
++            || !m_started || m_fingerprintAuth->isActive()) {
 +            emit loginFailed(socket);
 +            return;
 +        }
 +        if (m_methodAttemptActive) {
 +            if (socket != m_attemptSocket)
 +                return;
-+            if (user == m_attemptUser && session.type() == m_attemptSession.type()
-+                && session.fileName() == m_attemptSession.fileName())
-+                m_socketServer->authenticationMethodState(socket, m_requestId,
-+                    m_methodWinnerChosen ? 4 : 1, m_methodWinnerChosen ? QStringLiteral("matched") : QStringLiteral("scanning"));
-+            else
++            if (user != m_attemptUser || session.type() != m_attemptSession.type()
++                || session.fileName() != m_attemptSession.fileName()) {
 +                cancelMethodAttempt();
++                return;
++            }
++            if (m_methodWinnerChosen) {
++                m_socketServer->authenticationMethodState(socket, m_requestId, 4, QStringLiteral("matched"));
++                return;
++            }
++            if (m_fingerprintAuth->isActive()) {
++                m_socketServer->authenticationMethodState(socket, m_requestId, 1, QStringLiteral("scanning"));
++                return;
++            }
++            if (!startAuth(user, QString(), session, AuthMethod::Fingerprint))
++                m_socketServer->authenticationMethodState(socket, m_requestId, 5, QStringLiteral("failed"));
 +            return;
 +        }
 +
@@ -543,8 +717,27 @@ index 4014e0d..b181cde 100644
 +    void Display::authorizeWinner() {
 +        if (!m_methodAttemptActive || !m_winnerAuth || m_waitingForLoser)
 +            return;
++        if (qobject_cast<XorgDisplayServer *>(m_displayServer))
++            m_winnerAuth->setCookie(qobject_cast<XorgDisplayServer *>(m_displayServer)->cookie());
 +        m_winnerAuth->authorizeSession(true);
 +        m_socketServer->authenticationMethodState(m_attemptSocket, m_requestId, 4, QStringLiteral("matched"));
++    }
++
++    void Display::startPendingLogin() {
++        if (!m_pendingLogin || m_auth->isActive() || m_fingerprintAuth->isActive())
++            return;
++        QPointer<QLocalSocket> socket = m_pendingSocket;
++        const QString user = m_pendingUser;
++        const QString password = m_pendingPassword;
++        Session session;
++        session = m_pendingSession;
++        m_pendingLogin = false;
++        m_pendingSocket.clear();
++        m_pendingUser.clear();
++        m_pendingPassword.clear();
++        m_pendingSession = Session();
++        if (socket && socket->state() == QLocalSocket::ConnectedState)
++            login(socket, user, password, session);
 +    }
 +
 +    void Display::finishMethodAttempt(bool success) {
@@ -565,7 +758,7 @@ index 4014e0d..b181cde 100644
      }
  
      QString Display::findGreeterTheme() const {
-@@ -372,14 +509,22 @@ namespace SDDM {
+@@ -372,14 +572,22 @@ namespace SDDM {
          return false;
      }
  
@@ -592,7 +785,7 @@ index 4014e0d..b181cde 100644
  
          // sanity check
          if (!session.isValid()) {
-@@ -448,21 +593,55 @@ namespace SDDM {
+@@ -448,21 +656,64 @@ namespace SDDM {
            if (m_displayServerType == X11DisplayServerType)
              env.insert(QStringLiteral("DISPLAY"), name());
            else
@@ -622,10 +815,13 @@ index 4014e0d..b181cde 100644
 +            if (!success) {
 +                if (auth->method() == AuthMethod::Fingerprint)
 +                    m_socketServer->authenticationMethodState(m_attemptSocket, m_requestId, 5, QStringLiteral("failed"));
-+                return; // keep the other method and password retries available
++                return; // helper exit reports password failure; keep the other method available
 +            }
-+            if (user != m_attemptUser)
++            if (user != m_attemptUser) {
++                auth->authorizeSession(false);
++                auth->terminate();
 +                return;
++            }
 +            if (m_methodWinnerChosen) {
 +                if (auth != m_winnerAuth) {
 +                    auth->authorizeSession(false);
@@ -652,11 +848,17 @@ index 4014e0d..b181cde 100644
 +            }
 +            return;
 +        }
++        // Deferred method helpers must never fall through to stock password handling,
++        // including after cancellation or when their request is stale.
++        if (auth && auth->isDeferredAuthorization()) {
++            auth->authorizeSession(false);
++            return;
++        }
 +
          if (m_auth->autologin() && !success) {
              handleAutologinFailure();
              return;
-@@ -478,7 +657,7 @@ namespace SDDM {
+@@ -478,7 +729,7 @@ namespace SDDM {
                  m_started = true;
              } else {
                  if (qobject_cast<XorgDisplayServer *>(m_displayServer))
@@ -665,7 +867,7 @@ index 4014e0d..b181cde 100644
              }
  
              // save last user and last session
-@@ -503,25 +682,75 @@ namespace SDDM {
+@@ -503,25 +754,91 @@ namespace SDDM {
  
      void Display::slotAuthInfo(const QString &message, Auth::Info info) {
          qWarning() << "Authentication information:" << info << message;
@@ -694,9 +896,13 @@ index 4014e0d..b181cde 100644
              return;
 -
 -        m_socketServer->informationMessage(m_socket, message);
-+        if (m_methodAttemptActive && auth && auth->requestId() == m_requestId
-+            && auth->method() == AuthMethod::Fingerprint) {
-+            m_socketServer->authenticationMethodState(socket, m_requestId, 5, QStringLiteral("failed"));
++        if (auth && auth->isDeferredAuthorization()) {
++            if (m_methodAttemptActive && auth->requestId() == m_requestId
++                && auth->method() == AuthMethod::Fingerprint)
++                m_socketServer->authenticationMethodState(socket, m_requestId, 5, QStringLiteral("failed"));
++            else if (m_methodAttemptActive && auth->requestId() == m_requestId
++                     && auth->method() == AuthMethod::Password)
++                m_socketServer->informationMessage(socket, message);
 +            return;
 +        }
 +        m_socketServer->informationMessage(socket, message);
@@ -709,17 +915,27 @@ index 4014e0d..b181cde 100644
  
      void Display::slotHelperFinished(Auth::HelperExitStatus status) {
 +        Auth *auth = qobject_cast<Auth *>(sender());
-+        if (m_cancelledHelpers.remove(auth))
++        if (m_cancelledHelpers.remove(auth)) {
++            startPendingLogin();
 +            return;
-+        if (m_methodAttemptActive && auth && auth->requestId() == m_requestId) {
++        }
++        if (auth && auth->isDeferredAuthorization()) {
++            if (!m_methodAttemptActive || auth->requestId() != m_requestId)
++                return;
++            if (m_methodAttemptActive && auth->requestId() == m_requestId) {
 +            if (auth == m_loserAuth) {
 +                m_loserAuth.clear();
 +                m_waitingForLoser = false;
 +                authorizeWinner();
 +                return;
 +            }
-+            if (auth != m_winnerAuth)
-+                return; // method failed; keep the attempt available for the other method/retry
++            if (auth != m_winnerAuth) {
++                if (auth->method() == AuthMethod::Fingerprint)
++                    m_socketServer->authenticationMethodState(m_attemptSocket, m_requestId, 5, QStringLiteral("failed"));
++                else if (m_attemptSocket)
++                    emit loginFailed(m_attemptSocket);
++                return; // one method failed; keep the other method available
++            }
 +            if (status != Auth::HELPER_SUCCESS) {
 +                if (m_attemptSocket)
 +                    emit loginFailed(m_attemptSocket);
@@ -745,12 +961,14 @@ index 4014e0d..b181cde 100644
 +                    emit loginSucceeded(m_attemptSocket);
 +                finishMethodAttempt(true);
 +            }
++            return;
++            }
 +        }
 +
          // Don't restart greeter and display server unless sddm-helper exited
          // with an internal error or the user session finished successfully,
          // we want to avoid greeter from restarting when an authentication
-@@ -532,20 +761,43 @@ namespace SDDM {
+@@ -532,20 +849,43 @@ namespace SDDM {
      }
  
      void Display::slotRequestChanged() {
@@ -804,7 +1022,7 @@ index 4014e0d..b181cde 100644
      }
  }
 diff --git a/src/daemon/Display.h b/src/daemon/Display.h
-index 98ca006..cc2ac74 100644
+index 98ca006..df9bd07 100644
 --- a/src/daemon/Display.h
 +++ b/src/daemon/Display.h
 @@ -25,6 +25,7 @@
@@ -824,7 +1042,7 @@ index 98ca006..cc2ac74 100644
          bool attemptAutologin();
          void displayServerStarted();
  
-@@ -87,7 +90,10 @@ namespace SDDM {
+@@ -87,7 +90,11 @@ namespace SDDM {
          bool findSessionEntry(const QStringList &dirPaths, const QString &name) const;
  
          bool startAuth(const QString &user, const QString &password,
@@ -833,10 +1051,11 @@ index 98ca006..cc2ac74 100644
 +        void cancelMethodAttempt();
 +        void authorizeWinner();
 +        void finishMethodAttempt(bool success);
++        void startPendingLogin();
  
          void startSocketServerAndGreeter();
          void handleAutologinFailure();
-@@ -105,6 +111,17 @@ namespace SDDM {
+@@ -105,6 +112,22 @@ namespace SDDM {
          QString m_reuseSessionId;
  
          Auth *m_auth { nullptr };
@@ -851,14 +1070,28 @@ index 98ca006..cc2ac74 100644
 +        bool m_methodAttemptActive { false };
 +        bool m_methodWinnerChosen { false };
 +        bool m_waitingForLoser { false };
++        bool m_pendingLogin { false };
++        QPointer<QLocalSocket> m_pendingSocket;
++        QString m_pendingUser;
++        QString m_pendingPassword;
++        Session m_pendingSession;
          DisplayServer *m_displayServer { nullptr };
          Seat *m_seat { nullptr };
          SocketServer *m_socketServer { nullptr };
 diff --git a/src/daemon/SocketServer.cpp b/src/daemon/SocketServer.cpp
-index 488f9a5..e3510ea 100644
+index 488f9a5..308063f 100644
 --- a/src/daemon/SocketServer.cpp
 +++ b/src/daemon/SocketServer.cpp
-@@ -126,24 +126,33 @@ namespace SDDM {
+@@ -111,7 +111,7 @@ namespace SDDM {
+ 
+         // Qt's QLocalSocket::readyRead is not designed to be called at every socket.write(), 
+         // so we need to use a loop to read all the signals.
+-        while(socket->bytesAvailable()) {
++        while(socket->bytesAvailable() >= qint64(sizeof(quint32))) {
+             // read message
+             quint32 message;
+             input >> message;
+@@ -126,24 +126,36 @@ namespace SDDM {
  
                      // send host name
                      SocketWriter(socket) << quint32(DaemonMessages::HostName) << daemonApp->hostName();
@@ -879,6 +1112,7 @@ index 488f9a5..e3510ea 100644
                      input >> user >> password >> session;
 -
 -                    // emit signal
++                    if (input.status() != QDataStream::Ok) { socket->abort(); return; }
                      emit login(socket, user, password, session);
                  }
                  break;
@@ -886,19 +1120,21 @@ index 488f9a5..e3510ea 100644
 +                    QString user;
 +                    Session session;
 +                    input >> user >> session;
++                    if (input.status() != QDataStream::Ok) { socket->abort(); return; }
 +                    emit startFingerprint(socket, user, session);
 +                }
 +                break;
 +                case GreeterMessages::CancelFingerprint: {
 +                    QString requestId;
 +                    input >> requestId;
++                    if (input.status() != QDataStream::Ok || requestId.isEmpty()) { socket->abort(); return; }
 +                    emit cancelFingerprint(socket, requestId);
 +                }
 +                break;
                  case GreeterMessages::PowerOff: {
                      // log message
                      qDebug() << "Message received from greeter: PowerOff";
-@@ -203,4 +212,16 @@ namespace SDDM {
+@@ -203,4 +215,16 @@ namespace SDDM {
      void SocketServer::informationMessage(QLocalSocket *socket, const QString &message) {
          SocketWriter(socket) << quint32(DaemonMessages::InformationMessage) << message;
      }
@@ -1398,47 +1634,6 @@ index 4aba328..bf154dc 100644
          virtual bool openSession();
          virtual bool closeSession();
  
-diff --git a/test/AuthMessagesTest.cpp b/test/AuthMessagesTest.cpp
-new file mode 100644
-index 0000000..163273a
---- /dev/null
-+++ b/test/AuthMessagesTest.cpp
-@@ -0,0 +1,35 @@
-+#include <QtTest/QtTest>
-+
-+#include "AuthMessages.h"
-+
-+using namespace SDDM;
-+
-+class AuthMessagesTest : public QObject {
-+    Q_OBJECT
-+private slots:
-+    void methodRoundTrip() {
-+        QByteArray bytes;
-+        QDataStream output(&bytes, QIODevice::WriteOnly);
-+        output << AuthMethod::Fingerprint;
-+
-+        QDataStream input(bytes);
-+        AuthMethod method = AuthMethod::Password;
-+        input >> method;
-+        QCOMPARE(input.status(), QDataStream::Ok);
-+        QCOMPARE(method, AuthMethod::Fingerprint);
-+    }
-+
-+    void rejectsUnknownMethod() {
-+        QByteArray bytes;
-+        QDataStream output(&bytes, QIODevice::WriteOnly);
-+        output << qint32(2);
-+
-+        QDataStream input(bytes);
-+        AuthMethod method = AuthMethod::Password;
-+        input >> method;
-+        QCOMPARE(input.status(), QDataStream::ReadCorruptData);
-+    }
-+};
-+
-+QTEST_GUILESS_MAIN(AuthMessagesTest)
-+#include "AuthMessagesTest.moc"
 diff --git a/test/CMakeLists.txt b/test/CMakeLists.txt
 index c76fefb..767fdf3 100644
 --- a/test/CMakeLists.txt
