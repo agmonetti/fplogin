@@ -1388,7 +1388,7 @@ index 488f9a5..c1d7128 100644
 +    }
 +
 +    void SocketServer::authenticationAttemptFinished(QLocalSocket *socket, const QString &requestId, bool success, quint32 method) {
-+        SocketWriter(socket) << quint32(DaemonMessages::AuthenticationAttemptFinished) << requestId << success << method;
++        SocketWriter(socket) << quint32(DaemonMessages::AuthenticationAttemptFinished) << requestId << quint32(success) << method;
 +    }
  }
 diff --git a/src/daemon/SocketServer.h b/src/daemon/SocketServer.h
@@ -1498,7 +1498,7 @@ index d9a8e68..1581b5d 100644
 +                break;
 +                case DaemonMessages::AuthenticationAttemptFinished: {
 +                    QString requestId;
-+                    bool success;
++                    quint32 success;
 +                    quint32 method;
 +                    input >> requestId >> success >> method;
 +                    Q_UNUSED(success);
