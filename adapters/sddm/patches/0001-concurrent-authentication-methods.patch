@@ -559,8 +559,92 @@ index f79a9db..0c57b42 100644
      };
  
      enum Capability {
+diff --git a/src/daemon/AuthAttemptGate.h b/src/daemon/AuthAttemptGate.h
+new file mode 100644
+index 0000000..c46425e
+--- /dev/null
++++ b/src/daemon/AuthAttemptGate.h
+@@ -0,0 +1,78 @@
++#ifndef SDDM_AUTH_ATTEMPT_GATE_H
++#define SDDM_AUTH_ATTEMPT_GATE_H
++
++#include "Auth.h"
++
++#include <QString>
++
++namespace SDDM {
++    // One display's authentication decision. Helper processes and PAM handles remain
++    // owned by Display/Auth; this gate only decides which results may authorize.
++    class AuthAttemptGate {
++    public:
++        void begin(const QString &requestId, const QString &user) {
++            m_requestId = requestId;
++            m_user = user;
++            m_active = true;
++            m_passwordCancelled = false;
++            m_fingerprintCancelled = false;
++            m_winner = -1;
++            m_waitingFor = -1;
++            m_authorized = false;
++        }
++
++        void invalidate() { m_active = false; }
++
++        void cancel(AuthMethod method) {
++            if (method == AuthMethod::Password)
++                m_passwordCancelled = true;
++            else
++                m_fingerprintCancelled = true;
++        }
++        void resume(AuthMethod method) {
++            if (method == AuthMethod::Password)
++                m_passwordCancelled = false;
++            else
++                m_fingerprintCancelled = false;
++        }
++
++        bool select(const QString &requestId, const QString &user, AuthMethod method) {
++            if (!m_active || requestId != m_requestId || user != m_user
++                || cancelled(method) || m_winner != -1)
++                return false;
++            m_winner = int(method);
++            return true;
++        }
++
++        void waitFor(AuthMethod method) { m_waitingFor = int(method); }
++
++        // True exactly once, after the losing helper has exited (if one existed).
++        bool authorize(AuthMethod method) {
++            if (!m_active || m_winner != int(method) || m_waitingFor != -1 || m_authorized)
++                return false;
++            m_authorized = true;
++            return true;
++        }
++
++        void exited(AuthMethod method) {
++            if (m_waitingFor == int(method))
++                m_waitingFor = -1;
++        }
++
++        bool cancelled(AuthMethod method) const {
++            return method == AuthMethod::Password ? m_passwordCancelled : m_fingerprintCancelled;
++        }
++
++    private:
++        QString m_requestId;
++        QString m_user;
++        bool m_active { false };
++        bool m_passwordCancelled { false };
++        bool m_fingerprintCancelled { false };
++        int m_winner { -1 };
++        int m_waitingFor { -1 };
++        bool m_authorized { false };
++    };
++}
++
++#endif // SDDM_AUTH_ATTEMPT_GATE_H
 diff --git a/src/daemon/Display.cpp b/src/daemon/Display.cpp
-index 4014e0d..6a69448 100644
+index 4014e0d..659ba5e 100644
 --- a/src/daemon/Display.cpp
 +++ b/src/daemon/Display.cpp
 @@ -34,6 +34,7 @@
@@ -668,7 +752,7 @@ index 4014e0d..6a69448 100644
          m_socket = socket;
  
          //the SDDM user has special privileges that skip password checking so that we can load the greeter
-@@ -327,8 +366,180 @@ namespace SDDM {
+@@ -327,8 +366,186 @@ namespace SDDM {
              return;
          }
  
@@ -701,6 +785,7 @@ index 4014e0d..6a69448 100644
 +            m_attemptSocket = socket;
 +            m_methodAttemptActive = true;
 +            m_methodWinnerChosen = false;
++            m_attemptGate.begin(m_requestId, user);
 +            m_waitingForLoser = false;
 +            const QString requestId = m_requestId;
 +            connect(socket, &QLocalSocket::disconnected, this, [this, requestId] {
@@ -748,6 +833,7 @@ index 4014e0d..6a69448 100644
 +        m_attemptSocket = socket;
 +        m_methodAttemptActive = true;
 +        m_methodWinnerChosen = false;
++        m_attemptGate.begin(m_requestId, user);
 +        m_waitingForLoser = false;
 +        const QString requestId = m_requestId;
 +        connect(socket, &QLocalSocket::disconnected, this, [this, requestId] {
@@ -766,6 +852,7 @@ index 4014e0d..6a69448 100644
 +            || requestId != m_requestId || !m_fingerprintAuth->isActive()
 +            || m_fingerprintAuth->requestId() != requestId)
 +            return;
++        m_attemptGate.cancel(AuthMethod::Fingerprint);
 +        m_cancelledHelpers.insert(m_fingerprintAuth);
 +        m_fingerprintAuth->authorizeSession(false);
 +        QPointer<Auth> guarded(m_fingerprintAuth);
@@ -782,6 +869,7 @@ index 4014e0d..6a69448 100644
 +            return;
 +        const QString requestId = m_requestId;
 +        QPointer<QLocalSocket> socket = m_attemptSocket;
++        m_attemptGate.invalidate();
 +        m_methodAttemptActive = false;
 +        m_methodWinnerChosen = false;
 +        m_waitingForLoser = false;
@@ -808,7 +896,8 @@ index 4014e0d..6a69448 100644
 +    }
 +
 +    void Display::authorizeWinner() {
-+        if (!m_methodAttemptActive || !m_winnerAuth || m_waitingForLoser)
++        if (!m_methodAttemptActive || !m_winnerAuth || m_waitingForLoser
++            || !m_attemptGate.authorize(m_winnerAuth->method()))
 +            return;
 +        if (qobject_cast<XorgDisplayServer *>(m_displayServer))
 +            m_winnerAuth->setCookie(qobject_cast<XorgDisplayServer *>(m_displayServer)->cookie());
@@ -844,6 +933,7 @@ index 4014e0d..6a69448 100644
 +        m_socketServer->authenticationAttemptFinished(socket, requestId, success, method);
 +        m_methodAttemptActive = false;
 +        m_methodWinnerChosen = false;
++        m_attemptGate.invalidate();
 +        m_waitingForLoser = false;
 +        m_winnerAuth.clear();
 +        m_loserAuth.clear();
@@ -851,7 +941,7 @@ index 4014e0d..6a69448 100644
      }
  
      QString Display::findGreeterTheme() const {
-@@ -372,14 +583,22 @@ namespace SDDM {
+@@ -372,14 +589,22 @@ namespace SDDM {
          return false;
      }
  
@@ -878,7 +968,7 @@ index 4014e0d..6a69448 100644
  
          // sanity check
          if (!session.isValid()) {
-@@ -448,21 +667,69 @@ namespace SDDM {
+@@ -448,21 +673,67 @@ namespace SDDM {
            if (m_displayServerType == X11DisplayServerType)
              env.insert(QStringLiteral("DISPLAY"), name());
            else
@@ -896,6 +986,8 @@ index 4014e0d..6a69448 100644
 -        m_auth->start();
 +        auth->setUser(user);
 +        auth->setSession(m_reuseSessionId.isNull() ? session.exec() : QString());
++        if (m_methodAttemptActive)
++            m_attemptGate.resume(method);
 +        auth->insertEnvironment(env);
 +        auth->start();
  
@@ -904,7 +996,7 @@ index 4014e0d..6a69448 100644
  
      void Display::slotAuthenticationFinished(const QString &user, bool success) {
 +        Auth *auth = qobject_cast<Auth *>(sender());
-+        if (auth && m_cancelledHelpers.contains(auth)) {
++        if (auth && (m_cancelledHelpers.contains(auth) || m_attemptGate.cancelled(auth->method()))) {
 +            auth->authorizeSession(false);
 +            return;
 +        }
@@ -914,16 +1006,11 @@ index 4014e0d..6a69448 100644
 +                    m_socketServer->authenticationMethodState(m_attemptSocket, m_requestId, 5, QStringLiteral("failed"));
 +                return; // helper exit reports password failure; keep the other method available
 +            }
-+            if (user != m_attemptUser) {
++            if (m_methodWinnerChosen && auth == m_winnerAuth && user == m_attemptUser)
++                return;
++            if (!m_attemptGate.select(auth->requestId(), user, auth->method())) {
 +                auth->authorizeSession(false);
 +                auth->terminate();
-+                return;
-+            }
-+            if (m_methodWinnerChosen) {
-+                if (auth != m_winnerAuth) {
-+                    auth->authorizeSession(false);
-+                    auth->terminate();
-+                }
 +                return;
 +            }
 +
@@ -932,6 +1019,7 @@ index 4014e0d..6a69448 100644
 +            Auth *other = auth == m_auth ? m_fingerprintAuth : m_auth;
 +            if (other->isActive() && other->requestId() == m_requestId) {
 +                m_loserAuth = other;
++                m_attemptGate.waitFor(other->method());
 +                m_waitingForLoser = true;
 +                other->authorizeSession(false);
 +                other->terminate();
@@ -956,7 +1044,7 @@ index 4014e0d..6a69448 100644
          if (m_auth->autologin() && !success) {
              handleAutologinFailure();
              return;
-@@ -478,7 +745,7 @@ namespace SDDM {
+@@ -478,7 +749,7 @@ namespace SDDM {
                  m_started = true;
              } else {
                  if (qobject_cast<XorgDisplayServer *>(m_displayServer))
@@ -965,7 +1053,7 @@ index 4014e0d..6a69448 100644
              }
  
              // save last user and last session
-@@ -503,25 +770,104 @@ namespace SDDM {
+@@ -503,25 +774,106 @@ namespace SDDM {
  
      void Display::slotAuthInfo(const QString &message, Auth::Info info) {
          qWarning() << "Authentication information:" << info << message;
@@ -1024,6 +1112,7 @@ index 4014e0d..6a69448 100644
 +                m_socketServer->authenticationMethodState(m_attemptSocket, m_requestId, 6, QStringLiteral("cancelled"));
 +            if (auth && auth == m_loserAuth && m_methodAttemptActive && auth->requestId() == m_requestId) {
 +                m_loserAuth.clear();
++                m_attemptGate.exited(auth->method());
 +                m_waitingForLoser = false;
 +                authorizeWinner();
 +            }
@@ -1036,6 +1125,7 @@ index 4014e0d..6a69448 100644
 +            if (m_methodAttemptActive && auth->requestId() == m_requestId) {
 +            if (auth == m_loserAuth) {
 +                m_loserAuth.clear();
++                m_attemptGate.exited(auth->method());
 +                m_waitingForLoser = false;
 +                authorizeWinner();
 +                return;
@@ -1079,7 +1169,7 @@ index 4014e0d..6a69448 100644
          // Don't restart greeter and display server unless sddm-helper exited
          // with an internal error or the user session finished successfully,
          // we want to avoid greeter from restarting when an authentication
-@@ -532,20 +878,44 @@ namespace SDDM {
+@@ -532,20 +884,44 @@ namespace SDDM {
      }
  
      void Display::slotRequestChanged() {
@@ -1134,18 +1224,21 @@ index 4014e0d..6a69448 100644
      }
  }
 diff --git a/src/daemon/Display.h b/src/daemon/Display.h
-index 98ca006..7bafa36 100644
+index 98ca006..f5223a7 100644
 --- a/src/daemon/Display.h
 +++ b/src/daemon/Display.h
-@@ -25,6 +25,7 @@
+@@ -25,8 +25,10 @@
  #include <QObject>
  #include <QPointer>
  #include <QDir>
 +#include <QSet>
  
  #include "Auth.h"
++#include "AuthAttemptGate.h"
  #include "Session.h"
-@@ -72,6 +73,8 @@ namespace SDDM {
+ 
+ class QLocalSocket;
+@@ -72,6 +74,8 @@ namespace SDDM {
          void login(QLocalSocket *socket,
                     const QString &user, const QString &password,
                     const Session &session);
@@ -1154,7 +1247,7 @@ index 98ca006..7bafa36 100644
          bool attemptAutologin();
          void displayServerStarted();
  
-@@ -87,7 +90,11 @@ namespace SDDM {
+@@ -87,7 +91,11 @@ namespace SDDM {
          bool findSessionEntry(const QStringList &dirPaths, const QString &name) const;
  
          bool startAuth(const QString &user, const QString &password,
@@ -1167,7 +1260,7 @@ index 98ca006..7bafa36 100644
  
          void startSocketServerAndGreeter();
          void handleAutologinFailure();
-@@ -105,6 +112,23 @@ namespace SDDM {
+@@ -105,6 +113,24 @@ namespace SDDM {
          QString m_reuseSessionId;
  
          Auth *m_auth { nullptr };
@@ -1176,6 +1269,7 @@ index 98ca006..7bafa36 100644
 +        QPointer<Auth> m_loserAuth;
 +        QPointer<Auth> m_sessionAuth;
 +        QSet<Auth *> m_cancelledHelpers;
++        AuthAttemptGate m_attemptGate;
 +        QPointer<QLocalSocket> m_attemptSocket;
 +        QString m_requestId;
 +        QString m_attemptUser;
@@ -1780,6 +1874,89 @@ index 4aba328..bf154dc 100644
          virtual bool openSession();
          virtual bool closeSession();
  
+diff --git a/test/AuthAttemptGateTest.cpp b/test/AuthAttemptGateTest.cpp
+new file mode 100644
+index 0000000..0af8535
+--- /dev/null
++++ b/test/AuthAttemptGateTest.cpp
+@@ -0,0 +1,77 @@
++#include <QtTest/QtTest>
++
++#include "AuthAttemptGate.h"
++
++using namespace SDDM;
++
++class AuthAttemptGateTest : public QObject {
++    Q_OBJECT
++private slots:
++    void successOrder_data() {
++        QTest::addColumn<AuthMethod>("winner");
++        QTest::newRow("password-first") << AuthMethod::Password;
++        QTest::newRow("fingerprint-first") << AuthMethod::Fingerprint;
++    }
++
++    void successOrder() {
++        QFETCH(AuthMethod, winner);
++        const AuthMethod loser = winner == AuthMethod::Password ? AuthMethod::Fingerprint : AuthMethod::Password;
++        AuthAttemptGate gate;
++        gate.begin(QStringLiteral("request-1"), QStringLiteral("alice"));
++        QVERIFY(gate.select(QStringLiteral("request-1"), QStringLiteral("alice"), winner));
++        gate.waitFor(loser);
++        QVERIFY(!gate.select(QStringLiteral("request-1"), QStringLiteral("alice"), loser));
++        QVERIFY(!gate.authorize(winner));
++        gate.exited(loser);
++        QVERIFY(gate.authorize(winner));
++        QVERIFY(!gate.authorize(winner)); // simultaneous callbacks cannot start two sessions
++        QVERIFY(!gate.authorize(loser));
++    }
++
++    void cancelledFingerprintCannotWinLate() {
++        AuthAttemptGate gate;
++        gate.begin(QStringLiteral("request-1"), QStringLiteral("alice"));
++        gate.cancel(AuthMethod::Fingerprint);
++        QVERIFY(!gate.select(QStringLiteral("request-1"), QStringLiteral("alice"), AuthMethod::Fingerprint));
++        QVERIFY(gate.select(QStringLiteral("request-1"), QStringLiteral("alice"), AuthMethod::Password));
++        gate.waitFor(AuthMethod::Fingerprint);
++        QVERIFY(!gate.authorize(AuthMethod::Password));
++        gate.exited(AuthMethod::Fingerprint);
++        QVERIFY(gate.authorize(AuthMethod::Password));
++    }
++
++    void cancelledFingerprintExitedBeforePasswordWin() {
++        AuthAttemptGate gate;
++        gate.begin(QStringLiteral("request-1"), QStringLiteral("alice"));
++        gate.cancel(AuthMethod::Fingerprint);
++        gate.exited(AuthMethod::Fingerprint);
++        QVERIFY(gate.select(QStringLiteral("request-1"), QStringLiteral("alice"), AuthMethod::Password));
++        QVERIFY(gate.authorize(AuthMethod::Password));
++    }
++
++    void rejectsStaleRequestUserAndInvalidatedAttempt() {
++        AuthAttemptGate gate;
++        gate.begin(QStringLiteral("old"), QStringLiteral("alice"));
++        gate.invalidate(); // user/session change or display stop
++        QVERIFY(!gate.select(QStringLiteral("old"), QStringLiteral("alice"), AuthMethod::Fingerprint));
++        gate.begin(QStringLiteral("new"), QStringLiteral("bob"));
++        QVERIFY(!gate.select(QStringLiteral("old"), QStringLiteral("bob"), AuthMethod::Password));
++        QVERIFY(!gate.select(QStringLiteral("new"), QStringLiteral("alice"), AuthMethod::Password));
++        QVERIFY(gate.select(QStringLiteral("new"), QStringLiteral("bob"), AuthMethod::Password));
++        gate.invalidate();
++        QVERIFY(!gate.authorize(AuthMethod::Password));
++    }
++
++    void fingerprintRetryAfterExit() {
++        AuthAttemptGate gate;
++        gate.begin(QStringLiteral("request-1"), QStringLiteral("alice"));
++        gate.cancel(AuthMethod::Fingerprint);
++        gate.exited(AuthMethod::Fingerprint);
++        gate.resume(AuthMethod::Fingerprint);
++        QVERIFY(gate.select(QStringLiteral("request-1"), QStringLiteral("alice"), AuthMethod::Fingerprint));
++        QVERIFY(gate.authorize(AuthMethod::Fingerprint));
++    }
++};
++
++QTEST_GUILESS_MAIN(AuthAttemptGateTest)
++#include "AuthAttemptGateTest.moc"
 diff --git a/test/AuthMessagesTest.cpp b/test/AuthMessagesTest.cpp
 new file mode 100644
 index 0000000..163273a
@@ -1821,11 +1998,172 @@ index 0000000..163273a
 +
 +QTEST_GUILESS_MAIN(AuthMessagesTest)
 +#include "AuthMessagesTest.moc"
+diff --git a/test/AuthTransportHelper.cpp b/test/AuthTransportHelper.cpp
+new file mode 100644
+index 0000000..acededf
+--- /dev/null
++++ b/test/AuthTransportHelper.cpp
+@@ -0,0 +1,78 @@
++// An unprivileged wire peer, NOT a PAM helper or a session launcher.
++#include "AuthMessages.h"
++
++#include <QCoreApplication>
++#include <QProcess>
++#include <QDataStream>
++#include <QLocalSocket>
++#include <QTimer>
++
++using namespace SDDM;
++
++static QByteArray frame(const QByteArray &payload) {
++    QByteArray bytes;
++    const qint64 size = payload.size();
++    bytes.append(reinterpret_cast<const char *>(&size), sizeof(size));
++    bytes.append(payload);
++    return bytes;
++}
++
++int main(int argc, char **argv) {
++    QCoreApplication app(argc, argv);
++    const QStringList args = app.arguments();
++    auto value = [&args](const QString &flag) {
++        const int index = args.indexOf(flag);
++        return index < 0 || index + 1 == args.size() ? QString() : args.at(index + 1);
++    };
++    const QString user = value(QStringLiteral("--user"));
++    const QString id = value(QStringLiteral("--request-id"));
++    const auto method = AuthMethod(value(QStringLiteral("--method")).toInt());
++    if (args.contains(QStringLiteral("--forger"))) {
++        QLocalSocket forged;
++        forged.connectToServer(value(QStringLiteral("--socket")));
++        if (!forged.waitForConnected(1000))
++            return 4;
++        QByteArray hello;
++        QDataStream stream(&hello, QIODevice::WriteOnly);
++        stream << HELLO << value(QStringLiteral("--id")).toLongLong() << id << method;
++        forged.write(frame(hello));
++        forged.flush();
++        return forged.waitForDisconnected(1000) ? 0 : 5;
++    }
++    QLocalSocket socket;
++    QObject::connect(&socket, &QLocalSocket::connected, &app, [&] {
++        QByteArray hello, authenticated;
++        QDataStream first(&hello, QIODevice::WriteOnly);
++        if (user == QStringLiteral("forged")) {
++            QProcess forger;
++            forger.start(QCoreApplication::applicationFilePath(), args.mid(1) << QStringLiteral("--forger"));
++            if (!forger.waitForFinished(2000) || forger.exitCode() != 0) {
++                app.exit(6);
++                return;
++            }
++        }
++        first << HELLO << value(QStringLiteral("--id")).toLongLong() << id << method;
++        QDataStream second(&authenticated, QIODevice::WriteOnly);
++        second << AUTHENTICATED << (user == QStringLiteral("wrong") ? QStringLiteral("stale") : id)
++               << method << user;
++        if (user == QStringLiteral("split")) {
++            socket.write(frame(hello));
++            QTimer::singleShot(30, &app, [&, authenticated] { socket.write(frame(authenticated)); });
++        } else if (user == QStringLiteral("fragmented")) {
++            const QByteArray bytes = frame(hello);
++            socket.write(bytes.left(3));
++            QTimer::singleShot(30, &app, [&, bytes, authenticated] {
++                socket.write(bytes.mid(3));
++                socket.write(frame(authenticated));
++            });
++        } else {
++            socket.write(frame(hello) + frame(authenticated));
++        }
++    });
++    QObject::connect(&socket, &QLocalSocket::disconnected, &app, [&] { app.quit(); });
++    QTimer::singleShot(user == QStringLiteral("slow") ? 10000 : 2500, &app, [&] { app.exit(2); });
++    socket.connectToServer(value(QStringLiteral("--socket")));
++    if (!socket.waitForConnected(1000))
++        return 3;
++    return app.exec();
++}
+diff --git a/test/AuthTransportTest.cpp b/test/AuthTransportTest.cpp
+new file mode 100644
+index 0000000..29f473b
+--- /dev/null
++++ b/test/AuthTransportTest.cpp
+@@ -0,0 +1,71 @@
++#include <QtTest/QtTest>
++
++#include "Auth.h"
++
++using namespace SDDM;
++
++class AuthTransportTest : public QObject {
++    Q_OBJECT
++private slots:
++    void handoff_data() {
++        QTest::addColumn<QString>("user");
++        QTest::addColumn<AuthMethod>("method");
++        QTest::newRow("hello-and-result-one-write") << QStringLiteral("coalesced") << AuthMethod::Password;
++        QTest::newRow("hello-then-result") << QStringLiteral("split") << AuthMethod::Fingerprint;
++        QTest::newRow("reject-foreign-peer-then-accept-child") << QStringLiteral("forged") << AuthMethod::Fingerprint;
++        QTest::newRow("partial-hello-then-result") << QStringLiteral("fragmented") << AuthMethod::Password;
++    }
++
++    void handoff() {
++        QFETCH(QString, user);
++        QFETCH(AuthMethod, method);
++        Auth auth;
++        auth.setUser(user);
++        auth.setMethod(method);
++        auth.setDeferredAuthorization(true);
++        QSignalSpy authenticated(&auth, &Auth::authentication);
++        QSignalSpy finished(&auth, &Auth::finished);
++        auth.start();
++        QTRY_COMPARE_WITH_TIMEOUT(authenticated.count(), 1, 2000);
++        QCOMPARE(authenticated.at(0).at(0).toString(), user);
++        QVERIFY(authenticated.at(0).at(1).toBool());
++        auth.authorizeSession(false);
++        auth.kill();
++        QTRY_COMPARE_WITH_TIMEOUT(finished.count(), 1, 2000);
++    }
++
++    void rejectsStaleHelperFrame() {
++        Auth auth;
++        auth.setUser(QStringLiteral("wrong"));
++        auth.setDeferredAuthorization(true);
++        QSignalSpy authenticated(&auth, &Auth::authentication);
++        QSignalSpy finished(&auth, &Auth::finished);
++        auth.start();
++        QTRY_COMPARE_WITH_TIMEOUT(finished.count(), 1, 2000);
++        QCOMPARE(authenticated.count(), 0);
++    }
++
++    void oldHandshakeTimerCannotKillRetry() {
++        Auth auth;
++        auth.setUser(QStringLiteral("slow"));
++        auth.setDeferredAuthorization(true);
++        QSignalSpy authenticated(&auth, &Auth::authentication);
++        QSignalSpy finished(&auth, &Auth::finished);
++        auth.start();
++        QTRY_COMPARE_WITH_TIMEOUT(authenticated.count(), 1, 2000);
++        auth.kill();
++        QTRY_COMPARE_WITH_TIMEOUT(finished.count(), 1, 2000);
++        const quint64 previous = auth.launchGeneration();
++        QTest::qWait(4500);
++        auth.start();
++        QTRY_COMPARE_WITH_TIMEOUT(authenticated.count(), 2, 1000);
++        QVERIFY(auth.launchGeneration() > previous);
++        QTest::qWait(650); // cross the original child's five-second timeout
++        QVERIFY(auth.isActive());
++        auth.kill();
++        QTRY_COMPARE_WITH_TIMEOUT(finished.count(), 2, 2000);
++    }
++};
++
++QTEST_GUILESS_MAIN(AuthTransportTest)
++#include "AuthTransportTest.moc"
 diff --git a/test/CMakeLists.txt b/test/CMakeLists.txt
-index c76fefb..767fdf3 100644
+index c76fefb..1950e1e 100644
 --- a/test/CMakeLists.txt
 +++ b/test/CMakeLists.txt
-@@ -19,3 +19,8 @@ add_executable(SessionTest ${SessionTest_SRCS})
+@@ -19,3 +19,35 @@ add_executable(SessionTest ${SessionTest_SRCS})
  target_include_directories(SessionTest PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/../src/common)
  add_test(NAME Session COMMAND SessionTest)
  target_link_libraries(SessionTest Qt${QT_MAJOR_VERSION}::Core Qt${QT_MAJOR_VERSION}::Test)
@@ -1834,3 +2172,30 @@ index c76fefb..767fdf3 100644
 +add_executable(AuthMessagesTest AuthMessagesTest.cpp)
 +add_test(NAME AuthMessages COMMAND AuthMessagesTest)
 +target_link_libraries(AuthMessagesTest Qt${QT_MAJOR_VERSION}::Core Qt${QT_MAJOR_VERSION}::Qml Qt${QT_MAJOR_VERSION}::Test)
++
++add_executable(AuthAttemptGateTest AuthAttemptGateTest.cpp)
++target_include_directories(AuthAttemptGateTest PRIVATE ../src/daemon)
++target_link_libraries(AuthAttemptGateTest Qt${QT_MAJOR_VERSION}::Core Qt${QT_MAJOR_VERSION}::Test)
++add_test(NAME AuthAttemptGate COMMAND AuthAttemptGateTest)
++
++# Compile the real Auth transport against a private fake helper executable.
++# This path is local to the test binary; production sddm keeps its configured libexec path.
++set(AUTH_TEST_HELPER_DIR "${CMAKE_CURRENT_BINARY_DIR}/transport-helper")
++file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/auth-test-constants")
++file(GENERATE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/auth-test-constants/Constants.h"
++    CONTENT "#define LIBEXEC_INSTALL_DIR \"${AUTH_TEST_HELPER_DIR}\"\n")
++add_executable(AuthTransportHelper AuthTransportHelper.cpp)
++set_target_properties(AuthTransportHelper PROPERTIES
++    OUTPUT_NAME sddm-helper RUNTIME_OUTPUT_DIRECTORY "${AUTH_TEST_HELPER_DIR}")
++target_link_libraries(AuthTransportHelper Qt${QT_MAJOR_VERSION}::Core Qt${QT_MAJOR_VERSION}::Network Qt${QT_MAJOR_VERSION}::Qml)
++
++add_executable(AuthTransportTest AuthTransportTest.cpp
++    ../src/auth/Auth.cpp ../src/auth/AuthRequest.cpp ../src/auth/AuthPrompt.cpp
++    ../src/common/SafeDataStream.cpp)
++target_include_directories(AuthTransportTest BEFORE PRIVATE
++    "${CMAKE_CURRENT_BINARY_DIR}/auth-test-constants")
++add_dependencies(AuthTransportTest AuthTransportHelper)
++target_link_libraries(AuthTransportTest
++    Qt${QT_MAJOR_VERSION}::Core Qt${QT_MAJOR_VERSION}::Network
++    Qt${QT_MAJOR_VERSION}::Qml Qt${QT_MAJOR_VERSION}::Test)
++add_test(NAME AuthTransport COMMAND AuthTransportTest)
