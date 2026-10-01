@@ -58,6 +58,20 @@ The client emulated SDDM's `SIGTERM` handling (`SA_RESTART`) while blocked in `p
 
 This validates process termination as the fallback cancellation boundary. It does not validate graceful `pam_end` during a blocked `pam_fprintd` call; the SDDM coordinator must withhold winner session authorization until loser process exit is observed.
 
+## 2026-10-01 isolated cancellation probe
+
+`fprintd-list agus-hy` found the `Synaptics Sensors` reader and the enrolled
+`right-index-finger`. As the unprivileged enrolled user,
+`python3 tests/integration/verify_isolated_pam.py --fingerprint` used a private
+`pam_start_confdir` service (`auth required pam_fprintd.so timeout=30`) twice.
+Both clients reached the informational reader prompt without a finger press.
+Both observed `SIGTERM`, remained blocked, and required the five-second
+`SIGKILL` fallback; each was reaped (`signal=9`, `elapsed_ms=5002`).
+The second client reached the prompt after the first exited. This confirms
+bounded process cleanup and subsequent prompt availability for this isolated
+PAM probe, **not** SDDM's winner barrier, device-idle attestation, or login.
+No host PAM service or active display manager was changed.
+
 ## Required later scenarios
 
 Sprint 1 and Sprint 2 must append dated results for:
