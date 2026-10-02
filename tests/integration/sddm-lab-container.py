@@ -4,9 +4,11 @@ import argparse
 import json
 import os
 from pathlib import Path
+import re
 import select
 import shutil
 import socket
+import stat
 import subprocess
 import sys
 import tempfile
@@ -86,6 +88,30 @@ def prepare():
 
 def boot(args):
     marker = json.loads((LAB / 'manifest.json').read_text())
+    if args.reader != marker.get('reader'):
+        raise RuntimeError('reader option must match the recorded lab reader')
+    reader_device = []
+    if args.reader is not None:
+        match = re.fullmatch(r'/dev/bus/usb/([0-9]{3})/([0-9]{3})', args.reader)
+        if not match:
+            raise RuntimeError('reader must be a canonical USB node')
+        bus, address = int(match[1]), int(match[2])
+        node = Path(args.reader)
+        device = node.stat()
+        if (not 1 <= bus <= 255 or not 1 <= address <= 127
+                or node.resolve(strict=True) != node or not stat.S_ISCHR(device.st_mode)
+                or os.major(device.st_rdev) != 189
+                or os.minor(device.st_rdev) != (bus - 1) * 128 + address - 1
+                or not os.access(node, os.R_OK | os.W_OK)):
+            raise RuntimeError('reader must be the matching accessible USB character device')
+        sysfs = Path(f'/sys/dev/char/{os.major(device.st_rdev)}:{os.minor(device.st_rdev)}')
+        if ((sysfs / 'idVendor').read_text().strip() != '06cb'
+                or (sysfs / 'idProduct').read_text().strip() != '00bd'
+                or int((sysfs / 'busnum').read_text()) != bus
+                or int((sysfs / 'devnum').read_text()) != address):
+            raise RuntimeError('only the recorded Synaptics 06cb:00bd reader may be passed')
+        reader_device = ['-device', f'usb-host,hostbus={bus},hostaddr={address},'
+                         'vendorid=0x06cb,productid=0x00bd']
     for name in ['serial.sock', 'qmp.sock']:
         path = LAB / name
         if path.exists():
@@ -105,6 +131,7 @@ def boot(args):
         '-qmp', 'unix:/lab/qmp.sock,server=on,wait=off',
         '-monitor', 'none', '-no-reboot',
     ]
+    command.extend(reader_device)
     os.execvp(command[0], command)
 
 
@@ -164,6 +191,7 @@ def main():
     parser.add_argument('command', choices=['prepare', 'boot', 'serial', 'powerdown'])
     parser.add_argument('--memory-mib', type=int, default=3072)
     parser.add_argument('--cpus', type=int, default=2)
+    parser.add_argument('--reader', help='exact recorded Synaptics USB device node')
     args = parser.parse_args()
     if args.command == 'prepare':
         prepare()

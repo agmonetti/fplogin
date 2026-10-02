@@ -66,8 +66,17 @@ def main():
             subprocess.run(['systemctl', 'start', 'sddm-lab.service'], check=True)
             print('SDDM_STARTED guest-only; physical-reader acceptance remains NOT_READY')
     elif args.command == 'status':
-        print('NOT_READY no physical reader assigned to this VM; no enrollment or exclusivity proven')
-        print('No USB transfer mode exists. Administrative ownership evidence is required first.')
+        readers = []
+        for device in Path('/sys/bus/usb/devices').iterdir():
+            try:
+                if ((device / 'idVendor').read_text().strip() == '06cb'
+                        and (device / 'idProduct').read_text().strip() == '00bd'):
+                    readers.append(device.name)
+            except FileNotFoundError:
+                continue
+        print(f'READER Synaptics 06cb:00bd {"present" if readers else "missing"}; '
+              f'usb_nodes={",".join(readers) or "none"}')
+        print('NOT_READY: presence is not exclusivity, enrollment, or acceptance matrix evidence')
         return 2
     else:
         print(f"IDENTITY guest={marker['guest_machine_id']} host={marker['host_machine_id']} different=yes")
