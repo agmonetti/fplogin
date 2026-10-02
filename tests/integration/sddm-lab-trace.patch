@@ -1,0 +1,276 @@
+--- a/src/auth/Auth.cpp
++++ b/src/auth/Auth.cpp
+@@ -57,6 +57,14 @@
+         ~Private();
+         void setSocket(QLocalSocket *socket);
+         bool acceptHello(QLocalSocket *socket);
++        void trace(const char *event) const {
++            qInfo().noquote().nospace() << "FPLOGIN_TRACE event=" << event
++                << " request=" << requestId << " helper_pid=" << launchPid
++                << " auth_id=" << id << " generation=" << launchGeneration
++                << " method=" << qint32(method) << " role="
++                << (greeter ? "greeter" : autologin ? "autologin"
++                    : method == AuthMethod::Fingerprint ? "fingerprint" : "password");
++        }
+     public slots:
+         void dataPending();
+         void childExited(int exitCode, QProcess::ExitStatus exitStatus);
+@@ -77,6 +85,7 @@
+         bool authorizationSent { false };
+         bool helloAccepted { false };
+         quint64 launchGeneration { 0 };
++        qint64 launchPid { 0 };
+         AuthMethod method { AuthMethod::Password };
+         QString requestId { QUuid::createUuid().toString(QUuid::WithoutBraces) };
+         QProcessEnvironment environment { };
+@@ -199,6 +208,10 @@
+         if (langEmpty)
+             env.insert(QStringLiteral("LANG"), QStringLiteral("C"));
+         child->setProcessEnvironment(env);
++        connect(child, &QProcess::started, this, [this] {
++            launchPid = child->processId();
++            trace("helper-start");
++        });
+         connect(child, QOverload<int,QProcess::ExitStatus>::of(&QProcess::finished), this, &Auth::Private::childExited);
+         connect(child, &QProcess::errorOccurred, this, &Auth::Private::childError);
+         connect(request, &AuthRequest::finished, this, &Auth::Private::requestFinished);
+@@ -302,6 +315,7 @@
+                     bool status;
+                     str >> status;
+                     if (str.status() != QDataStream::Ok || !str.atEnd()) { child->kill(); return; }
++                    trace(status ? "session-open-success" : "session-open-failure");
+                     Q_EMIT auth->sessionStarted(status);
+                     SafeDataStream reply(socket);
+                     reply << SESSION_STATUS << this->requestId << this->method;
+@@ -328,6 +342,11 @@
+     }
+ 
+     void Auth::Private::childExited(int exitCode, QProcess::ExitStatus exitStatus) {
++        trace("helper-exit");
++        qInfo().noquote().nospace() << "FPLOGIN_TRACE event=helper-exit-result request=" << requestId
++            << " helper_pid=" << launchPid << " generation=" << launchGeneration
++            << " exit_code=" << exitCode
++            << " exit_status=" << (exitStatus == QProcess::NormalExit ? "normal" : "crash");
+         helloAccepted = false;
+         awaitingAuthorization = false;
+         authorizationSent = false;
+@@ -356,7 +375,9 @@
+     }
+ 
+     void Auth::Private::childError(QProcess::ProcessError error) {
+-        Q_UNUSED(error);
++        trace("helper-process-error");
++        qInfo().noquote().nospace() << "FPLOGIN_TRACE event=process-error process_error=" << int(error)
++            << " helper_pid=" << launchPid << " request=" << requestId;
+         Q_EMIT qobject_cast<Auth*>(parent())->error(child->errorString(), ERROR_INTERNAL);
+     }
+ 
+@@ -522,6 +543,7 @@
+         if (!d->awaitingAuthorization || d->authorizationSent || !d->socket
+             || d->socket->state() != QLocalSocket::ConnectedState)
+             return;
++        d->trace(proceed ? "authorization-permit" : "authorization-deny");
+         d->authorizationSent = true;
+         d->awaitingAuthorization = false;
+         SafeDataStream str(d->socket);
+@@ -545,6 +567,8 @@
+         if (d->child->state() != QProcess::NotRunning)
+             return;
+         const quint64 generation = ++d->launchGeneration;
++        d->launchPid = 0;
++        d->trace("helper-launch");
+         d->helloAccepted = false;
+         d->awaitingAuthorization = false;
+         d->authorizationSent = false;
+@@ -574,19 +598,25 @@
+         d->child->start(QStringLiteral("%1/sddm-helper").arg(QStringLiteral(LIBEXEC_INSTALL_DIR)), args);
+         QTimer::singleShot(5000, d, [privateData = d, generation] {
+             if (privateData->launchGeneration == generation
+-                && privateData->child->state() != QProcess::NotRunning && !privateData->helloAccepted)
++                && privateData->child->state() != QProcess::NotRunning && !privateData->helloAccepted) {
++                privateData->trace("kill-handshake-timeout");
+                 privateData->child->kill();
++            }
+         });
+     }
+ 
+     void Auth::terminate() {
+-        if (d->child->state() != QProcess::NotRunning)
++        if (d->child->state() != QProcess::NotRunning) {
++            d->trace("terminate-intent");
+             d->child->terminate();
++        }
+     }
+ 
+     void Auth::kill() {
+-        if (d->child->state() != QProcess::NotRunning)
++        if (d->child->state() != QProcess::NotRunning) {
++            d->trace("kill-intent");
+             d->child->kill();
++        }
+     }
+ 
+     void Auth::stop() {
+--- a/src/helper/HelperApp.cpp
++++ b/src/helper/HelperApp.cpp
+@@ -142,6 +142,11 @@
+         }
+         m_requestedUser = m_user;
+         m_backend->setFingerprint(m_method == AuthMethod::Fingerprint);
++        qInfo().noquote().nospace() << "FPLOGIN_TRACE event=helper-startup request=" << m_requestId
++            << " helper_pid=" << QCoreApplication::applicationPid() << " auth_id=" << m_id
++            << " method=" << qint32(m_method) << " role="
++            << (m_backend->isGreeter() ? "greeter" : m_backend->isAutologin() ? "autologin"
++                : m_method == AuthMethod::Fingerprint ? "fingerprint" : "password");
+ 
+         connect(m_socket, &QLocalSocket::connected, this, &HelperApp::doAuth);
+         connect(m_session, &UserSession::finished, this, &HelperApp::sessionFinished);
+@@ -279,6 +284,10 @@
+         QString requestId;
+         AuthMethod method = AuthMethod::Password;
+         str >> m >> requestId >> method >> proceed;
++        qInfo().noquote().nospace() << "FPLOGIN_TRACE event=authorization-received request=" << m_requestId
++            << " helper_pid=" << QCoreApplication::applicationPid() << " method=" << qint32(m_method)
++            << " permit=" << (m == SESSION_AUTHORIZATION && requestId == m_requestId
++                && method == m_method && proceed && str.status() == QDataStream::Ok);
+         if (m == SESSION_AUTHORIZATION && requestId == m_requestId && method == m_method && proceed) {
+             str >> environment >> m_cookie;
+             return str.status() == QDataStream::Ok;
+@@ -289,6 +298,9 @@
+     }
+ 
+     void HelperApp::sessionOpened(bool success) {
++        qInfo().noquote().nospace() << "FPLOGIN_TRACE event=session-result request=" << m_requestId
++            << " helper_pid=" << QCoreApplication::applicationPid() << " method=" << qint32(m_method)
++            << " success=" << success;
+         Msg m = Msg::MSG_UNKNOWN;
+         SafeDataStream str(m_socket);
+         str << Msg::SESSION_STATUS << m_requestId << m_method << success;
+--- a/src/daemon/Display.cpp
++++ b/src/daemon/Display.cpp
+@@ -460,6 +460,9 @@
+             || requestId != m_requestId || !m_fingerprintAuth->isActive()
+             || m_fingerprintAuth->requestId() != requestId)
+             return;
++        qInfo().noquote().nospace() << "FPLOGIN_TRACE event=cancel-fingerprint request=" << requestId
++            << " method=" << qint32(m_fingerprintAuth->method())
++            << " generation=" << m_fingerprintAuth->launchGeneration();
+         m_attemptGate.cancel(AuthMethod::Fingerprint);
+         m_cancelledHelpers.insert(m_fingerprintAuth);
+         m_fingerprintAuth->authorizeSession(false);
+@@ -476,6 +479,7 @@
+         if (!m_methodAttemptActive)
+             return;
+         const QString requestId = m_requestId;
++        qInfo().noquote().nospace() << "FPLOGIN_TRACE event=cancel-attempt request=" << requestId;
+         QPointer<QLocalSocket> socket = m_attemptSocket;
+         m_attemptGate.invalidate();
+         m_methodAttemptActive = false;
+@@ -507,6 +511,9 @@
+         if (!m_methodAttemptActive || !m_winnerAuth || m_waitingForLoser
+             || !m_attemptGate.authorize(m_winnerAuth->method()))
+             return;
++        qInfo().noquote().nospace() << "FPLOGIN_TRACE event=winner-authorize request=" << m_requestId
++            << " method=" << qint32(m_winnerAuth->method())
++            << " generation=" << m_winnerAuth->launchGeneration();
+         if (qobject_cast<XorgDisplayServer *>(m_displayServer))
+             m_winnerAuth->setCookie(qobject_cast<XorgDisplayServer *>(m_displayServer)->cookie());
+         m_winnerAuth->authorizeSession(true);
+@@ -709,11 +716,16 @@
+ 
+             m_methodWinnerChosen = true;
+             m_winnerAuth = auth;
++            qInfo().noquote().nospace() << "FPLOGIN_TRACE event=winner-selected request=" << m_requestId
++                << " method=" << qint32(auth->method()) << " generation=" << auth->launchGeneration();
+             Auth *other = auth == m_auth ? m_fingerprintAuth : m_auth;
+             if (other->isActive() && other->requestId() == m_requestId) {
+                 m_loserAuth = other;
+                 m_attemptGate.waitFor(other->method());
+                 m_waitingForLoser = true;
++                qInfo().noquote().nospace() << "FPLOGIN_TRACE event=loser-barrier-wait request=" << m_requestId
++                    << " winner_method=" << qint32(auth->method()) << " loser_method=" << qint32(other->method())
++                    << " loser_generation=" << other->launchGeneration();
+                 other->authorizeSession(false);
+                 other->terminate();
+                 QPointer<Auth> guarded(other);
+@@ -819,6 +831,8 @@
+                 && auth->requestId() == m_requestId && m_attemptSocket)
+                 m_socketServer->authenticationMethodState(m_attemptSocket, m_requestId, 6, QStringLiteral("cancelled"));
+             if (auth && auth == m_loserAuth && m_methodAttemptActive && auth->requestId() == m_requestId) {
++                qInfo().noquote().nospace() << "FPLOGIN_TRACE event=loser-barrier-release request=" << m_requestId
++                    << " method=" << qint32(auth->method()) << " generation=" << auth->launchGeneration();
+                 m_loserAuth.clear();
+                 m_attemptGate.exited(auth->method());
+                 m_waitingForLoser = false;
+@@ -832,6 +846,8 @@
+                 return;
+             if (m_methodAttemptActive && auth->requestId() == m_requestId) {
+             if (auth == m_loserAuth) {
++                qInfo().noquote().nospace() << "FPLOGIN_TRACE event=loser-barrier-release request=" << m_requestId
++                    << " method=" << qint32(auth->method()) << " generation=" << auth->launchGeneration();
+                 m_loserAuth.clear();
+                 m_attemptGate.exited(auth->method());
+                 m_waitingForLoser = false;
+--- a/src/helper/backend/PamHandle.cpp
++++ b/src/helper/backend/PamHandle.cpp
+@@ -70,7 +70,9 @@
+     }
+ 
+     bool PamHandle::acctMgmt(int flags) {
++        qInfo().nospace() << "FPLOGIN_PAM phase=account edge=enter flags=" << (flags | m_silent);
+         m_result = pam_acct_mgmt(m_handle, flags | m_silent);
++        qInfo().nospace() << "FPLOGIN_PAM phase=account edge=return rc=" << m_result;
+         if (m_result == PAM_NEW_AUTHTOK_REQD) {
+             // TODO see if this should really return the value or just true regardless of the outcome
+             return chAuthTok(PAM_CHANGE_EXPIRED_AUTHTOK);
+@@ -84,8 +86,10 @@
+ 
+     bool PamHandle::authenticate(int flags) {
+         qDebug() << "[PAM] Authenticating...";
++        qInfo().nospace() << "FPLOGIN_PAM phase=authenticate edge=enter flags=" << (flags | m_silent);
+         m_result = pam_authenticate(m_handle, flags | m_silent);
++        qInfo().nospace() << "FPLOGIN_PAM phase=authenticate edge=return rc=" << m_result;
+         if (m_result != PAM_SUCCESS) {
+             qWarning() << "[PAM] authenticate:" << pam_strerror(m_handle, m_result);
+         }
+         qDebug() << "[PAM] returning.";
+@@ -93,7 +97,9 @@
+     }
+ 
+     bool PamHandle::setCred(int flags) {
++        qInfo().nospace() << "FPLOGIN_PAM phase=setcred edge=enter flags=" << (flags | m_silent);
+         m_result = pam_setcred(m_handle, flags | m_silent);
++        qInfo().nospace() << "FPLOGIN_PAM phase=setcred edge=return rc=" << m_result;
+         if (m_result != PAM_SUCCESS) {
+             qWarning() << "[PAM] setCred:" << pam_strerror(m_handle, m_result);
+         }
+@@ -101,7 +107,9 @@
+     }
+ 
+     bool PamHandle::openSession() {
++        qInfo().nospace() << "FPLOGIN_PAM phase=open-session edge=enter flags=" << m_silent;
+         m_result = pam_open_session(m_handle, m_silent);
++        qInfo().nospace() << "FPLOGIN_PAM phase=open-session edge=return rc=" << m_result;
+         if (m_result != PAM_SUCCESS) {
+             qWarning() << "[PAM] openSession:" << pam_strerror(m_handle, m_result);
+         }
+@@ -110,7 +118,9 @@
+     }
+ 
+     bool PamHandle::closeSession() {
++        qInfo().nospace() << "FPLOGIN_PAM phase=close-session edge=enter flags=" << m_silent;
+         m_result = pam_close_session(m_handle, m_silent);
++        qInfo().nospace() << "FPLOGIN_PAM phase=close-session edge=return rc=" << m_result;
+         if (m_result != PAM_SUCCESS) {
+             qWarning() << "[PAM] closeSession:" << pam_strerror(m_handle, m_result);
+         }
+@@ -162,7 +172,9 @@
+     bool PamHandle::end(int flags) {
+         if (!m_handle)
+             return false;
++        qInfo().nospace() << "FPLOGIN_PAM phase=end edge=enter flags=" << (m_result | flags);
+         m_result = pam_end(m_handle, m_result | flags);
++        qInfo().nospace() << "FPLOGIN_PAM phase=end edge=return rc=" << m_result;
+         if (m_result != PAM_SUCCESS) {
+             qWarning() << "[PAM] end:" << pam_strerror(m_handle, m_result);
+             return false;
