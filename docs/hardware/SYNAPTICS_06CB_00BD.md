@@ -104,8 +104,9 @@ Build and install that tree in a Docker runtime image before preparing the VM.
 The VM runs its own kernel, systemd PID 1, system D-Bus, logind and graphical
 `seat0` under QEMU TCG. A guest `seat0` is independent of the host `seat0`;
 renaming a seat or sharing the host logind socket would not create isolation.
-No host USB, DRM, X/Wayland socket, system D-Bus or PAM directory is mounted.
-The guest has no network. VNC is published on host loopback only. Serial
+By default no host USB is passed. The explicit reader option below maps only
+one USB character node; no whole USB tree, DRM, X/Wayland socket, system D-Bus
+or PAM directory is mounted. The guest has no network. VNC is published on host loopback only. Serial
 recovery uses a private Unix socket reached with Docker exec, not a TCP root
 console. Serial root autologin is restricted to this disposable, networkless
 guest; it is not a production recovery configuration.
@@ -161,16 +162,104 @@ Re-enrollment or deletion in another OS can therefore change hardware state;
 do not silently replace or erase the active host's enrollment. An administrator
 must establish a safe lab enrollment policy before any such operation.
 
-No reader passthrough option is supplied for the current active host.
-`NOT_READY` is the expected status until ownership and enrollment are established.
-A recovery acknowledgment, a running VM, a reader prompt, or zero remaining
-helpers alone does not pass this gate.
+#### Explicit single-reader handoff
 
-### Pending matrix and required evidence
+The operator must explicitly agree to dedicate this physical match-on-sensor
+reader to the lab, including possible loss of host enrollment and later host
+re-enrollment. The administrator must confirm password/TTY recovery works
+without it, exclude other reader consumers (including other VMs and manually
+started daemons), and authorize the local user to access this one device.
+The person enrolling must separately consent and participate physically.
+Do not run host `fprintd-list`/enrollment while the lab owns the reader.
 
-Every row below remains **not run in the isolated physical-reader environment**
-until a dated result with the corresponding trace is appended to the sprint
-review. Synthetic PAM success must be labeled separately.
+Rebuild the tooling image from these updated sources before use. `prepare`
+builds and pins a new image and creates a new disk; an existing lab manifest
+still pins its old entrypoint even if a Docker tag is rebuilt. Prefer preparing
+a fresh private lab directory rather than changing a running lab's manifest.
+
+Example for the recorded node (USB addresses can change; verify again each
+time). First record the pre-handoff service state and save the node ACL in a
+private administrator-controlled file so restoration does not remove unrelated
+permissions. Only the administrator performs these host changes:
+
+```text
+lsusb -s 001:004
+systemctl show fprintd.service -p UnitFileState -p ActiveState -p SubState
+sudo sh -c 'umask 077; getfacl -p /dev/bus/usb/001/004 > /root/fplogin-reader.acl'
+sudo systemctl mask --runtime --now fprintd.service
+sudo setfacl -m u:agus-hy:rw /dev/bus/usb/001/004
+systemctl show fprintd.service -p LoadState -p UnitFileState -p ActiveState -p SubState
+```
+
+Do not overwrite an existing saved ACL. If the handoff was already performed,
+use its recorded previous state instead of treating the changed ACL as the
+original. An administrator must resolve a pre-existing persistent service mask;
+the launcher requires `masked-runtime`, `inactive`, and `dead` specifically.
+It does not grant permissions or mask/stop services itself.
+
+As the authorized ordinary user, with no host fprintd consumer remaining:
+
+```text
+python3 tests/integration/sddm_lab_vm.py start \
+  --lab-dir /tmp/fplogin-sddm-lab --reader /dev/bus/usb/001/004
+python3 tests/integration/sddm_lab_vm.py status --lab-dir /tmp/fplogin-sddm-lab
+python3 tests/integration/sddm_lab_vm.py recovery --lab-dir /tmp/fplogin-sddm-lab
+```
+
+The launcher checks canonical path, USB character-device numbers, user read/
+write access, matching sysfs bus/address and exact `06cb:00bd`, plus host
+fprintd state. Docker receives only `--device NODE:NODE:rw` plus a bind mount
+of that same single node to preserve its named-user ACL; runc's recreated
+device node alone does not retain that ACL. It never uses privileged mode.
+QEMU uses the existing xHCI controller with `usb-host` restricted by
+host bus/address and VID/PID. Container startup rechecks the node identity.
+The local manifest records the explicit node so status/recovery/stop inspect
+that exact mapping without requiring the device to remain plugged in or the
+host service to remain masked. Starting again without `--reader` restores
+the default no-device configuration; it never implicitly reuses the record.
+
+In the guest, run `fplogin-lab status`, `lsusb -d 06cb:00bd`, and
+`fprintd-list fplab`. Record enumeration and enrollment metadata only.
+An empty guest enrollment is expected until authorized interactive enrollment;
+do not import the host store. USB presence and a runtime mask are checks, not
+proof of exclusive ownership: already-open descriptors, other administrators,
+and later service/device changes remain outside this gate. If the node changes,
+stop and recheck identity before a fresh opt-in start; never map the USB tree.
+
+#### Bounded handback
+
+Stop the VM first with `sddm_lab_vm.py stop --lab-dir /tmp/fplogin-sddm-lab`.
+It requests ACPI shutdown and uses a bounded container-stop fallback; inspect
+the printed outcome. Confirm that its container is gone before restoring host
+access. The wrapper deliberately does not undo administrator policy.
+
+After verifying that the saved ACL belongs to this same physical node, the
+administrator restores it with
+`sudo setfacl --restore=/root/fplogin-reader.acl`. If there was no saved ACL
+and the handoff only added a previously absent named-user entry, remove only
+that entry with `sudo setfacl -x u:agus-hy /dev/bus/usb/001/004`; do not reset
+the whole node's permissions. A replugged/readdressed device needs a fresh
+identity and permission review rather than blindly restoring an old path.
+Remove only the runtime mask introduced for this lab with
+`sudo systemctl unmask --runtime fprintd.service`; preserve any pre-existing
+administrator mask. Restart fprintd only if it was previously active or the
+administrator explicitly wants host verification now. Check host enrollment
+with the owner present and, if necessary, re-enroll interactively under the
+agreed policy. No automated delete/reset of sensor slots is authorized.
+
+`NOT_READY` remains the expected acceptance status even after handoff and
+enrollment: each matrix requirement needs its own evidence. A recovery
+acknowledgment, a running VM, a reader prompt, or zero remaining helpers alone
+does not pass this gate.
+
+### Matrix and required evidence
+
+The [2026-10-01 physical execution record](../reviews/sprint-1.md#2026-10-01-teardown-attribution-and-physical-reader-matrix)
+documents the authorized handoff, guest enrollment, real-reader JSONL and
+per-row results: **9 verified scoped behaviors, 5 partial rows, 2 failed rows**.
+Winning-helper exit `9/crash` after `pam_end` and failed session reuse keep
+Sprint 1 blocked. The table below is the required contract, not a pass list.
+Synthetic diagnostic PAM runs are recorded separately from physical results.
 
 | ID | Scenario | Required observation |
 |---|---|---|
