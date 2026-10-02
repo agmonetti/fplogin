@@ -91,3 +91,144 @@ Sprint 1 and Sprint 2 must append dated results for:
 - Keep `/etc/pam.d/system-auth`, sudo, polkit, SSH, and unrelated PAM services unchanged.
 - Redact credentials and user-sensitive environment values from captured logs.
 - Keep password/TTY recovery available during display-manager tests.
+
+## Isolated Sprint 1 laboratory
+
+The laboratory assets are [`sddm_lab_vm.py`](../../tests/integration/sddm_lab_vm.py),
+[`sddm-lab-trace.patch`](../../tests/integration/sddm-lab-trace.patch), and
+[`collect_sddm_lab.py`](../../tests/integration/collect_sddm_lab.py).
+The diagnostic patch is separate from the production patch series: apply the
+production patch first, then the diagnostic patch to a disposable source tree.
+Build and install that tree in a Docker runtime image before preparing the VM.
+
+The VM runs its own kernel, systemd PID 1, system D-Bus, logind and graphical
+`seat0` under QEMU TCG. A guest `seat0` is independent of the host `seat0`;
+renaming a seat or sharing the host logind socket would not create isolation.
+No host USB, DRM, X/Wayland socket, system D-Bus or PAM directory is mounted.
+The guest has no network. VNC is published on host loopback only. Serial
+recovery uses a private Unix socket reached with Docker exec, not a TCP root
+console. Serial root autologin is restricted to this disposable, networkless
+guest; it is not a production recovery configuration.
+
+VNC also listens on the container network. Loopback publication alone does not
+exclude Docker bridge peers. Use a trusted, dedicated local Docker environment;
+this is not a security boundary against Docker administrators.
+
+### Boot and recovery
+
+```text
+python3 tests/integration/sddm_lab_vm.py prepare \
+  --lab-dir /tmp/fplogin-sddm-lab --runtime-image fplogin-lab-traced:local
+python3 tests/integration/sddm_lab_vm.py start \
+  --lab-dir /tmp/fplogin-sddm-lab --vnc-port 5905
+python3 tests/integration/sddm_lab_vm.py recovery --lab-dir /tmp/fplogin-sddm-lab
+```
+
+In the serial guest console:
+
+```text
+fplogin-lab recovery-check
+fplogin-lab status
+```
+
+Recovery must be exercised before `fplogin-lab start-sddm`. Stop/restart SDDM
+from this console and verify that serial access remains usable. Use
+`sddm-lab.service`, not `sddm --test-mode`; container test mode does not exercise
+the real logind lifecycle. Stop the VM with:
+
+```text
+python3 tests/integration/sddm_lab_vm.py stop --lab-dir /tmp/fplogin-sddm-lab
+```
+
+### Reader ownership gate
+
+Initial provisioning intentionally passes **no reader**. The active host's
+enrollment does not establish guest enrollment: fprintd's per-user records
+belong to the system performing verification, even for a match-on-sensor reader.
+Do not copy host fingerprint templates or host credential databases.
+
+Before physical-reader scenarios, an administrator must provide exclusive
+ownership of the specific `06cb:00bd` device to the isolated system without
+leaving the active host dependent on it. Record the physical USB identity/path,
+the ownership transition, host-side prevention of competing fprintd claims,
+guest-side device enumeration and guest `fprintd-list fplab` result. Establish a
+disposable guest password via interactive `passwd`, never a command-line
+password or a reused host password. Guest enrollment/verification requires
+the enrolled person's physical participation; do not infer it from USB presence.
+
+This match-on-sensor device may retain enrollment slots on the sensor.
+Re-enrollment or deletion in another OS can therefore change hardware state;
+do not silently replace or erase the active host's enrollment. An administrator
+must establish a safe lab enrollment policy before any such operation.
+
+No reader passthrough option is supplied for the current active host.
+`NOT_READY` is the expected status until ownership and enrollment are established.
+A recovery acknowledgment, a running VM, a reader prompt, or zero remaining
+helpers alone does not pass this gate.
+
+### Pending matrix and required evidence
+
+Every row below remains **not run in the isolated physical-reader environment**
+until a dated result with the corresponding trace is appended to the sprint
+review. Synthetic PAM success must be labeled separately.
+
+| ID | Scenario | Required observation |
+|---|---|---|
+| R01 | Fingerprint and password active together | Two helper PIDs, same request, distinct methods; both real PAM authentication phases active |
+| R02 | Password wins while reader waits | Fingerprint loser exits before winner authorization; subsequent real fprintd claim/verification succeeds |
+| R03 | Fingerprint wins | Genuine biometric match; password loser exits; only winner crosses account/setcred/open-session |
+| R04 | Simultaneous-success race, both callback orders | Record both successful PAM results before arbitration where achievable; exactly one session; distinguish controlled interleaving from timing stress |
+| R05 | Fingerprint cancellation and late success, both loser-exit orders | Cancelled callback cannot win; observed loser exit releases the selected password winner |
+| R06 | Change user during scan | Old request cannot authorize the new user; new request and correct account policy |
+| R07 | Change session or replace request during scan | Stale result cannot start the previous session; replacement gets fresh identity |
+| R08 | Invalid finger, reader timeout, reader unavailable | Bounded failure and cleanup; password still usable; no repeated automatic loop |
+| R09 | Display stop during blocked authentication | Observe terminate/kill intent, exit and bounded reader reuse; no unaccounted helper |
+| R10 | Fingerprint failure/cancellation then retry | Fresh request/generation and successful genuine verification; old result ignored |
+| R11 | Password failure then retry across old five-second deadlines | Keep one greeter connection; new helper survives old handshake and forced-kill callbacks |
+| R12 | Password-only, missing reader and unenrolled account | Normal distro PAM login succeeds without biometric substitution |
+| R13 | Autologin | Stock account/session policy; one session without accidental fingerprint transaction |
+| R14 | Existing logind session reuse | Record session ID/leader before and after; activate intended session without a duplicate session launch |
+| R15 | Logout/relogin, X11 and Hyprland | Session closes, display/greeter restarts, fresh request; X11 authorization and real Wayland lifecycle |
+| R16 | Account denial and helper/fprintd failure | Denied account never opens a session; password fallback and reader recovery survive failure |
+
+For each row record run ID, boot ID, monotonic timestamps, request UUID,
+daemon/helper/greeter PID, role, method, launch generation, PAM phase/result,
+logind session ID/leader and exit status. State unknown bindings explicitly.
+Use identifiers, not passwords, PAM responses, environment dumps, X cookies
+or fingerprint data. Include setup/cleanup failures rather than counting only
+successful runs. Gate acceptance also requires independent review; this matrix
+does not authorize Sprint 2.
+
+### Identifier-only capture and teardown diagnostics
+
+Inside the booted guest, start the collector before the scenario:
+
+```text
+python3 /usr/local/lib/fplogin-lab/collect_sddm_lab.py \
+  --output /root/R01-events.jsonl
+```
+
+The collector saves allowlisted structured SDDM/PAM events and logind session
+identifiers as mode-0600 JSONL, refusing overwrite. It does not save raw journal
+messages, usernames or PAM conversations. Live capture refuses the host and
+container-only environments. PID joins are boot-scoped; logind request binding
+requires an observed session leader matching a known helper. Missing bindings
+remain null and must be resolved with contemporaneous `loginctl` evidence, not
+timestamp proximity. Offline `--journal` normalization does not attest isolation.
+
+Helper journal selection also matches the installed executable path: PAM/logind
+can move a helper into a session scope, outside `sddm-lab.service`. A unit-only
+capture would lose its later session-close/end events.
+
+Reader release needs fprintd Claim/Release or owner-disconnect evidence plus a
+subsequent claim/verification. D-Bus tracing must capture method headers and
+sender/PID identities only, never message bodies or templates. The JSONL
+collector by itself does not attest device-idle state.
+
+For exit `9`, distinguish normal exit code 9 from `exit_status=crash`, correlate
+cached helper PID/role with kill intent and PAM close/end, and identify the
+signal issuer before assigning a cause. For `QBasicTimer`, the journal emitter
+PID identifies the process; obtain a matching-symbol debugger backtrace at
+`QBasicTimer::start` during reproduction. Do not set global
+`QT_FATAL_WARNINGS=1`: unrelated warnings would change teardown behavior.
+No diagnosis is cleared by a zero-helper count.
