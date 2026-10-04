@@ -8,7 +8,7 @@ SDDM does not natively support fingerprint authentication. Users must type their
 
 ## Planned approach
 
-The Foundation Gate is complete. Sprint 0 has pinned and built the stock SDDM baseline and approved the runtime patch boundary; the patched SDDM, theme, installer, and analyzer are not implemented yet.
+The Foundation Gate and Sprint 0 are complete. The Sprint 1 SDDM patch is implemented and has passed isolated Qt and synthetic-logind checks, but its physical-reader acceptance matrix is incomplete; Sprint 1 is not accepted and QML/Sprint 2 has not started.
 
 The planned product has:
 

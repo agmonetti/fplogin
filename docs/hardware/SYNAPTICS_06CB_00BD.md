@@ -257,9 +257,15 @@ does not pass this gate.
 The [2026-10-01 physical execution record](../reviews/sprint-1.md#2026-10-01-teardown-attribution-and-physical-reader-matrix)
 documents the authorized handoff, guest enrollment, real-reader JSONL and
 per-row results: **9 verified scoped behaviors, 5 partial rows, 2 failed rows**.
-Winning-helper exit `9/crash` after `pam_end` and failed session reuse keep
-Sprint 1 blocked. The table below is the required contract, not a pass list.
-Synthetic diagnostic PAM runs are recorded separately from physical results.
+The prior winning-helper exit `9/crash` after `pam_end` and failed session reuse
+keep Sprint 1 blocked. The table below is the required contract, not a pass
+list. Synthetic diagnostic PAM runs are recorded separately from physical results.
+
+The [2026-10-04 software-only rerun](../reviews/sprint-1.md#2026-10-04-teardown-remediation-and-isolated-logind-rerun)
+observed clean winner exit and real guest logind reuse with temporary `pam_permit`,
+but is not a physical-reader matrix rerun. Host single-reader ownership/ACL
+must be reestablished before `start --reader`; the new guest also needs its
+own interactive enrollment. R01–R16 remain unaccepted until rerun with real PAM.
 
 | ID | Scenario | Required observation |
 |---|---|---|
