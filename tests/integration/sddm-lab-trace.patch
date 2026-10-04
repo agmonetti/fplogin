@@ -15,9 +15,10 @@
      public slots:
          void dataPending();
          void childExited(int exitCode, QProcess::ExitStatus exitStatus);
-@@ -77,6 +85,7 @@
+@@ -77,7 +85,8 @@
          bool authorizationSent { false };
          bool helloAccepted { false };
+         bool stopping { false };
          quint64 launchGeneration { 0 };
 +        qint64 launchPid { 0 };
          AuthMethod method { AuthMethod::Password };
