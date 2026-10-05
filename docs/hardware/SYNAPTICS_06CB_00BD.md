@@ -247,25 +247,29 @@ administrator explicitly wants host verification now. Check host enrollment
 with the owner present and, if necessary, re-enroll interactively under the
 agreed policy. No automated delete/reset of sensor slots is authorized.
 
-`NOT_READY` remains the expected acceptance status even after handoff and
-enrollment: each matrix requirement needs its own evidence. A recovery
-acknowledgment, a running VM, a reader prompt, or zero remaining helpers alone
-does not pass this gate.
+Handoff and enrollment alone leave a fresh laboratory's acceptance status
+`NOT_READY`: every requirement needs its own evidence. Sprint 1's final R01–R16
+matrix and independent review are complete; that acceptance does not attest a
+new Sprint 2 binary, theme or laboratory.
 
 ### Matrix and required evidence
 
 The [2026-10-01 physical execution record](../reviews/sprint-1.md#2026-10-01-teardown-attribution-and-physical-reader-matrix)
-documents the authorized handoff, guest enrollment, real-reader JSONL and
-per-row results: **9 verified scoped behaviors, 5 partial rows, 2 failed rows**.
-The prior winning-helper exit `9/crash` after `pam_end` and failed session reuse
-keep Sprint 1 blocked. The table below is the required contract, not a pass
-list. Synthetic diagnostic PAM runs are recorded separately from physical results.
+recorded the initial **9 verified scoped behaviors, 5 partial rows, 2 failed rows**.
+Those historical failures were remediated. The [2026-10-04 physical completion](../reviews/sprint-1.md#2026-10-04-physical-matrix-completion-on-final-binary)
+verified all R01–R16 on the final binary with genuine guest PAM and this sensor;
+the [independent acceptance review](../reviews/sprint-1.md#2026-10-04-sol-independent-acceptance-review--sprint-1-gate)
+**accepted and closed Sprint 1** and authorized Sprint 2. The table below retains
+the verification contract, not an outstanding Sprint 1 checklist.
 
-The [2026-10-04 software-only rerun](../reviews/sprint-1.md#2026-10-04-teardown-remediation-and-isolated-logind-rerun)
-observed clean winner exit and real guest logind reuse with temporary `pam_permit`,
-but is not a physical-reader matrix rerun. Host single-reader ownership/ACL
-must be reestablished before `start --reader`; the new guest also needs its
-own interactive enrollment. R01–R16 remain unaccepted until rerun with real PAM.
+On 2026-10-05 no QEMU process or running fplogin container remained. The host
+reader was `/dev/bus/usb/001/004`, without a named-user ACL; fprintd was unmasked
+(`UnitFileState=static`) and inactive/dead. No host mutation was necessary.
+The saved root-only ACL could not be inspected without a sudo password, so exact
+equality with that historical backup is not claimed. Fresh Sprint 2 physical
+verification requires a new explicit reader handoff and its own
+[actual-surface evidence](../SPRINT_2_EXECUTION_PLAN.md#actual-surface-acceptance-matrix);
+do not repeat Sprint 1's closed acceptance gate.
 
 | ID | Scenario | Required observation |
 |---|---|---|
@@ -291,8 +295,8 @@ daemon/helper/greeter PID, role, method, launch generation, PAM phase/result,
 logind session ID/leader and exit status. State unknown bindings explicitly.
 Use identifiers, not passwords, PAM responses, environment dumps, X cookies
 or fingerprint data. Include setup/cleanup failures rather than counting only
-successful runs. Gate acceptance also requires independent review; this matrix
-does not authorize Sprint 2.
+successful runs. Sprint 1's independent gate is complete and authorizes Sprint 2;
+its matrix does not substitute for Sprint 2 UX/fallback acceptance.
 
 ### Identifier-only capture and teardown diagnostics
 

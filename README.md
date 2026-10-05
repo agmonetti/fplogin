@@ -8,7 +8,7 @@ SDDM does not natively support fingerprint authentication. Users must type their
 
 ## Planned approach
 
-The Foundation Gate and Sprint 0 are complete. The Sprint 1 SDDM patch is implemented and has passed isolated Qt and synthetic-logind checks, but its physical-reader acceptance matrix is incomplete; Sprint 1 is not accepted and QML/Sprint 2 has not started.
+The Foundation Gate, Sprint 0 and Sprint 1 are complete. Sprint 1 is accepted and closed by the [2026-10-04 independent review](docs/reviews/sprint-1.md#2026-10-04-sol-independent-acceptance-review--sprint-1-gate), including the final physical-reader matrix R01–R16. Sprint 2 greeter/theme design and its [execution handoff](docs/SPRINT_2_EXECUTION_PLAN.md) are documented; implementation and actual-surface acceptance are next.
 
 The planned product has:
 
@@ -94,6 +94,8 @@ No existing system files will be modified in place. The installer will generate 
 - [Implementation Plan](docs/IMPLEMENTATION_PLAN.md): Sprint roadmap, verification matrix, security model, and Definition of Done.
 - [Core Language and Adapter Contract](docs/architecture/CORE_ADAPTER_ANALYSIS.md): Language evaluation, adapter protocol, repository foundation, and architectural risks.
 - [SDDM Concurrent Authentication Design](docs/architecture/SDDM_AUTHENTICATION_DESIGN.md): Pinned baseline, stock message flow, winner gate, cancellation boundary, and proposed SDDM IPC.
+- [SDDM Greeter and Theme Design](docs/architecture/SDDM_GREETER_DESIGN.md): Sprint 2 context correlation, typed reader states, controlling-view lifecycle and password fallback.
+- [Sprint 2 Execution Plan](docs/SPRINT_2_EXECUTION_PLAN.md): Implementation slices, affected source paths and actual-surface acceptance matrix.
 - [Synaptics Test Hardware](docs/hardware/SYNAPTICS_06CB_00BD.md): Primary physical-reader record and scenario matrix.
 - [Research Lessons](docs/LESSONS.md): Grounded investigation, reference platforms, failed experiments, and security analysis.
 
