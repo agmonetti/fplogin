@@ -776,7 +776,7 @@ index 4014e0d..861464c 100644
          m_socket = socket;
  
          //the SDDM user has special privileges that skip password checking so that we can load the greeter
-@@ -327,8 +371,194 @@ namespace SDDM {
+@@ -327,8 +371,192 @@ namespace SDDM {
              return;
          }
  
@@ -784,7 +784,6 @@ index 4014e0d..861464c 100644
 -        startAuth(user, password, session);
 +        if (m_methodAttemptActive) {
 +            if (m_methodWinnerChosen) {
-+                emit loginFailed(m_socket);
 +                return;
 +            }
 +            if (user != m_attemptUser || session.type() != m_attemptSession.type()
@@ -799,7 +798,6 @@ index 4014e0d..861464c 100644
 +                return;
 +            }
 +            if (m_auth->isActive()) {
-+                emit loginFailed(m_socket);
 +                return;
 +            }
 +        } else {
@@ -1000,6 +998,16 @@ index 4014e0d..861464c 100644
  
          // sanity check
          if (!session.isValid()) {
+@@ -407,6 +652,8 @@ namespace SDDM {
+                 if (s.userName == user) {
+                     OrgFreedesktopLogin1SessionInterface session(Logind::serviceName(), s.sessionPath.path(), QDBusConnection::systemBus());
+-                    if (session.service() == QLatin1String("sddm") && session.state() == QLatin1String("online")) {
++                    const QString service = session.service();
++                    if ((service == QLatin1String("sddm") || service == QLatin1String("sddm-fingerprint"))
++                        && session.state() == QLatin1String("online")) {
+                         m_reuseSessionId = s.sessionId;
+                         break;
+                     }
 @@ -448,21 +686,72 @@ namespace SDDM {
            if (m_displayServerType == X11DisplayServerType)
              env.insert(QStringLiteral("DISPLAY"), name());
@@ -1089,7 +1097,7 @@ index 4014e0d..861464c 100644
              }
  
              // save last user and last session
-@@ -503,25 +792,121 @@ namespace SDDM {
+@@ -503,25 +792,124 @@ namespace SDDM {
  
      void Display::slotAuthInfo(const QString &message, Auth::Info info) {
          qWarning() << "Authentication information:" << info << message;
@@ -1212,6 +1220,9 @@ index 4014e0d..861464c 100644
 +                if (m_attemptSocket)
 +                    emit loginSucceeded(m_attemptSocket);
 +                finishMethodAttempt(true);
++                // Reuse activates the existing session; retire this greeter's
++                // display server so logout can create a fresh greeter.
++                QTimer::singleShot(0, this, &Display::stop);
 +            }
 +            return;
 +            }
