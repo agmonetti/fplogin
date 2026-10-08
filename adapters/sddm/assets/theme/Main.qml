@@ -21,6 +21,7 @@
  */
 
 import QtQuick 2.15
+import QtQuick.Window 2.15
 import QtQuick.Controls 2.15
 import QtQuick.Layouts 1.15
 
@@ -60,39 +61,56 @@ Rectangle {
     }
 
     function synchronizeContext() {
-        if (!controller || !viewReady)
+        if (!controller || !viewReady || sddm.authenticationBusy)
             return
-        selectedUser = userAt(userBox.currentIndex)
-        selectedSessionFile = sessionFileAt(sessionBox.currentIndex)
-        selectedSessionType = sessionTypeAt(sessionBox.currentIndex)
+        var user = userAt(userBox.currentIndex)
+        var file = sessionFileAt(sessionBox.currentIndex)
+        var type = sessionTypeAt(sessionBox.currentIndex)
+        if (user === selectedUser && file === selectedSessionFile && type === selectedSessionType) {
+            maybeStartFingerprint()
+            return
+        }
+        selectedUser = user
+        selectedSessionFile = file
+        selectedSessionType = type
         autoStartIssued = false
         passwordSubmissionPending = false
         passwordField.clear()
         loginMessage = ""
+        contextPending = false
         if (!selectedUser.length || !selectedSessionFile.length || selectedSessionType === undefined) {
-            contextPending = false
             sddm.clearAuthenticationContext()
             statusText = "Select a valid user and desktop session. Fingerprint sign-in is unavailable."
             return
         }
-        contextPending = true
-        statusText = "Preparing fingerprint sign-in for " + selectedUser + ". Password sign-in is available."
-        sddm.setAuthenticationContext(selectedUser, sessionBox.currentIndex)
+        if (sddm.authenticationMethodsAvailable) {
+            contextPending = true
+            sddm.setAuthenticationContext(selectedUser, sessionBox.currentIndex)
+        }
         maybeStartFingerprint()
     }
 
     function maybeStartFingerprint() {
         if (!controller || !viewReady)
             return
-        // Matching proxy identity means the requested selection was acknowledged.
-        if (contextPending && contextMatches())
+        if (!sddm.authenticationMethodsAvailable) {
             contextPending = false
-        if (contextPending || !contextMatches() || autoStartIssued)
+        } else if (contextPending && contextMatches() && sddm.fingerprintRequestId.length) {
+            contextPending = false
+        } else if (!contextPending && !sddm.fingerprintRequestId.length &&
+                   selectedUser.length && validSession(sessionBox.currentIndex) &&
+                   sddm.authenticationSubmissionAllowed) {
+            contextPending = true
+            sddm.setAuthenticationContext(selectedUser, sessionBox.currentIndex)
+        }
+        if (contextPending || autoStartIssued)
             return
         if (!sddm.authenticationMethodsAvailable) {
-            statusText = "Fingerprint sign-in is not supported by this greeter. Password sign-in is available."
+            statusText = fingerprintDescription()
             return
         }
+        if (!contextMatches() || !sddm.fingerprintRequestId.length || sddm.authenticationBusy)
+            return
         if (sddm.fingerprintAvailable) {
             autoStartIssued = true
             statusText = "Starting fingerprint sign-in for " + selectedUser + ". You can type your password at any time."
@@ -103,6 +121,8 @@ Rectangle {
     }
 
     function fingerprintDescription() {
+        if (sddm.fingerprintDetailCode === "daemon_upgrade_required")
+            return "This daemon requires the paired greeter upgrade. Sign-in is disabled for this incompatible protocol."
         if (!sddm.authenticationMethodsAvailable)
             return "Fingerprint sign-in is not supported. Password sign-in is available."
         if (!contextMatches())
@@ -155,8 +175,8 @@ Rectangle {
             sddm.cancelFingerprint()
     }
     function submitPassword() {
-        if (!controller || contextPending || passwordSubmissionPending || !selectedUser.length ||
-                !validSession(sessionBox.currentIndex) || sddm.authenticationBusy)
+        if (!controller || passwordSubmissionPending || !selectedUser.length ||
+                !validSession(sessionBox.currentIndex) || !sddm.authenticationSubmissionAllowed)
             return
         passwordSubmissionPending = true
         loginMessage = "Signing in."
@@ -203,11 +223,94 @@ Rectangle {
         return lastControlBeforePower()
     }
 
+    function initializeSelection() {
+        var initialUserIndex = -1
+        var remembered = sddm.authenticationBusy ? sddm.authenticationUser : userModel.lastUser
+        for (var i = 0; i < userModel.count; ++i) {
+            if (userAt(i) === remembered) {
+                initialUserIndex = i
+                break
+            }
+        }
+        if (!sddm.authenticationBusy && initialUserIndex < 0 && validUser(userModel.lastIndex))
+            initialUserIndex = userModel.lastIndex
+        if (!sddm.authenticationBusy && initialUserIndex < 0) {
+            for (var j = 0; j < userModel.count; ++j) {
+                if (validUser(j)) {
+                    initialUserIndex = j
+                    break
+                }
+            }
+        }
+        userBox.currentIndex = initialUserIndex
+        var sessionIndex = sddm.authenticationBusy ? sddm.authenticationSessionIndex : sessionModel.lastIndex
+        sessionBox.currentIndex = validSession(sessionIndex) ? sessionIndex :
+                                  (sddm.authenticationBusy ? -1 : (validSession(0) ? 0 : -1))
+        if (sddm.authenticationBusy) {
+            if (selectedUser !== sddm.authenticationUser ||
+                    selectedSessionFile !== sessionFileAt(sessionBox.currentIndex) ||
+                    selectedSessionType !== sessionTypeAt(sessionBox.currentIndex)) {
+                passwordField.clear()
+                passwordSubmissionPending = false
+            }
+            selectedUser = sddm.authenticationUser
+            selectedSessionFile = sessionFileAt(sessionBox.currentIndex)
+            selectedSessionType = sessionTypeAt(sessionBox.currentIndex)
+            contextPending = false
+            statusText = fingerprintDescription()
+        } else {
+            synchronizeContext()
+        }
+        if (selectedUser.length && validSession(sessionBox.currentIndex))
+            passwordField.forceActiveFocus()
+        else if (userBox.count > 0)
+            userBox.forceActiveFocus()
+        else if (sessionBox.count > 0)
+            sessionBox.forceActiveFocus()
+    }
+
+    function keepFocusVisible() {
+        if (!viewReady || !controller)
+            return
+        Qt.callLater(function() {
+            var window = root.Window.window
+            var item = window ? window.activeFocusItem : null
+            var flick = scroll.contentItem
+            if (!item || !flick || !flick.contentItem)
+                return
+            while (item.parent && !item.objectName.length && item.parent !== flick.contentItem)
+                item = item.parent
+            var point = item.mapToItem(flick.contentItem, 0, 0)
+            var maximum = Math.max(0, flick.contentHeight - flick.height)
+            if (point.y < flick.contentY)
+                flick.contentY = Math.max(0, point.y - 8)
+            else if (point.y + item.height > flick.contentY + flick.height)
+                flick.contentY = Math.min(maximum, point.y + item.height - flick.height + 8)
+        })
+    }
+
+    onWidthChanged: keepFocusVisible()
+    onHeightChanged: keepFocusVisible()
+    Connections {
+        target: root.Window.window
+        function onActiveFocusItemChanged() { root.keepFocusVisible() }
+    }
+
+    onControllerChanged: {
+        if (controller && viewReady)
+            initializeSelection()
+    }
+
 
     Connections {
         target: sddm
         function onAuthenticationUserChanged() { root.maybeStartFingerprint() }
         function onAuthenticationSessionIndexChanged() { root.maybeStartFingerprint() }
+        function onFingerprintRequestIdChanged() { root.maybeStartFingerprint() }
+        function onAuthenticationBusyChanged() {
+            if (root.controller && sddm.authenticationBusy && !root.contextMatches())
+                root.initializeSelection()
+        }
         function onAuthenticationMethodsAvailableChanged() { root.maybeStartFingerprint() }
         function onFingerprintAvailableChanged() { root.maybeStartFingerprint() }
         function onFingerprintStateChanged() {
@@ -215,14 +318,14 @@ Rectangle {
                 root.statusText = root.fingerprintDescription()
         }
         function onFingerprintDetailCodeChanged() {
-            if (root.controller && !root.contextPending && root.contextMatches())
+            if (root.controller && !root.contextPending)
                 root.statusText = root.fingerprintDescription()
         }
         function onLoginFailed() {
             if (!root.controller || !root.passwordSubmissionPending)
                 return
             root.passwordSubmissionPending = false
-            root.passwordField.clear()
+            passwordField.clear()
             root.loginMessage = "Sign-in failed. Check your password and try again."
         }
         function onLoginSucceeded() {
@@ -234,11 +337,15 @@ Rectangle {
                     sessionIndex !== sessionBox.currentIndex ||
                     requestId !== sddm.fingerprintRequestId)
                 return
-            if (result === 0 && winningMethod === 0) {
-                root.passwordSubmissionPending = false
-                root.passwordField.clear()
+            if (result === 0 && winningMethod === 0 && root.passwordSubmissionPending) {
+                passwordField.clear()
                 root.loginMessage = "Sign-in failed. Check your password and try again."
+            } else if (result === 0) {
+                root.loginMessage = "Sign-in could not be completed. Retry, or use your password."
             }
+            // A fingerprint/account result is not a failed password submission.
+            // The proxy's aggregate loginFailed follows this correlated result.
+            root.passwordSubmissionPending = false
         }
 
     }
@@ -247,9 +354,12 @@ Rectangle {
         function onModelReset() {
             if (!root.controller || !root.viewReady)
                 return
-            var index = root.findSession()
-            root.sessionBox.currentIndex = index
-            root.synchronizeContext()
+            // ComboBox updates its rows during reset; inspect the new model afterwards.
+            Qt.callLater(function() {
+                sessionBox.currentIndex = root.findSession()
+                if (!sddm.authenticationBusy)
+                    root.synchronizeContext()
+            })
         }
     }
 
@@ -267,15 +377,22 @@ Rectangle {
         }
     }
 
-    ColumnLayout {
+    ScrollView {
+        id: scroll
         anchors.fill: parent
-        anchors.margins: Math.max(24, Math.min(root.width, root.height) * 0.06)
+        anchors.margins: Math.max(16, Math.min(root.width, root.height) * 0.04)
+        clip: true
+        contentWidth: availableWidth
+
+    ColumnLayout {
+        width: scroll.availableWidth
+        height: Math.max(implicitHeight, scroll.availableHeight)
         spacing: 20
         Item { Layout.fillHeight: true }
 
         Rectangle {
             Layout.alignment: Qt.AlignHCenter
-            Layout.preferredWidth: Math.min(root.width - 48, 520)
+            Layout.preferredWidth: Math.min(scroll.availableWidth, 520)
             Layout.preferredHeight: card.implicitHeight + 56
             radius: 18
             color: "#f21c2933"
@@ -298,7 +415,8 @@ Rectangle {
                 }
                 Label {
                     text: root.controller
-                          ? "Choose your account and desktop session."
+                          ? (sddm.authenticationBusy ? "Completing sign-in for " + sddm.authenticationUser + "."
+                                                     : "Choose your account and desktop session.")
                           : "Selected account: " + (sddm.authenticationUser.length ? sddm.authenticationUser : "none") +
                             " · " + (sddm.authenticationSessionIndex >= 0 && sddm.authenticationSessionIndex < sessionModel.count
                                     ? sessionBox.textAt(sddm.authenticationSessionIndex) + " · " : "") +
@@ -365,7 +483,7 @@ Rectangle {
                     id: passwordField
                     objectName: "passwordField"
                     visible: root.controller
-                    enabled: visible && !sddm.authenticationBusy && !root.contextPending
+                    enabled: visible && !sddm.authenticationBusy
                     Layout.fillWidth: true
                     placeholderText: "Password"
                     echoMode: TextInput.Password
@@ -406,7 +524,7 @@ Rectangle {
                         id: loginButton
                         objectName: "loginButton"
                         text: root.passwordSubmissionPending ? "Signing in…" : "Sign in with password"
-                        enabled: root.controller && !sddm.authenticationBusy && !root.contextPending && !root.passwordSubmissionPending && root.selectedUser.length > 0 && root.validSession(sessionBox.currentIndex)
+                        enabled: root.controller && sddm.authenticationSubmissionAllowed && !root.passwordSubmissionPending && root.selectedUser.length > 0 && root.validSession(sessionBox.currentIndex)
                         Layout.fillWidth: true
                         Accessible.name: "Sign in with password"
                         KeyNavigation.tab: fingerprintButton.visible ? fingerprintButton : root.firstPowerControl()
@@ -441,9 +559,12 @@ Rectangle {
             }
         }
 
-        RowLayout {
+        GridLayout {
             Layout.alignment: Qt.AlignHCenter
-            spacing: 10
+            Layout.maximumWidth: scroll.availableWidth
+            columns: Math.max(1, Math.min(5, Math.floor(scroll.availableWidth / 150)))
+            columnSpacing: 10
+            rowSpacing: 10
             Button {
                 id: powerButton
                 objectName: "powerOffButton"
@@ -497,40 +618,11 @@ Rectangle {
         }
         Item { Layout.fillHeight: true }
     }
+    }
 
     Component.onCompleted: {
-        var initialUserIndex = -1
-        if (userModel.count > 0) {
-            for (var i = 0; i < userModel.count; ++i) {
-                if (userAt(i) === userModel.lastUser) {
-                    initialUserIndex = i
-                    break
-                }
-            }
-            if (initialUserIndex < 0 && validUser(userModel.lastIndex))
-                initialUserIndex = userModel.lastIndex
-            if (initialUserIndex < 0) {
-                for (var j = 0; j < userModel.count; ++j) {
-                    if (validUser(j)) {
-                        initialUserIndex = j
-                        break
-                    }
-                }
-            }
-        }
-        userBox.currentIndex = initialUserIndex
-        if (sessionModel.count > 0 && sessionModel.lastIndex >= 0 && sessionModel.lastIndex < sessionModel.count)
-            sessionBox.currentIndex = sessionModel.lastIndex
         viewReady = true
         if (controller)
-            synchronizeContext()
-        if (controller) {
-            if (selectedUser.length && validSession(sessionBox.currentIndex))
-                passwordField.forceActiveFocus()
-            else if (userBox.count > 0)
-                userBox.forceActiveFocus()
-            else if (sessionBox.count > 0)
-                sessionBox.forceActiveFocus()
-        }
+            initializeSelection()
     }
 }
