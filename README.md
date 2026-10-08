@@ -8,7 +8,7 @@ SDDM does not natively support fingerprint authentication. Users must type their
 
 ## Planned approach
 
-The Foundation Gate, Sprint 0 and Sprint 1 are complete. Sprint 1 is accepted and closed by the [2026-10-04 independent review](docs/reviews/sprint-1.md#2026-10-04-sol-independent-acceptance-review--sprint-1-gate), including the final physical-reader matrix R01–R16. Sprint 2 greeter/theme design and its [execution handoff](docs/SPRINT_2_EXECUTION_PLAN.md) are documented; implementation and actual-surface acceptance are next.
+The Foundation Gate, Sprint 0 and Sprint 1 are complete. Sprint 1 is accepted and closed by the [2026-10-04 independent review](docs/reviews/sprint-1.md#2026-10-04-sol-independent-acceptance-review--sprint-1-gate), including the final physical-reader matrix R01–R16. Sprint 2 implementation is partial, unverified and unaccepted; its source checkpoint was [recovered into persistent storage](docs/PERSISTENCE.md#recovered-checkpoint-2026-10-08). Continue the [execution plan](docs/SPRINT_2_EXECUTION_PLAN.md); integration, build/runtime verification and actual-surface acceptance remain pending.
 
 The planned product has:
 
@@ -91,6 +91,7 @@ No existing system files will be modified in place. The installer will generate 
 
 ## Documentation
 
+- [Agent Instructions](AGENTS.md) and [Persistent Work and Recovery](docs/PERSISTENCE.md): Mandatory storage paths, portable checkpoints, source bundles and verified restoration; `/tmp` is not a durable workspace.
 - [Implementation Plan](docs/IMPLEMENTATION_PLAN.md): Sprint roadmap, verification matrix, security model, and Definition of Done.
 - [Core Language and Adapter Contract](docs/architecture/CORE_ADAPTER_ANALYSIS.md): Language evaluation, adapter protocol, repository foundation, and architectural risks.
 - [SDDM Concurrent Authentication Design](docs/architecture/SDDM_AUTHENTICATION_DESIGN.md): Pinned baseline, stock message flow, winner gate, cancellation boundary, and proposed SDDM IPC.

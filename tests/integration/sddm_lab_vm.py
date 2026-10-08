@@ -13,11 +13,11 @@ Unix serial socket of this disposable, no-network guest. Artifact directory
 access and local Docker access therefore grant guest root access.
 
 Commands (from the repository root, never sudo):
-  python3 tests/integration/sddm_lab_vm.py prepare --lab-dir /tmp/fplogin-vm --runtime-image INSTALLED_IMAGE
-  python3 tests/integration/sddm_lab_vm.py start --lab-dir /tmp/fplogin-vm
-  python3 tests/integration/sddm_lab_vm.py recovery --lab-dir /tmp/fplogin-vm
-  python3 tests/integration/sddm_lab_vm.py status --lab-dir /tmp/fplogin-vm
-  python3 tests/integration/sddm_lab_vm.py stop --lab-dir /tmp/fplogin-vm
+  python3 tests/integration/sddm_lab_vm.py prepare --lab-dir .work/labs/sprint2 --runtime-image INSTALLED_IMAGE
+  python3 tests/integration/sddm_lab_vm.py start --lab-dir .work/labs/sprint2
+  python3 tests/integration/sddm_lab_vm.py recovery --lab-dir .work/labs/sprint2
+  python3 tests/integration/sddm_lab_vm.py status --lab-dir .work/labs/sprint2
+  python3 tests/integration/sddm_lab_vm.py stop --lab-dir .work/labs/sprint2
 On ttyS0: fplogin-lab identity; fplogin-lab recovery-check;
           passwd fplab; fplogin-lab start-sddm
 Readiness remains NOT_READY even with explicit --reader /dev/bus/usb/001/004:

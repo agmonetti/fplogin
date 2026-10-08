@@ -14,8 +14,10 @@ RUNBOOK.md
 coverage.txt
 profile.out
 
-# Worktrees, temporary test roots, and caches
+# Persistent local work; portable checkpoints follow docs/PERSISTENCE.md
 .work/
+
+# Disposable test roots and caches
 tmp/
 .cache/
 __pycache__/
