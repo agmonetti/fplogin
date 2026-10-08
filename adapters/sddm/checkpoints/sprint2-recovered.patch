@@ -1,0 +1,1931 @@
+diff --git a/src/auth/Auth.cpp b/src/auth/Auth.cpp
+index 972cb2e..cc8c51d 100644
+--- a/src/auth/Auth.cpp
++++ b/src/auth/Auth.cpp
+@@ -328,6 +328,29 @@ namespace SDDM {
+                     reply.send();
+                     break;
+                 }
++                case METHOD_STATE: {
++                    QString helperUser, detailCode;
++                    quint32 stateValue = 0;
++                    str >> helperUser >> stateValue >> detailCode;
++                    const bool validState = stateValue == quint32(FingerprintState::Scanning)
++                                          || stateValue == quint32(FingerprintState::Retry)
++                                          || stateValue == quint32(FingerprintState::Failed)
++                                          || stateValue == quint32(FingerprintState::Unavailable);
++                    const bool validDetail = detailCode.isEmpty()
++                                          || detailCode == QLatin1String("scanning")
++                                          || detailCode == QLatin1String("try_again")
++                                          || detailCode == QLatin1String("authentication_failed")
++                                          || detailCode == QLatin1String("authentication_unavailable");
++                    if (str.status() != QDataStream::Ok || !str.atEnd() || method != AuthMethod::Fingerprint
++                        || helperUser != auth->user() || !validState || !validDetail) {
++                        qWarning() << "Auth: rejected invalid helper method state";
++                        child->kill();
++                        return;
++                    }
++                    Q_EMIT auth->authenticationMethodState(incomingRequestId, incomingMethod,
++                            FingerprintState(stateValue), detailCode.isEmpty() ? QStringLiteral("scanning") : detailCode);
++                    break;
++                }
+                 default: {
+                     qWarning() << "Auth: rejected unknown helper opcode" << qint32(m);
+                     child->kill();
+diff --git a/src/auth/Auth.h b/src/auth/Auth.h
+index 057b987..abb40f1 100644
+--- a/src/auth/Auth.h
++++ b/src/auth/Auth.h
+@@ -21,12 +21,10 @@
+ #ifndef SDDM_AUTH_H
+ #define SDDM_AUTH_H
+ 
++#include "../common/Messages.h"
+ #include "AuthRequest.h"
+ #include "AuthPrompt.h"
+ 
+-#include <QtCore/QObject>
+-#include <QtCore/QProcessEnvironment>
+-
+ namespace SDDM {
+     enum class AuthMethod : qint32 {
+         Password = 0,
+@@ -217,6 +215,8 @@ namespace SDDM {
+         * @param success true if succeeded
+         */
+         void sessionStarted(bool success);
++        void authenticationMethodState(const QString &requestId, AuthMethod method,
++                                       FingerprintState state, const QString &detailCode);
+ 
+         /**
+          * Emitted when the display server is ready.
+diff --git a/src/common/Configuration.h b/src/common/Configuration.h
+index 4c3572d..20c76fc 100644
+--- a/src/common/Configuration.h
++++ b/src/common/Configuration.h
+@@ -46,6 +46,7 @@ namespace SDDM {
+                                                                                                    "If property is set to none, numlock won't be changed\n"
+                                                                                                    "NOTE: Currently ignored if autologin is enabled."));
+         Entry(InputMethod,         QString,     QStringLiteral("qtvirtualkeyboard"),                   _S("Input method module"));
++        Entry(FingerprintAuthTimeout, int, 30, _S("Fingerprint authentication phase deadline in seconds"));
+         Entry(Namespaces,          QStringList, QStringList(),                                  _S("Comma-separated list of Linux namespaces for user session to enter"));
+         Entry(GreeterEnvironment,  QStringList, QStringList(),                                  _S("Comma-separated list of environment variables to be set"));
+         //  Name   Entries (but it's a regular class again)
+diff --git a/src/common/Messages.h b/src/common/Messages.h
+index 0c57b42..99ef98c 100644
+--- a/src/common/Messages.h
++++ b/src/common/Messages.h
+@@ -23,27 +23,42 @@
+ #include <QFlags>
+ 
+ namespace SDDM {
+-    enum class GreeterMessages {
++    enum class GreeterMessages : quint32 {
+         Connect = 0,
+-        Login,
+-        PowerOff,
+-        Reboot,
+-        Suspend,
+-        Hibernate,
+-        HybridSleep,
+-        StartFingerprint,
+-        CancelFingerprint
++        Login = 1,
++        PowerOff = 2,
++        Reboot = 3,
++        Suspend = 4,
++        Hibernate = 5,
++        HybridSleep = 6,
++        QueryAuthenticationCapabilities = 9,
++        SetAuthenticationContext = 10,
++        StartAuthenticationMethod = 11,
++        CancelAuthenticationMethod = 12
+     };
+ 
+-    enum class DaemonMessages {
+-        HostName,
+-        Capabilities,
+-        LoginSucceeded,
+-        LoginFailed,
+-        InformationMessage,
+-        AuthenticationCapabilities,
+-        AuthenticationMethodState,
+-        AuthenticationAttemptFinished,
++    enum class DaemonMessages : quint32 {
++        HostName = 0,
++        Capabilities = 1,
++        LoginSucceeded = 2,
++        LoginFailed = 3,
++        InformationMessage = 4,
++        AuthenticationCapabilities = 5,
++        AuthenticationContext = 8,
++        AuthenticationMethodState = 9,
++        AuthenticationAttemptFinished = 10
++    };
++
++    enum class AuthenticationMethod : quint32 { Password = 0, Fingerprint = 1, NoWinner = 2 };
++    enum class AuthenticationAvailability : quint32 { Unknown = 0, Available = 1, Unavailable = 2 };
++    enum class AuthenticationResult : quint32 { Failed = 0, Succeeded = 1, Cancelled = 2 };
++    enum class AuthenticationPhase : quint32 {
++        Idle = 0, Active = 1, WinnerSelected = 2, LoserStopping = 3,
++        SessionAuthorized = 4, Finished = 5
++    };
++    enum class FingerprintState : quint32 {
++        Unavailable = 0, Ready = 1, Scanning = 2, Retry = 3,
++        Matched = 4, Failed = 5, Cancelled = 6, TimedOut = 7
+     };
+ 
+     enum Capability {
+diff --git a/src/daemon/Display.cpp b/src/daemon/Display.cpp
+index c58dc9c..ecc2ee5 100644
+--- a/src/daemon/Display.cpp
++++ b/src/daemon/Display.cpp
+@@ -51,6 +51,9 @@
+ #include "Login1Manager.h"
+ #include "Login1Session.h"
+ #include "VirtualTerminal.h"
++#include <QDBusPendingCallWatcher>
++#include <QDBusPendingReply>
++#include <QDBusServiceWatcher>
+ #include "WaylandDisplayServer.h"
+ #include "config.h"
+ 
+@@ -115,6 +118,16 @@ namespace SDDM {
+         m_socketServer(new SocketServer(this)),
+         m_greeter(new Greeter(this))
+     {
++        m_fprintServiceWatcher = new QDBusServiceWatcher(
++                QStringLiteral("net.reactivated.Fprint"), QDBusConnection::systemBus(),
++                QDBusServiceWatcher::WatchForOwnerChange, this);
++        connect(m_fprintServiceWatcher, &QDBusServiceWatcher::serviceOwnerChanged, this,
++                [this](const QString &, const QString &, const QString &) {
++            ++m_probeGeneration;
++            m_fingerprintAvailable = false;
++            if (m_contextOptedIn)
++                probeFingerprintAvailability();
++        });
+         // Create display server
+         switch (m_displayServerType) {
+         case X11DisplayServerType:
+@@ -148,6 +161,8 @@ namespace SDDM {
+         connect(m_fingerprintAuth, &Auth::authentication, this, &Display::slotAuthenticationFinished);
+         connect(m_fingerprintAuth, &Auth::sessionStarted, this, &Display::slotSessionStarted);
+         connect(m_fingerprintAuth, &Auth::finished, this, &Display::slotHelperFinished);
++        connect(m_fingerprintAuth, &Auth::authenticationMethodState,
++                this, &Display::slotAuthenticationMethodState);
+         connect(m_fingerprintAuth, &Auth::info, this, &Display::slotAuthInfo);
+         connect(m_fingerprintAuth, &Auth::error, this, &Display::slotAuthError);
+ 
+@@ -155,11 +170,10 @@ namespace SDDM {
+         connect(m_displayServer, &DisplayServer::started, this, &Display::displayServerStarted);
+         connect(m_displayServer, &DisplayServer::stopped, this, &Display::stop);
+ 
+-        // connect login signal
+         connect(m_socketServer, &SocketServer::login, this, &Display::login);
++        connect(m_socketServer, &SocketServer::setAuthenticationContext, this, &Display::setAuthenticationContext);
+         connect(m_socketServer, &SocketServer::startFingerprint, this, &Display::startFingerprint);
+         connect(m_socketServer, &SocketServer::cancelFingerprint, this, &Display::cancelFingerprint);
+-
+         // connect login result signals
+         connect(this, &Display::loginFailed, m_socketServer, &SocketServer::loginFailed);
+         connect(this, &Display::loginSucceeded, m_socketServer, &SocketServer::loginSucceeded);
+@@ -355,26 +369,25 @@ namespace SDDM {
+         emit stopped();
+     }
+ 
+-    void Display::login(QLocalSocket *socket,
+-                        const QString &user, const QString &password,
++    void Display::login(QLocalSocket *socket, const QString &user, const QString &password,
+                         const Session &session) {
++        if (m_contextOptedIn && (socket != m_contextSocket || user != m_contextUser
++            || session.type() != m_contextSession.type() || session.fileName() != m_contextSession.fileName())) {
++            emit loginFailed(socket);
++            return;
++        }
+         if (m_methodAttemptActive && socket != m_attemptSocket) {
+             emit loginFailed(socket);
+             return;
+         }
+         m_socket = socket;
+-
+-        //the SDDM user has special privileges that skip password checking so that we can load the greeter
+-        //block ever trying to log in as the SDDM user
+         if (user == QLatin1String("sddm")) {
+-            emit loginFailed(m_socket);
++            emit loginFailed(socket);
+             return;
+         }
+-
+         if (m_methodAttemptActive) {
+-            if (m_methodWinnerChosen) {
++            if (m_methodWinnerChosen)
+                 return;
+-            }
+             if (user != m_attemptUser || session.type() != m_attemptSession.type()
+                 || session.fileName() != m_attemptSession.fileName()) {
+                 m_pendingLogin = true;
+@@ -386,14 +399,19 @@ namespace SDDM {
+                 startPendingLogin();
+                 return;
+             }
+-            if (m_auth->isActive()) {
++            if (m_auth->isActive())
+                 return;
+-            }
+         } else {
+-            m_requestId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+-            m_attemptUser = user;
+-            m_attemptSession = session;
+-            m_attemptSocket = socket;
++            if (m_contextOptedIn) {
++                m_attemptUser = m_contextUser;
++                m_attemptSession = m_contextSession;
++                m_attemptSocket = socket;
++            } else {
++                m_requestId = QUuid::createUuid().toString(QUuid::WithoutBraces);
++                m_attemptUser = user;
++                m_attemptSession = session;
++                m_attemptSocket = socket;
++            }
+             m_methodAttemptActive = true;
+             m_methodWinnerChosen = false;
+             m_attemptGate.begin(m_requestId, user);
+@@ -410,60 +428,168 @@ namespace SDDM {
+         }
+     }
+ 
+-    void Display::startFingerprint(QLocalSocket *socket, const QString &user, const Session &session) {
+-        if (user.isEmpty() || user == QLatin1String("sddm") || !session.isValid()
+-            || !m_started || (m_fingerprintAuth->isActive() && !m_methodAttemptActive)) {
+-            emit loginFailed(socket);
++    void Display::setAuthenticationContext(QLocalSocket *socket, quint64 serial, bool hasContext,
++                                           const QString &user, const Session &session) {
++        if (!socket || serial <= m_contextSerial || (hasContext && (user.isEmpty() || user == QLatin1String("sddm") || !session.isValid()))) {
++            m_socketServer->authenticationContext(socket, serial, 0, m_requestId, m_contextUser,
++                                                  m_contextSession, quint32(AuthenticationAvailability::Unknown),
++                                                  quint32(m_contextCommitted ? AuthenticationPhase::SessionAuthorized : AuthenticationPhase::Idle),
++                                                  QStringLiteral("invalid_context"));
+             return;
+         }
+-        if (m_methodAttemptActive) {
+-            if (socket != m_attemptSocket)
+-                return;
+-            if (user != m_attemptUser || session.type() != m_attemptSession.type()
+-                || session.fileName() != m_attemptSession.fileName()) {
+-                cancelMethodAttempt();
++        if (m_contextCommitted && socket == m_contextSocket) {
++            m_socketServer->authenticationContext(socket, serial, 0, m_requestId, m_contextUser,
++                                                  m_contextSession, quint32(AuthenticationAvailability::Unknown),
++                                                  quint32(AuthenticationPhase::SessionAuthorized),
++                                                  QStringLiteral("session_committed"));
++            return;
++        }
++        if (m_contextSocket && m_contextSocket != socket && m_contextOptedIn)
++            return;
++        ++m_probeGeneration;
++        m_fingerprintAvailable = false;
++        if (m_methodAttemptActive)
++            cancelMethodAttempt();
++        m_contextSocket = socket;
++        m_contextSerial = serial;
++        m_contextOptedIn = hasContext;
++        m_contextCommitted = false;
++        m_contextUser = hasContext ? user : QString();
++        m_contextSession = hasContext ? session : Session();
++        m_attemptSocket = socket;
++        m_attemptUser = m_contextUser;
++        m_attemptSession = m_contextSession;
++        m_requestId = hasContext ? QUuid::createUuid().toString(QUuid::WithoutBraces) : QString();
++        m_socketServer->authenticationContext(socket, serial, 1, m_requestId, m_contextUser,
++                                              m_contextSession, quint32(AuthenticationAvailability::Unknown),
++                                              quint32(AuthenticationPhase::Idle),
++                                              hasContext ? QStringLiteral("checking") : QStringLiteral("cleared"));
++        if (hasContext)
++            probeFingerprintAvailability();
++    }
++    void Display::setFingerprintAvailability(quint64 serial, const QString &requestId,
++                                            bool available, const QString &detailCode) {
++        if (serial != m_contextSerial || requestId != m_requestId || !m_contextOptedIn
++            || !m_contextSocket || m_contextCommitted)
++            return;
++        m_fingerprintAvailable = available;
++        m_socketServer->authenticationContext(m_contextSocket, serial, 1, requestId, m_contextUser,
++                m_contextSession,
++                quint32(available ? AuthenticationAvailability::Available : AuthenticationAvailability::Unavailable),
++                quint32(m_methodAttemptActive ? AuthenticationPhase::Active : AuthenticationPhase::Idle), detailCode);
++        if (available && !m_methodAttemptActive)
++            m_socketServer->authenticationMethodState(m_contextSocket, serial, requestId,
++                    quint32(AuthenticationMethod::Fingerprint), m_contextUser, m_contextSession,
++                    quint32(FingerprintState::Ready), quint32(AuthenticationPhase::Idle), QStringLiteral("available"));
++        else if (!available)
++            m_socketServer->authenticationMethodState(m_contextSocket, serial, requestId,
++                    quint32(AuthenticationMethod::Fingerprint), m_contextUser, m_contextSession,
++                    quint32(FingerprintState::Unavailable), quint32(AuthenticationPhase::Idle), detailCode);
++    }
++
++    void Display::probeFingerprintAvailability() {
++        if (!m_contextOptedIn || m_contextUser.isEmpty() || !m_contextSession.isValid())
++            return;
++        const quint64 serial = m_contextSerial;
++        const QString requestId = m_requestId;
++        const QString user = m_contextUser;
++        const Session session = m_contextSession;
++        const quint64 generation = ++m_probeGeneration;
++        QDBusMessage call = QDBusMessage::createMethodCall(
++                QStringLiteral("net.reactivated.Fprint"), QStringLiteral("/net/reactivated/Fprint/Manager"),
++                QStringLiteral("net.reactivated.Fprint.Manager"), QStringLiteral("GetDevices"));
++        auto *watcher = new QDBusPendingCallWatcher(QDBusConnection::systemBus().asyncCall(call), this);
++        connect(watcher, &QDBusPendingCallWatcher::finished, this,
++                [this, watcher, serial, requestId, user, session, generation] {
++            QDBusPendingReply<QList<QDBusObjectPath>> reply = *watcher;
++            watcher->deleteLater();
++            if (generation != m_probeGeneration || serial != m_contextSerial || requestId != m_requestId
++                || user != m_contextUser || session.type() != m_contextSession.type()
++                || session.fileName() != m_contextSession.fileName() || !m_contextSocket)
+                 return;
+-            }
+-            if (m_methodWinnerChosen) {
+-                m_socketServer->authenticationMethodState(socket, m_requestId, 4, QStringLiteral("matched"));
++            if (reply.isError()) {
++                setFingerprintAvailability(serial, requestId, false, QStringLiteral("service_unavailable"));
+                 return;
+             }
+-            if (m_fingerprintAuth->isActive()) {
+-                m_socketServer->authenticationMethodState(socket, m_requestId, 1, QStringLiteral("scanning"));
++            const auto devices = reply.value();
++            if (devices.isEmpty()) {
++                setFingerprintAvailability(serial, requestId, false, QStringLiteral("reader_unavailable"));
+                 return;
+             }
+-            if (!startAuth(user, QString(), session, AuthMethod::Fingerprint))
+-                m_socketServer->authenticationMethodState(socket, m_requestId, 5, QStringLiteral("failed"));
++            QDBusMessage enrolledCall = QDBusMessage::createMethodCall(
++                    QStringLiteral("net.reactivated.Fprint"), devices.first().path(),
++                    QStringLiteral("net.reactivated.Fprint.Device"), QStringLiteral("ListEnrolledFingers"));
++            enrolledCall << user;
++            auto *enrolledWatcher = new QDBusPendingCallWatcher(QDBusConnection::systemBus().asyncCall(enrolledCall), this);
++            connect(enrolledWatcher, &QDBusPendingCallWatcher::finished, this,
++                    [this, enrolledWatcher, serial, requestId, user, session, generation] {
++                QDBusPendingReply<QStringList> enrolledReply = *enrolledWatcher;
++                enrolledWatcher->deleteLater();
++                if (generation != m_probeGeneration || serial != m_contextSerial || requestId != m_requestId
++                    || user != m_contextUser || session.type() != m_contextSession.type()
++                    || session.fileName() != m_contextSession.fileName() || !m_contextSocket)
++                    return;
++                if (enrolledReply.isError()) {
++                    setFingerprintAvailability(serial, requestId, false, QStringLiteral("service_unavailable"));
++                    return;
++                }
++                setFingerprintAvailability(serial, requestId, !enrolledReply.value().isEmpty(),
++                        enrolledReply.value().isEmpty() ? QStringLiteral("not_enrolled") : QStringLiteral("available"));
++            });
++        });
++    }
++
++    void Display::startFingerprint(QLocalSocket *socket, quint64 serial) {
++        if (socket != m_contextSocket || serial != m_contextSerial || !m_contextOptedIn
++            || m_contextUser.isEmpty() || !m_contextSession.isValid() || m_contextCommitted)
++            return;
++        if (!m_fingerprintAvailable) {
++            m_socketServer->authenticationMethodState(socket, serial, m_requestId,
++                    quint32(AuthenticationMethod::Fingerprint), m_contextUser, m_contextSession,
++                    quint32(FingerprintState::Unavailable), quint32(AuthenticationPhase::Idle),
++                    QStringLiteral("not_available"));
+             return;
+         }
+-
+-        m_socket = socket;
+-        m_requestId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+-        m_attemptUser = user;
+-        m_attemptSession = session;
+-        m_attemptSocket = socket;
+-        m_methodAttemptActive = true;
+-        m_methodWinnerChosen = false;
+-        m_attemptGate.begin(m_requestId, user);
+-        m_waitingForLoser = false;
+-        const QString requestId = m_requestId;
+-        connect(socket, &QLocalSocket::disconnected, this, [this, requestId] {
+-            if (m_methodAttemptActive && m_requestId == requestId)
+-                cancelMethodAttempt();
+-        });
+-        if (!startAuth(user, QString(), session, AuthMethod::Fingerprint)) {
+-            finishMethodAttempt(false);
++        if (!m_methodAttemptActive) {
++            m_socket = socket;
++            m_attemptSocket = socket;
++            m_attemptUser = m_contextUser;
++            m_attemptSession = m_contextSession;
++            m_methodAttemptActive = true;
++            m_methodWinnerChosen = false;
++            m_attemptGate.begin(m_requestId, m_attemptUser);
++            m_waitingForLoser = false;
++            const QString requestId = m_requestId;
++            connect(socket, &QLocalSocket::disconnected, this, [this, requestId] {
++                if (m_methodAttemptActive && m_requestId == requestId)
++                    cancelMethodAttempt();
++            });
++        }
++        if (m_fingerprintAuth->isActive())
+             return;
++        if (!startAuth(m_contextUser, QString(), m_contextSession, AuthMethod::Fingerprint)) {
++            m_socketServer->authenticationMethodState(socket, serial, m_requestId,
++                    quint32(AuthenticationMethod::Fingerprint), m_contextUser, m_contextSession,
++                    quint32(FingerprintState::Unavailable), quint32(AuthenticationPhase::Active),
++                    QStringLiteral("authentication_unavailable"));
++        } else {
++            m_socketServer->authenticationMethodState(socket, serial, m_requestId,
++                    quint32(AuthenticationMethod::Fingerprint), m_contextUser, m_contextSession,
++                    quint32(FingerprintState::Scanning), quint32(AuthenticationPhase::Active), QStringLiteral("scanning"));
+         }
+-        m_socketServer->authenticationMethodState(socket, m_requestId, 1, QStringLiteral("scanning"));
+     }
+ 
+-    void Display::cancelFingerprint(QLocalSocket *socket, const QString &requestId) {
+-        if (!m_methodAttemptActive || m_methodWinnerChosen || socket != m_attemptSocket
+-            || requestId != m_requestId || !m_fingerprintAuth->isActive()
+-            || m_fingerprintAuth->requestId() != requestId)
++    void Display::cancelFingerprint(QLocalSocket *socket, quint64 serial, const QString &requestId) {
++        if (socket != m_contextSocket || serial != m_contextSerial || !m_methodAttemptActive
++            || m_methodWinnerChosen || (requestId.isEmpty() ? m_requestId.isEmpty() : requestId != m_requestId)
++            || !m_fingerprintAuth->isActive() || m_fingerprintAuth->requestId() != m_requestId)
+             return;
+         m_attemptGate.cancel(AuthMethod::Fingerprint);
++        if (m_fingerprintDeadline) {
++            m_fingerprintDeadline->stop();
++            m_fingerprintDeadline->deleteLater();
++            m_fingerprintDeadline.clear();
++        }
+         m_cancelledHelpers.insert(m_fingerprintAuth);
+         m_fingerprintAuth->authorizeSession(false);
+         QPointer<Auth> guarded(m_fingerprintAuth);
+@@ -480,14 +606,15 @@ namespace SDDM {
+             return;
+         const QString requestId = m_requestId;
+         QPointer<QLocalSocket> socket = m_attemptSocket;
++        if (m_fingerprintDeadline) {
++            m_fingerprintDeadline->stop();
++            m_fingerprintDeadline->deleteLater();
++            m_fingerprintDeadline.clear();
++        }
+         m_attemptGate.invalidate();
+         m_methodAttemptActive = false;
+         m_methodWinnerChosen = false;
+         m_waitingForLoser = false;
+-        if (socket) {
+-            m_socketServer->authenticationMethodState(socket, requestId, 6, QStringLiteral("cancelled"));
+-            m_socketServer->authenticationAttemptFinished(socket, requestId, false, 0);
+-        }
+         for (Auth *auth : {m_auth, m_fingerprintAuth}) {
+             if (!auth->isActive() || auth->requestId() != requestId)
+                 continue;
+@@ -518,8 +645,11 @@ namespace SDDM {
+             return;
+         if (qobject_cast<XorgDisplayServer *>(m_displayServer))
+             m_winnerAuth->setCookie(qobject_cast<XorgDisplayServer *>(m_displayServer)->cookie());
++        m_contextCommitted = m_contextOptedIn;
+         m_winnerAuth->authorizeSession(true);
+-        m_socketServer->authenticationMethodState(m_attemptSocket, m_requestId, 4, QStringLiteral("matched"));
++        if (m_winnerAuth->method() == AuthMethod::Fingerprint)
++            publishMethodState(AuthenticationMethod::Fingerprint, FingerprintState::Matched,
++                               AuthenticationPhase::SessionAuthorized, QStringLiteral("matched"));
+     }
+ 
+     void Display::startPendingLogin() {
+@@ -543,11 +673,12 @@ namespace SDDM {
+         if (!m_methodAttemptActive)
+             return;
+         const auto socket = m_attemptSocket;
++        const quint64 serial = m_contextSerial;
+         const QString requestId = m_requestId;
+-        const quint32 method = m_winnerAuth ? qint32(m_winnerAuth->method()) : 0;
+-        m_socketServer->authenticationMethodState(socket, requestId, success ? 4 : 5,
+-                                                   success ? QStringLiteral("matched") : QStringLiteral("failed"));
+-        m_socketServer->authenticationAttemptFinished(socket, requestId, success, method);
++        const quint32 method = m_winnerAuth ? quint32(m_winnerAuth->method()) : quint32(AuthenticationMethod::NoWinner);
++        if (socket && m_contextOptedIn)
++            m_socketServer->authenticationAttemptFinished(socket, serial, requestId, m_attemptUser,
++                    m_attemptSession, quint32(success ? AuthenticationResult::Succeeded : AuthenticationResult::Failed), method);
+         m_methodAttemptActive = false;
+         m_methodWinnerChosen = false;
+         m_attemptGate.invalidate();
+@@ -557,6 +688,15 @@ namespace SDDM {
+         m_attemptSocket.clear();
+         m_attemptReuseSessionId.clear();
+         m_reuseSessionSelected = false;
++        if (!success)
++            m_contextCommitted = false;
++    }
++    void Display::publishMethodState(AuthenticationMethod method, FingerprintState state,
++                                     AuthenticationPhase phase, const QString &detailCode) {
++        if (m_attemptSocket && m_contextOptedIn)
++            m_socketServer->authenticationMethodState(m_attemptSocket, m_contextSerial, m_requestId,
++                    quint32(method), m_attemptUser, m_attemptSession, quint32(state),
++                    quint32(phase), detailCode);
+     }
+ 
+     QString Display::findGreeterTheme() const {
+@@ -701,6 +841,31 @@ namespace SDDM {
+             m_attemptGate.resume(method);
+         auth->insertEnvironment(env);
+         auth->start();
++        if (method == AuthMethod::Fingerprint) {
++            if (m_fingerprintDeadline)
++                m_fingerprintDeadline->deleteLater();
++            auto *deadline = new QTimer(this);
++            m_fingerprintDeadline = deadline;
++            deadline->setSingleShot(true);
++            const QString requestId = auth->requestId();
++            const quint64 generation = auth->launchGeneration();
++            connect(deadline, &QTimer::timeout, this, [this, auth, requestId, generation] {
++                if (!m_methodAttemptActive || m_requestId != requestId || m_methodWinnerChosen
++                    || !auth->isActive() || auth->launchGeneration() != generation)
++                    return;
++                m_attemptGate.cancel(AuthMethod::Fingerprint);
++                m_timedOutHelpers.insert(auth);
++                m_cancelledHelpers.insert(auth);
++                auth->authorizeSession(false);
++                auth->terminate();
++                QPointer<Auth> guarded(auth);
++                QTimer::singleShot(5000, auth, [guarded, generation] {
++                    if (guarded && guarded->launchGeneration() == generation && guarded->isActive())
++                        guarded->kill();
++                });
++            });
++            deadline->start(qMax(1, mainConfig.FingerprintAuthTimeout.get()) * 1000);
++        }
+ 
+         return true;
+     }
+@@ -713,9 +878,16 @@ namespace SDDM {
+         }
+         if (m_methodAttemptActive && auth && auth->requestId() == m_requestId) {
+             if (!success) {
+-                if (auth->method() == AuthMethod::Fingerprint)
+-                    m_socketServer->authenticationMethodState(m_attemptSocket, m_requestId, 5, QStringLiteral("failed"));
+-                return; // helper exit reports password failure; keep the other method available
++                if (auth->method() == AuthMethod::Fingerprint) {
++                    if (m_fingerprintDeadline) {
++                        m_fingerprintDeadline->stop();
++                        m_fingerprintDeadline->deleteLater();
++                        m_fingerprintDeadline.clear();
++                    }
++                    publishMethodState(AuthenticationMethod::Fingerprint, FingerprintState::Failed,
++                                       AuthenticationPhase::Active, QStringLiteral("authentication_failed"));
++                }
++                return;
+             }
+             if (m_methodWinnerChosen && auth == m_winnerAuth && user == m_attemptUser)
+                 return;
+@@ -724,6 +896,11 @@ namespace SDDM {
+                 auth->terminate();
+                 return;
+             }
++            if (m_fingerprintDeadline) {
++                m_fingerprintDeadline->stop();
++                m_fingerprintDeadline->deleteLater();
++                m_fingerprintDeadline.clear();
++            }
+ 
+             m_methodWinnerChosen = true;
+             m_winnerAuth = auth;
+@@ -790,37 +967,56 @@ namespace SDDM {
+         m_socket = nullptr;
+     }
+ 
++    void Display::slotAuthenticationMethodState(const QString &requestId, AuthMethod method,
++                                                FingerprintState state, const QString &detailCode) {
++        Auth *auth = qobject_cast<Auth *>(sender());
++        if (!m_contextOptedIn || !m_methodAttemptActive || !auth || auth != m_fingerprintAuth
++            || method != AuthMethod::Fingerprint || requestId != m_requestId
++            || auth->requestId() != requestId || m_timedOutHelpers.contains(auth))
++            return;
++        if (state != FingerprintState::Scanning && state != FingerprintState::Retry
++            && state != FingerprintState::Failed && state != FingerprintState::Unavailable)
++            return;
++        if (state == FingerprintState::Failed || state == FingerprintState::Unavailable) {
++            if (m_fingerprintDeadline) {
++                m_fingerprintDeadline->stop();
++                m_fingerprintDeadline->deleteLater();
++                m_fingerprintDeadline.clear();
++            }
++        }
++        publishMethodState(AuthenticationMethod::Fingerprint, state, AuthenticationPhase::Active, detailCode);
++    }
+     void Display::slotAuthInfo(const QString &message, Auth::Info info) {
+-        qWarning() << "Authentication information:" << info << message;
+         Auth *auth = qobject_cast<Auth *>(sender());
+         QLocalSocket *socket = m_methodAttemptActive ? m_attemptSocket.data() : m_socket.data();
+-        if (!socket)
++        if (m_contextOptedIn && auth && auth->method() == AuthMethod::Fingerprint)
+             return;
+-        if (m_methodAttemptActive && auth && auth->method() == AuthMethod::Fingerprint) {
+-            m_socketServer->authenticationMethodState(socket, m_requestId, 1, QStringLiteral("scanning"));
++        qWarning() << "Authentication information:" << info << message;
++        if (!socket)
+             return;
+-        }
+         m_socketServer->informationMessage(socket, message);
+     }
+ 
+     void Display::slotAuthError(const QString &message, Auth::Error error) {
+-        qWarning() << "Authentication error:" << error << message;
+         Auth *auth = qobject_cast<Auth *>(sender());
+         QLocalSocket *socket = m_methodAttemptActive ? m_attemptSocket.data() : m_socket.data();
+         if (!socket)
+             return;
+-        if (auth && auth->isDeferredAuthorization()) {
+-            if (m_methodAttemptActive && auth->requestId() == m_requestId
+-                && auth->method() == AuthMethod::Fingerprint)
+-                m_socketServer->authenticationMethodState(socket, m_requestId, 5, QStringLiteral("failed"));
+-            else if (m_methodAttemptActive && auth->requestId() == m_requestId
+-                     && auth->method() == AuthMethod::Password)
+-                m_socketServer->informationMessage(socket, message);
++        if (m_contextOptedIn) {
++            if (auth && auth->isDeferredAuthorization() && auth->requestId() == m_requestId) {
++                publishMethodState(AuthenticationMethod(auth->method()), FingerprintState::Failed,
++                                   m_methodWinnerChosen ? AuthenticationPhase::SessionAuthorized : AuthenticationPhase::Active,
++                                   error == Auth::ERROR_AUTHENTICATION ? QStringLiteral("authentication_failed")
++                                                                       : QStringLiteral("account_or_session_failed"));
++            }
++            if (error == Auth::ERROR_AUTHENTICATION && (!auth || auth != m_winnerAuth))
++                emit loginFailed(socket);
+             return;
+         }
++        qWarning() << "Authentication error:" << error << message;
+         m_socketServer->informationMessage(socket, message);
+         if (m_methodAttemptActive && auth == m_winnerAuth)
+-            return; // the helper-exit path reports a post-authorization failure once
++            return;
+         if (error == Auth::ERROR_AUTHENTICATION)
+             emit loginFailed(socket);
+     }
+@@ -833,9 +1029,14 @@ namespace SDDM {
+             return;
+         }
+         if (m_cancelledHelpers.remove(auth)) {
++            const bool timedOut = m_timedOutHelpers.remove(auth);
+             if (auth && auth->method() == AuthMethod::Fingerprint && m_methodAttemptActive
+-                && auth->requestId() == m_requestId && m_attemptSocket)
+-                m_socketServer->authenticationMethodState(m_attemptSocket, m_requestId, 6, QStringLiteral("cancelled"));
++                && auth->requestId() == m_requestId && m_attemptSocket) {
++                publishMethodState(AuthenticationMethod::Fingerprint,
++                        timedOut ? FingerprintState::TimedOut : FingerprintState::Cancelled,
++                        AuthenticationPhase::Active, timedOut ? QStringLiteral("authentication_timeout")
++                                                              : QStringLiteral("cancelled"));
++            }
+             if (auth && auth == m_loserAuth && m_methodAttemptActive && auth->requestId() == m_requestId) {
+                 m_loserAuth.clear();
+                 m_attemptGate.exited(auth->method());
+@@ -858,7 +1059,8 @@ namespace SDDM {
+             }
+             if (auth != m_winnerAuth) {
+                 if (auth->method() == AuthMethod::Fingerprint)
+-                    m_socketServer->authenticationMethodState(m_attemptSocket, m_requestId, 5, QStringLiteral("failed"));
++                    publishMethodState(AuthenticationMethod::Fingerprint, FingerprintState::Failed,
++                                       AuthenticationPhase::Active, QStringLiteral("authentication_failed"));
+                 else if (m_attemptSocket)
+                     emit loginFailed(m_attemptSocket);
+                 return; // one method failed; keep the other method available
+diff --git a/src/daemon/Display.h b/src/daemon/Display.h
+index 9b26655..d8ed8a6 100644
+--- a/src/daemon/Display.h
++++ b/src/daemon/Display.h
+@@ -31,7 +31,9 @@
+ #include "AuthAttemptGate.h"
+ #include "Session.h"
+ 
++class QDBusServiceWatcher;
+ class QLocalSocket;
++class QTimer;
+ 
+ namespace SDDM {
+     class Authenticator;
+@@ -71,11 +73,11 @@ namespace SDDM {
+         bool start();
+         void stop();
+ 
+-        void login(QLocalSocket *socket,
+-                   const QString &user, const QString &password,
+-                   const Session &session);
+-        void startFingerprint(QLocalSocket *socket, const QString &user, const Session &session);
+-        void cancelFingerprint(QLocalSocket *socket, const QString &requestId);
++        void login(QLocalSocket *socket, const QString &user, const QString &password, const Session &session);
++        void setAuthenticationContext(QLocalSocket *socket, quint64 serial, bool hasContext,
++                                      const QString &user, const Session &session);
++        void startFingerprint(QLocalSocket *socket, quint64 serial);
++        void cancelFingerprint(QLocalSocket *socket, quint64 serial, const QString &requestId);
+         bool attemptAutologin();
+         void displayServerStarted();
+ 
+@@ -96,11 +98,27 @@ namespace SDDM {
+         void cancelMethodAttempt(bool destroying = false);
+         void authorizeWinner();
+         void finishMethodAttempt(bool success);
++        void publishMethodState(AuthenticationMethod method, FingerprintState state,
++                                AuthenticationPhase phase, const QString &detailCode);
++        void probeFingerprintAvailability();
++        void setFingerprintAvailability(quint64 serial, const QString &requestId, bool available,
++                                       const QString &detailCode);
+         void startPendingLogin();
+ 
+         void startSocketServerAndGreeter();
+         void handleAutologinFailure();
+ 
++        QPointer<QLocalSocket> m_contextSocket;
++        quint64 m_contextSerial { 0 };
++        quint64 m_pendingContextSerial { 0 };
++        QString m_contextUser;
++        Session m_contextSession;
++        bool m_contextOptedIn { false };
++        bool m_contextCommitted { false };
++        quint64 m_probeGeneration { 0 };
++        QDBusServiceWatcher *m_fprintServiceWatcher { nullptr };
++        bool m_fingerprintAvailable { false };
++        QPointer<QTimer> m_fingerprintDeadline;
+         DisplayServerType m_displayServerType = X11DisplayServerType;
+ 
+         bool m_relogin { true };
+@@ -121,6 +139,7 @@ namespace SDDM {
+         QPointer<Auth> m_loserAuth;
+         QPointer<Auth> m_sessionAuth;
+         QSet<Auth *> m_cancelledHelpers;
++        QSet<Auth *> m_timedOutHelpers;
+         AuthAttemptGate m_attemptGate;
+         QPointer<QLocalSocket> m_attemptSocket;
+         QString m_requestId;
+@@ -143,6 +162,8 @@ namespace SDDM {
+     private slots:
+         void slotRequestChanged();
+         void slotAuthenticationFinished(const QString &user, bool success);
++        void slotAuthenticationMethodState(const QString &requestId, AuthMethod method,
++                                           FingerprintState state, const QString &detailCode);
+         void slotSessionStarted(bool success);
+         void slotHelperFinished(Auth::HelperExitStatus status);
+         void slotAuthInfo(const QString &message, Auth::Info info);
+diff --git a/src/daemon/SocketServer.cpp b/src/daemon/SocketServer.cpp
+index e680b74..41b3187 100644
+--- a/src/daemon/SocketServer.cpp
++++ b/src/daemon/SocketServer.cpp
+@@ -95,9 +95,12 @@ namespace SDDM {
+         QLocalSocket *socket = m_server->nextPendingConnection();
+         socket->setReadBufferSize(1024 * 1024);
+ 
+-        // connect signals
+         connect(socket, &QLocalSocket::readyRead, this, &SocketServer::readyRead);
+-        connect(socket, &QLocalSocket::disconnected, socket, &QLocalSocket::deleteLater);
++        connect(socket, &QLocalSocket::disconnected, this, [this, socket] {
++            m_correlatedSockets.remove(socket);
++            m_queriedSockets.remove(socket);
++            socket->deleteLater();
++        });
+     }
+ 
+     void SocketServer::readyRead() {
+@@ -125,90 +128,68 @@ namespace SDDM {
+ 
+             switch (GreeterMessages(message)) {
+                 case GreeterMessages::Connect: {
+-                    // log message
+                     qDebug() << "Message received from greeter: Connect";
+-
+-                    // send capabilities
+                     SocketWriter(socket) << quint32(DaemonMessages::Capabilities) << quint32(daemonApp->powerManager()->capabilities());
+-
+-                    // send host name
+                     SocketWriter(socket) << quint32(DaemonMessages::HostName) << daemonApp->hostName();
+-                    SocketWriter(socket) << quint32(DaemonMessages::AuthenticationCapabilities) << quint32(0x1);
+-
+-                    // emit signal
+                     emit connected();
+-                }
+-                break;
++                } break;
++                case GreeterMessages::QueryAuthenticationCapabilities: {
++                    m_queriedSockets.insert(socket);
++                    SocketWriter(socket) << quint32(DaemonMessages::AuthenticationCapabilities) << quint32(0x2);
++                } break;
++                case GreeterMessages::SetAuthenticationContext: {
++                    quint64 serial;
++                    quint32 hasContext;
++                    QString user;
++                    Session session;
++                    input >> serial >> hasContext;
++                    if (hasContext > 1) { socket->abort(); return; }
++                    if (hasContext)
++                        input >> user >> session;
++                    if (input.status() == QDataStream::ReadPastEnd) { input.rollbackTransaction(); return; }
++                    if (input.status() != QDataStream::Ok || serial == 0) { socket->abort(); return; }
++                    if (!m_queriedSockets.contains(socket)) { socket->abort(); return; }
++                    if (hasContext)
++                        m_correlatedSockets.insert(socket);
++                    emit setAuthenticationContext(socket, serial, hasContext, user, session);
++                } break;
+                 case GreeterMessages::Login: {
+-                    qDebug() << "Message received from greeter: Login";
+                     QString user, password;
+                     Session session;
+                     input >> user >> password >> session;
+                     if (input.status() == QDataStream::ReadPastEnd) { input.rollbackTransaction(); return; }
+                     if (input.status() != QDataStream::Ok) { socket->abort(); return; }
+                     emit login(socket, user, password, session);
+-                }
+-                break;
+-                case GreeterMessages::StartFingerprint: {
+-                    QString user;
+-                    Session session;
+-                    input >> user >> session;
++                } break;
++                case GreeterMessages::StartAuthenticationMethod: {
++                    quint64 serial;
++                    quint32 method;
++                    input >> serial >> method;
+                     if (input.status() == QDataStream::ReadPastEnd) { input.rollbackTransaction(); return; }
+-                    if (input.status() != QDataStream::Ok) { socket->abort(); return; }
+-                    emit startFingerprint(socket, user, session);
+-                }
+-                break;
+-                case GreeterMessages::CancelFingerprint: {
++                    if (input.status() != QDataStream::Ok || serial == 0 || method != quint32(AuthenticationMethod::Fingerprint)
++                        || !m_correlatedSockets.contains(socket)) { socket->abort(); return; }
++                    emit startFingerprint(socket, serial);
++                } break;
++                case GreeterMessages::CancelAuthenticationMethod: {
++                    quint64 serial;
+                     QString requestId;
+-                    input >> requestId;
++                    quint32 method;
++                    input >> serial >> requestId >> method;
+                     if (input.status() == QDataStream::ReadPastEnd) { input.rollbackTransaction(); return; }
+-                    if (input.status() != QDataStream::Ok || requestId.isEmpty()) { socket->abort(); return; }
+-                    emit cancelFingerprint(socket, requestId);
+-                }
+-                break;
+-                case GreeterMessages::PowerOff: {
+-                    // log message
+-                    qDebug() << "Message received from greeter: PowerOff";
+-
+-                    // power off
+-                    daemonApp->powerManager()->powerOff();
+-                }
+-                break;
+-                case GreeterMessages::Reboot: {
+-                    // log message
+-                    qDebug() << "Message received from greeter: Reboot";
+-
+-                    // reboot
+-                    daemonApp->powerManager()->reboot();
+-                }
+-                break;
+-                case GreeterMessages::Suspend: {
+-                    // log message
+-                    qDebug() << "Message received from greeter: Suspend";
+-
+-                    // suspend
+-                    daemonApp->powerManager()->suspend();
+-                }
+-                break;
+-                case GreeterMessages::Hibernate: {
+-                    // log message
+-                    qDebug() << "Message received from greeter: Hibernate";
+-
+-                    // hibernate
+-                    daemonApp->powerManager()->hibernate();
+-                }
+-                break;
+-                case GreeterMessages::HybridSleep: {
+-                    // log message
+-                    qDebug() << "Message received from greeter: HybridSleep";
+-                    // hybrid sleep
+-                    daemonApp->powerManager()->hybridSleep();
+-                }
+-                break;
+-                default: {
+-                    // log message
++                    if (input.status() != QDataStream::Ok || serial == 0
++                        || method != quint32(AuthenticationMethod::Fingerprint)
++                        || !m_correlatedSockets.contains(socket)) { socket->abort(); return; }
++                    emit cancelFingerprint(socket, serial, requestId);
++                } break;
++                case GreeterMessages::PowerOff: daemonApp->powerManager()->powerOff(); break;
++                case GreeterMessages::Reboot: daemonApp->powerManager()->reboot(); break;
++                case GreeterMessages::Suspend: daemonApp->powerManager()->suspend(); break;
++                case GreeterMessages::Hibernate: daemonApp->powerManager()->hibernate(); break;
++                case GreeterMessages::HybridSleep: daemonApp->powerManager()->hybridSleep(); break;
++                default:
+                     qWarning() << "Unknown message" << message;
+-                }
++                    socket->abort();
++                    return;
+             }
+             if (!input.commitTransaction())
+                 return;
+@@ -217,26 +198,44 @@ namespace SDDM {
+     }
+ 
+     void SocketServer::loginFailed(QLocalSocket *socket) {
+-        SocketWriter(socket) << quint32(DaemonMessages::LoginFailed);
++        if (!m_correlatedSockets.contains(socket))
++            SocketWriter(socket) << quint32(DaemonMessages::LoginFailed);
+     }
+ 
+     void SocketServer::loginSucceeded(QLocalSocket *socket) {
+-        SocketWriter(socket) << quint32(DaemonMessages::LoginSucceeded);
++        if (!m_correlatedSockets.contains(socket))
++            SocketWriter(socket) << quint32(DaemonMessages::LoginSucceeded);
+     }
+ 
+     void SocketServer::informationMessage(QLocalSocket *socket, const QString &message) {
+-        SocketWriter(socket) << quint32(DaemonMessages::InformationMessage) << message;
++        if (!m_correlatedSockets.contains(socket))
++            SocketWriter(socket) << quint32(DaemonMessages::InformationMessage) << message;
+     }
+ 
+-    void SocketServer::authenticationCapabilities(QLocalSocket *socket, quint32 capabilities) {
+-        SocketWriter(socket) << quint32(DaemonMessages::AuthenticationCapabilities) << capabilities;
++    void SocketServer::authenticationContext(QLocalSocket *socket, quint64 serial, quint32 accepted,
++                                             const QString &requestId, const QString &user, const Session &session,
++                                             quint32 availability, quint32 phase, const QString &detailCode) {
++        if (!m_correlatedSockets.contains(socket))
++            return;
++        SocketWriter(socket) << quint32(DaemonMessages::AuthenticationContext) << serial << accepted
++                             << requestId << user << session << availability << phase << detailCode;
++        if (accepted == 1 && user.isEmpty() && detailCode == QLatin1String("cleared"))
++            m_correlatedSockets.remove(socket);
+     }
+ 
+-    void SocketServer::authenticationMethodState(QLocalSocket *socket, const QString &requestId, quint32 state, const QString &detail) {
+-        SocketWriter(socket) << quint32(DaemonMessages::AuthenticationMethodState) << requestId << state << detail;
++    void SocketServer::authenticationMethodState(QLocalSocket *socket, quint64 serial, const QString &requestId,
++                                                  quint32 method, const QString &user, const Session &session,
++                                                  quint32 state, quint32 phase, const QString &detailCode) {
++        if (m_correlatedSockets.contains(socket))
++            SocketWriter(socket) << quint32(DaemonMessages::AuthenticationMethodState) << serial
++                                 << requestId << method << user << session << state << phase << detailCode;
+     }
+ 
+-    void SocketServer::authenticationAttemptFinished(QLocalSocket *socket, const QString &requestId, bool success, quint32 method) {
+-        SocketWriter(socket) << quint32(DaemonMessages::AuthenticationAttemptFinished) << requestId << quint32(success) << method;
++    void SocketServer::authenticationAttemptFinished(QLocalSocket *socket, quint64 serial, const QString &requestId,
++                                                      const QString &user, const Session &session,
++                                                      quint32 result, quint32 winningMethod) {
++        if (m_correlatedSockets.contains(socket))
++            SocketWriter(socket) << quint32(DaemonMessages::AuthenticationAttemptFinished) << serial
++                                 << requestId << user << session << result << winningMethod;
+     }
+ }
+diff --git a/src/daemon/SocketServer.h b/src/daemon/SocketServer.h
+index 541bf62..ca7b0cf 100644
+--- a/src/daemon/SocketServer.h
++++ b/src/daemon/SocketServer.h
+@@ -23,6 +23,7 @@
+ 
+ #include <QObject>
+ #include <QString>
++#include <QSet>
+ 
+ #include "Session.h"
+ 
+@@ -49,20 +50,28 @@ namespace SDDM {
+         void informationMessage(QLocalSocket *socket, const QString &message);
+         void loginFailed(QLocalSocket *socket);
+         void loginSucceeded(QLocalSocket *socket);
+-        void authenticationCapabilities(QLocalSocket *socket, quint32 capabilities);
+-        void authenticationMethodState(QLocalSocket *socket, const QString &requestId, quint32 state, const QString &detail);
+-        void authenticationAttemptFinished(QLocalSocket *socket, const QString &requestId, bool success, quint32 method);
++        void authenticationContext(QLocalSocket *socket, quint64 serial, quint32 accepted,
++                                   const QString &requestId, const QString &user, const Session &session,
++                                   quint32 availability, quint32 phase, const QString &detailCode);
++        void authenticationMethodState(QLocalSocket *socket, quint64 serial, const QString &requestId,
++                                       quint32 method, const QString &user, const Session &session,
++                                       quint32 state, quint32 phase, const QString &detailCode);
++        void authenticationAttemptFinished(QLocalSocket *socket, quint64 serial, const QString &requestId,
++                                           const QString &user, const Session &session,
++                                           quint32 result, quint32 winningMethod);
+ 
+     signals:
+-        void login(QLocalSocket *socket,
+-                   const QString &user, const QString &password,
+-                   const Session &session);
+-        void startFingerprint(QLocalSocket *socket, const QString &user, const Session &session);
+-        void cancelFingerprint(QLocalSocket *socket, const QString &requestId);
++        void login(QLocalSocket *socket, const QString &user, const QString &password, const Session &session);
++        void setAuthenticationContext(QLocalSocket *socket, quint64 serial, bool hasContext,
++                                      const QString &user, const Session &session);
++        void startFingerprint(QLocalSocket *socket, quint64 serial);
++        void cancelFingerprint(QLocalSocket *socket, quint64 serial, const QString &requestId);
+         void connected();
+ 
+     private:
+         QLocalServer *m_server { nullptr };
++        QSet<QLocalSocket *> m_correlatedSockets;
++        QSet<QLocalSocket *> m_queriedSockets;
+     };
+ }
+ 
+diff --git a/src/greeter/GreeterApp.cpp b/src/greeter/GreeterApp.cpp
+index 01613cc..7fa035a 100644
+--- a/src/greeter/GreeterApp.cpp
++++ b/src/greeter/GreeterApp.cpp
+@@ -183,117 +183,126 @@ namespace SDDM {
+         // in order to avoid creating items with different sizes.
+         ScreenModel *screenModel = new ScreenModel(screen, view);
+ 
+-        // set context properties
++        const bool controller = QGuiApplication::primaryScreen() == screen || !m_controllerView;
++        if (controller)
++            m_controllerView = view;
+         view->rootContext()->setContextProperty(QStringLiteral("sessionModel"), m_sessionModel);
+         view->rootContext()->setContextProperty(QStringLiteral("screenModel"), screenModel);
+         view->rootContext()->setContextProperty(QStringLiteral("userModel"), m_userModel);
+         view->rootContext()->setContextProperty(QStringLiteral("config"), m_themeConfig);
+         view->rootContext()->setContextProperty(QStringLiteral("sddm"), m_proxy);
+         view->rootContext()->setContextProperty(QStringLiteral("keyboard"), m_keyboard);
++        view->rootContext()->setContextProperty(QStringLiteral("authenticationController"), controller);
+         view->rootContext()->setContextProperty(QStringLiteral("primaryScreen"), QGuiApplication::primaryScreen() == screen);
+         view->rootContext()->setContextProperty(QStringLiteral("__sddm_errors"), QString());
+ 
+-        // get theme main script
+         QString mainScript = QStringLiteral("%1/%2").arg(m_themePath).arg(m_metadata->mainScript());
+-        QUrl mainScriptUrl;
+-        if (m_themePath.startsWith(QLatin1String("qrc:/")))
+-            mainScriptUrl = QUrl(mainScript);
+-        else
+-            mainScriptUrl = QUrl::fromLocalFile(mainScript);
+-
+-        // load theme from resources when an error has occurred
+-        connect(view, &QQuickView::statusChanged, this, [view](QQuickView::Status status) {
++        QUrl mainScriptUrl = m_themePath.startsWith(QLatin1String("qrc:/"))
++                             ? QUrl(mainScript) : QUrl::fromLocalFile(mainScript);
++        connect(view, &QQuickView::statusChanged, this, [this, view](QQuickView::Status status) {
+             if (status != QQuickView::Error)
+                 return;
+-
+             QString errors;
+-            const auto errorList = view->errors();
+-            for(const QQmlError &e : errorList) {
+-                qWarning() << e;
+-                errors += QLatin1String("\n") + e.toString();
++            for (const QQmlError &error : view->errors()) {
++                qWarning() << error;
++                errors += QLatin1String("\n") + error.toString();
++            }
++            if (m_fallbackStarted) {
++                qCritical() << "Embedded greeter theme failed to load";
++                QCoreApplication::exit(EXIT_FAILURE);
++                return;
++            }
++            m_fallbackStarted = true;
++            qWarning() << "Theme load failed; requesting authentication clear before embedded fallback";
++            auto loadFallback = [this, errors] {
++                m_embeddedFallback = true;
++                for (QQuickView *root : qAsConst(m_views)) {
++                    if (!root)
++                        continue;
++                    root->rootContext()->setContextProperty(QStringLiteral("authenticationController"), false);
++                    root->rootContext()->setContextProperty(QStringLiteral("__sddm_errors"), errors);
++                    root->setSource(QUrl(QStringLiteral("qrc:/theme/Main.qml")));
++                }
++            };
++            if (!m_proxy->authenticationMethodsAvailable()) {
++                loadFallback();
++            } else {
++                connect(m_proxy, &GreeterProxy::authenticationContextCleared, this,
++                        [loadFallback](quint64) { loadFallback(); }, Qt::SingleShotConnection);
++                m_proxy->clearAuthenticationContext();
+             }
+-
+-            qWarning() << "Fallback to embedded theme";
+-            view->rootContext()->setContextProperty(QStringLiteral("__sddm_errors"), errors);
+-            view->setSource(QUrl(QStringLiteral("qrc:/theme/Main.qml")));
+         });
+-
+-        // set main script as source
+         qInfo("Loading %s...", qPrintable(mainScriptUrl.toString()));
+         view->setSource(mainScriptUrl);
+-
+-        // set default cursor
+-        QCursor cursor(Qt::ArrowCursor);
+-        view->rootObject()->setCursor(cursor);
+-
+-        // show
++        if (view->rootObject())
++            view->rootObject()->setCursor(QCursor(Qt::ArrowCursor));
+         qDebug() << "Adding view for" << screen->name() << screen->geometry();
+         view->showFullScreen();
+-
+-        // activate windows for the primary screen to give focus to text fields
+-        if (QGuiApplication::primaryScreen() == screen)
++        if (controller)
+             view->requestActivate();
++
+     }
+ 
+     void GreeterApp::removeViewForScreen(QQuickView *view) {
+-        // screen is gone, remove the window
++        const bool wasController = m_controllerView == view;
+         m_views.removeOne(view);
++        if (wasController) {
++            if (m_proxy)
++                m_proxy->clearAuthenticationContext();
++            m_controllerView.clear();
++        }
+         view->deleteLater();
++        if (wasController)
++            activatePrimary();
+     }
+ 
+     void GreeterApp::startup()
+     {
+-        // Connect to the daemon
+         m_proxy = new GreeterProxy(m_socket);
+         if (!m_testing && !m_proxy->isConnected()) {
+             qCritical() << "Cannot connect to the daemon - is it running?";
+             QCoreApplication::exit(EXIT_FAILURE);
+             return;
+         }
+-
+-        // Set numlock upon start
+         if (m_keyboard->enabled()) {
+             if (mainConfig.Numlock.get() == MainConfig::NUM_SET_ON)
+                 m_keyboard->setNumLockState(true);
+             else if (mainConfig.Numlock.get() == MainConfig::NUM_SET_OFF)
+                 m_keyboard->setNumLockState(false);
+         }
+-
+-        // Set font
+         const QString fontStr = mainConfig.Theme.Font.get();
+         if (!fontStr.isEmpty()) {
+             QFont font;
+-            if (font.fromString(fontStr)) {
++            if (font.fromString(fontStr))
+                 QGuiApplication::setFont(font);
+-            }
+         }
+-
+-        // Set session model on proxy
+         m_proxy->setSessionModel(m_sessionModel);
+-
+-        // If the socket ends, bail. There is not much we can do.
+         connect(m_proxy, &GreeterProxy::socketDisconnected, qGuiApp, &QCoreApplication::quit);
+-
+-        // Create views
+-        const QList<QScreen *> screens = qGuiApp->primaryScreen()->virtualSiblings();
+-        for (QScreen *screen : screens)
++        for (QScreen *screen : qGuiApp->primaryScreen()->virtualSiblings())
+             addViewForScreen(screen);
+-
+-        // Handle screens
+         connect(qGuiApp, &QGuiApplication::screenAdded, this, &GreeterApp::addViewForScreen);
+-        connect(qGuiApp, &QGuiApplication::primaryScreenChanged, this, [this](QScreen *) {
+-            activatePrimary();
+-        });
++        connect(qGuiApp, &QGuiApplication::primaryScreenChanged, this, [this](QScreen *) { activatePrimary(); });
+     }
+ 
+     void GreeterApp::activatePrimary() {
+-        // activate and give focus to the window assigned to the primary screen
++        QQuickView *nextController = nullptr;
+         for (QQuickView *view : qAsConst(m_views)) {
+             if (view->screen() == QGuiApplication::primaryScreen()) {
+-                view->requestActivate();
++                nextController = view;
+                 break;
+             }
+         }
++        if (!nextController && !m_views.isEmpty())
++            nextController = m_views.first();
++        if (m_controllerView != nextController && m_proxy)
++            m_proxy->clearAuthenticationContext();
++        m_controllerView = nextController;
++        for (QQuickView *view : qAsConst(m_views)) {
++            const bool controller = view == m_controllerView;
++            view->rootContext()->setContextProperty(QStringLiteral("authenticationController"), controller);
++            if (controller)
++                view->requestActivate();
++        }
+     }
+ 
+     StartupEvent::StartupEvent()
+diff --git a/src/greeter/GreeterApp.h b/src/greeter/GreeterApp.h
+index ed63595..9eca7e2 100644
+--- a/src/greeter/GreeterApp.h
++++ b/src/greeter/GreeterApp.h
+@@ -76,6 +76,9 @@ namespace SDDM {
+         UserModel *m_userModel { nullptr };
+         GreeterProxy *m_proxy { nullptr };
+         KeyboardModel *m_keyboard { nullptr };
++        QPointer<QQuickView> m_controllerView;
++        bool m_fallbackStarted { false };
++        bool m_embeddedFallback { false };
+ 
+         void startup();
+         void activatePrimary();
+diff --git a/src/greeter/GreeterProxy.cpp b/src/greeter/GreeterProxy.cpp
+index ebd1c1d..8d76796 100644
+--- a/src/greeter/GreeterProxy.cpp
++++ b/src/greeter/GreeterProxy.cpp
+@@ -33,14 +33,17 @@ namespace SDDM {
+         SessionModel *sessionModel { nullptr };
+         QLocalSocket *socket { nullptr };
+         QString hostName;
+-        bool canPowerOff { false };
+-        bool canReboot { false };
+-        bool canSuspend { false };
+-        bool canHibernate { false };
+-        bool canHybridSleep { false };
+-        bool authenticationMethodsAvailable { false };
+-        QString fingerprintState;
+-        QString fingerprintRequestId;
++        bool canPowerOff { false }, canReboot { false }, canSuspend { false }, canHibernate { false }, canHybridSleep { false };
++        bool authenticationMethodsAvailable { false }, fingerprintAvailable { false }, authenticationBusy { false };
++        bool authenticationController { false }, correlatedProtocol { false }, fallbackDisabled { false };
++        quint64 contextSerial { 0 }, acknowledgedSerial { 0 };
++        QString authenticationUser, fingerprintState { QStringLiteral("unavailable") };
++        QString fingerprintDetailCode { QStringLiteral("checking") }, fingerprintRequestId;
++        int authenticationSessionIndex { -1 };
++        Session authenticationSession;
++        QString previousRequestId, previousUser;
++        Session previousSession;
++        quint64 previousSerial { 0 };
+     };
+ 
+     GreeterProxy::GreeterProxy(const QString &socket, QObject *parent) : QObject(parent), d(new GreeterProxyPrivate()) {
+@@ -59,45 +62,22 @@ namespace SDDM {
+         delete d;
+     }
+ 
+-    const QString &GreeterProxy::hostName() const {
+-        return d->hostName;
+-    }
+-
+-    void GreeterProxy::setSessionModel(SessionModel *model) {
+-        d->sessionModel = model;
+-    }
+-
+-    bool GreeterProxy::canPowerOff() const {
+-        return d->canPowerOff;
+-    }
+-
+-    bool GreeterProxy::canReboot() const {
+-        return d->canReboot;
+-    }
+-
+-    bool GreeterProxy::canSuspend() const {
+-        return d->canSuspend;
+-    }
+-
+-    bool GreeterProxy::canHibernate() const {
+-        return d->canHibernate;
+-    }
+-
+-    bool GreeterProxy::canHybridSleep() const {
+-        return d->canHybridSleep;
+-    }
+-
+-    bool GreeterProxy::authenticationMethodsAvailable() const {
+-        return d->authenticationMethodsAvailable;
+-    }
+-
+-    const QString &GreeterProxy::fingerprintState() const {
+-        return d->fingerprintState;
+-    }
+-
+-    const QString &GreeterProxy::fingerprintRequestId() const {
+-        return d->fingerprintRequestId;
+-    }
++    const QString &GreeterProxy::hostName() const { return d->hostName; }
++    void GreeterProxy::setSessionModel(SessionModel *model) { d->sessionModel = model; }
++    bool GreeterProxy::canPowerOff() const { return d->canPowerOff; }
++    bool GreeterProxy::canReboot() const { return d->canReboot; }
++    bool GreeterProxy::canSuspend() const { return d->canSuspend; }
++    bool GreeterProxy::canHibernate() const { return d->canHibernate; }
++    bool GreeterProxy::canHybridSleep() const { return d->canHybridSleep; }
++    bool GreeterProxy::authenticationMethodsAvailable() const { return d->authenticationMethodsAvailable; }
++    const QString &GreeterProxy::authenticationUser() const { return d->authenticationUser; }
++    int GreeterProxy::authenticationSessionIndex() const { return d->authenticationSessionIndex; }
++    bool GreeterProxy::fingerprintAvailable() const { return d->fingerprintAvailable; }
++    const QString &GreeterProxy::fingerprintDetailCode() const { return d->fingerprintDetailCode; }
++    bool GreeterProxy::authenticationBusy() const { return d->authenticationBusy; }
++    bool GreeterProxy::authenticationController() const { return d->authenticationController; }
++    const QString &GreeterProxy::fingerprintState() const { return d->fingerprintState; }
++    const QString &GreeterProxy::fingerprintRequestId() const { return d->fingerprintRequestId; }
+ 
+     bool GreeterProxy::isConnected() const {
+         return d->socket->state() == QLocalSocket::ConnectedState;
+@@ -123,46 +103,113 @@ namespace SDDM {
+         SocketWriter(d->socket) << quint32(GreeterMessages::HybridSleep);
+     }
+ 
+-    void GreeterProxy::login(const QString &user, const QString &password, const int sessionIndex) const {
+-        if (!d->sessionModel) {
+-            // log error
+-            qCritical() << "Session model is not set.";
++    void GreeterProxy::login(const QString &user, const QString &password, int sessionIndex) {
++        if (!d->sessionModel || sessionIndex < 0 || sessionIndex >= d->sessionModel->rowCount() || user.isEmpty())
++            return;
++        if (d->authenticationMethodsAvailable
++            && (d->authenticationUser != user || d->authenticationSessionIndex != sessionIndex))
++            setAuthenticationContext(user, sessionIndex);
++        const QModelIndex index = d->sessionModel->index(sessionIndex, 0);
++        const Session session(static_cast<Session::Type>(d->sessionModel->data(index, SessionModel::TypeRole).toInt()),
++                              d->sessionModel->data(index, SessionModel::FileRole).toString());
++        if (!session.isValid())
++            return;
++        SocketWriter(d->socket) << quint32(GreeterMessages::Login) << user << password << session;
++    }
+ 
+-            // return
++    void GreeterProxy::setAuthenticationContext(const QString &user, int sessionIndex) {
++        if (!d->sessionModel || !d->authenticationMethodsAvailable || user.isEmpty()
++            || sessionIndex < 0 || sessionIndex >= d->sessionModel->rowCount() || d->fallbackDisabled)
+             return;
+-        }
++        const QModelIndex index = d->sessionModel->index(sessionIndex, 0);
++        const Session session(static_cast<Session::Type>(d->sessionModel->data(index, SessionModel::TypeRole).toInt()),
++                              d->sessionModel->data(index, SessionModel::FileRole).toString());
++        if (!session.isValid())
++            return;
++        d->previousSerial = d->acknowledgedSerial;
++        d->previousRequestId = d->fingerprintRequestId;
++        d->previousUser = d->authenticationUser;
++        d->previousSession = d->authenticationSession;
++        ++d->contextSerial;
++        if (d->contextSerial == 0)
++            ++d->contextSerial;
++        const bool userChanged = d->authenticationUser != user;
++        const bool indexChanged = d->authenticationSessionIndex != sessionIndex;
++        d->authenticationUser = user;
++        d->authenticationSessionIndex = sessionIndex;
++        d->authenticationSession = session;
++        d->acknowledgedSerial = 0;
++        d->fingerprintAvailable = false;
++        d->fingerprintDetailCode = QStringLiteral("checking");
++        d->fingerprintState = QStringLiteral("unavailable");
++        d->fingerprintRequestId.clear();
++        d->authenticationBusy = false;
++        if (userChanged) emit authenticationUserChanged(user);
++        if (indexChanged) emit authenticationSessionIndexChanged(sessionIndex);
++        emit fingerprintAvailableChanged(false);
++        emit fingerprintDetailCodeChanged(d->fingerprintDetailCode);
++        emit fingerprintStateChanged(d->fingerprintState);
++        emit fingerprintRequestIdChanged(d->fingerprintRequestId);
++        emit authenticationBusyChanged(false);
++        SocketWriter(d->socket) << quint32(GreeterMessages::SetAuthenticationContext)
++                                << d->contextSerial << quint32(1) << user << session;
++    }
+ 
+-        // get model index
+-        QModelIndex index = d->sessionModel->index(sessionIndex, 0);
++    void GreeterProxy::clearAuthenticationContext() {
++        if (!d->authenticationMethodsAvailable || d->fallbackDisabled)
++            return;
++        ++d->contextSerial;
++        if (d->contextSerial == 0) ++d->contextSerial;
++        d->authenticationUser.clear();
++        d->authenticationSessionIndex = -1;
++        d->authenticationSession = Session();
++        d->acknowledgedSerial = 0;
++        d->fingerprintAvailable = false;
++        d->fingerprintState = QStringLiteral("unavailable");
++        d->fingerprintDetailCode = QStringLiteral("checking");
++        d->fingerprintRequestId.clear();
++        emit authenticationUserChanged(d->authenticationUser);
++        emit authenticationSessionIndexChanged(-1);
++        emit fingerprintAvailableChanged(false);
++        emit fingerprintStateChanged(d->fingerprintState);
++        emit fingerprintDetailCodeChanged(d->fingerprintDetailCode);
++        emit fingerprintRequestIdChanged(d->fingerprintRequestId);
++        SocketWriter(d->socket) << quint32(GreeterMessages::SetAuthenticationContext)
++                                << d->contextSerial << quint32(0);
++    }
+ 
+-        // send command to the daemon
+-        Session::Type type = static_cast<Session::Type>(d->sessionModel->data(index, SessionModel::TypeRole).toInt());
+-        QString name = d->sessionModel->data(index, SessionModel::FileRole).toString();
+-        Session session(type, name);
+-        SocketWriter(d->socket) << quint32(GreeterMessages::Login) << user << password << session;
++    void GreeterProxy::setAuthenticationController(bool controller) {
++        if (d->authenticationController == controller)
++            return;
++        d->authenticationController = controller;
++        if (!controller)
++            clearAuthenticationContext();
++        emit authenticationControllerChanged(controller);
+     }
+ 
+-    void GreeterProxy::startFingerprint(const QString &user, const int sessionIndex) const {
+-        if (!d->sessionModel || !d->authenticationMethodsAvailable)
++    void GreeterProxy::startFingerprint(const QString &user, int sessionIndex) {
++        if (!d->authenticationController || !d->fingerprintAvailable)
+             return;
+-        const QModelIndex index = d->sessionModel->index(sessionIndex, 0);
+-        const auto type = static_cast<Session::Type>(d->sessionModel->data(index, SessionModel::TypeRole).toInt());
+-        const QString name = d->sessionModel->data(index, SessionModel::FileRole).toString();
+-        SocketWriter(d->socket) << quint32(GreeterMessages::StartFingerprint) << user << Session(type, name);
++        if (d->authenticationUser != user || d->authenticationSessionIndex != sessionIndex)
++            setAuthenticationContext(user, sessionIndex);
++        if (!d->acknowledgedSerial)
++            return;
++        SocketWriter(d->socket) << quint32(GreeterMessages::StartAuthenticationMethod)
++                                << d->contextSerial << quint32(AuthenticationMethod::Fingerprint);
+     }
+ 
+-    void GreeterProxy::cancelFingerprint() const {
+-        if (d->fingerprintRequestId.isEmpty())
++    void GreeterProxy::cancelFingerprint() {
++        if (!d->contextSerial || !d->authenticationMethodsAvailable)
+             return;
+-        SocketWriter(d->socket) << quint32(GreeterMessages::CancelFingerprint) << d->fingerprintRequestId;
++        SocketWriter(d->socket) << quint32(GreeterMessages::CancelAuthenticationMethod)
++                                << d->contextSerial << d->fingerprintRequestId
++                                << quint32(AuthenticationMethod::Fingerprint);
+     }
+ 
+     void GreeterProxy::connected() {
+-        // log connection
+         qDebug() << "Connected to the daemon.";
+-
+-        // send connected message
+         SocketWriter(d->socket) << quint32(GreeterMessages::Connect);
++        SocketWriter(d->socket) << quint32(GreeterMessages::QueryAuthenticationCapabilities);
+     }
+ 
+     void GreeterProxy::disconnected() {
+@@ -177,115 +224,164 @@ namespace SDDM {
+     }
+ 
+     void GreeterProxy::readyRead() {
+-        // input stream
+         QDataStream input(d->socket);
+-
+-        while (input.device()->bytesAvailable()) {
+-            // read message
+-            quint32 message;
++        while (d->socket->bytesAvailable() >= qint64(sizeof(quint32))) {
++            input.startTransaction();
++            quint32 message = 0;
+             input >> message;
+-
+             switch (DaemonMessages(message)) {
+                 case DaemonMessages::Capabilities: {
+-                    // log message
+-                    qDebug() << "Message received from daemon: Capabilities";
+-
+-                    // read capabilities
+-                    quint32 capabilities;
++                    quint32 capabilities = 0;
+                     input >> capabilities;
+-
+-                    // parse capabilities
+                     d->canPowerOff = capabilities & Capability::PowerOff;
+                     d->canReboot = capabilities & Capability::Reboot;
+                     d->canSuspend = capabilities & Capability::Suspend;
+                     d->canHibernate = capabilities & Capability::Hibernate;
+                     d->canHybridSleep = capabilities & Capability::HybridSleep;
+-
+-                    // emit signals
+                     emit canPowerOffChanged(d->canPowerOff);
+                     emit canRebootChanged(d->canReboot);
+                     emit canSuspendChanged(d->canSuspend);
+                     emit canHibernateChanged(d->canHibernate);
+                     emit canHybridSleepChanged(d->canHybridSleep);
++                    break;
+                 }
+-                break;
+-                case DaemonMessages::HostName: {
+-                    // log message
+-                    qDebug() << "Message received from daemon: HostName";
+-
+-                    // read host name
++                case DaemonMessages::HostName:
+                     input >> d->hostName;
+-
+-                    // emit signal
+                     emit hostNameChanged(d->hostName);
+-                }
+-                break;
+-                case DaemonMessages::LoginSucceeded: {
+-                    // log message
+-                    qDebug() << "Message received from daemon: LoginSucceeded";
+-
+-                    // emit signal
++                    break;
++                case DaemonMessages::LoginSucceeded:
+                     emit loginSucceeded();
+-                }
+-                break;
+-                case DaemonMessages::LoginFailed: {
+-                    // log message
+-                    qDebug() << "Message received from daemon: LoginFailed";
+-
+-                    // emit signal
++                    break;
++                case DaemonMessages::LoginFailed:
+                     emit loginFailed();
+-                }
+-                break;
++                    break;
+                 case DaemonMessages::AuthenticationCapabilities: {
+-                    quint32 capabilities;
++                    quint32 capabilities = 0;
+                     input >> capabilities;
+-                    const bool available = capabilities & 0x1;
+-                    if (d->authenticationMethodsAvailable != available) {
+-                        d->authenticationMethodsAvailable = available;
+-                        emit authenticationMethodsAvailableChanged(available);
++                    if (capabilities & 0x1) {
++                        d->authenticationMethodsAvailable = false;
++                        d->fingerprintDetailCode = QStringLiteral("daemon_upgrade_required");
++                        emit fingerprintDetailCodeChanged(d->fingerprintDetailCode);
++                    } else if (capabilities & 0x2) {
++                        d->correlatedProtocol = true;
++                        d->authenticationMethodsAvailable = true;
++                        emit authenticationMethodsAvailableChanged(true);
+                     }
++                    break;
+                 }
+-                break;
+-                case DaemonMessages::AuthenticationMethodState: {
+-                    QString requestId, detail;
+-                    quint32 state;
+-                    input >> requestId >> state >> detail;
+-                    if (d->fingerprintRequestId != requestId) {
++                case DaemonMessages::AuthenticationContext: {
++                    quint64 serial = 0;
++                    quint32 accepted = 0, availability = 0, phase = 0;
++                    QString requestId, user, detail;
++                    Session session;
++                    input >> serial >> accepted >> requestId >> user >> session >> availability >> phase >> detail;
++                    if (accepted > 1 || serial != d->contextSerial)
++                        break;
++                    if (accepted == 0 && detail == QLatin1String("session_committed")
++                        && serial == d->contextSerial && user == d->previousUser
++                        && session.type() == d->previousSession.type()
++                        && session.fileName() == d->previousSession.fileName()) {
++                        d->authenticationUser = user;
++                        d->authenticationSession = session;
++                        d->acknowledgedSerial = d->previousSerial;
+                         d->fingerprintRequestId = requestId;
++                        d->authenticationBusy = true;
++                        emit authenticationUserChanged(user);
+                         emit fingerprintRequestIdChanged(requestId);
++                        emit authenticationBusyChanged(true);
++                        break;
+                     }
+-                    Q_UNUSED(state);
+-                    if (d->fingerprintState != detail) {
+-                        d->fingerprintState = detail;
+-                        emit fingerprintStateChanged(detail);
++                    if (!accepted)
++                        break;
++                    if (!user.isEmpty() && (user != d->authenticationUser
++                        || session.type() != d->authenticationSession.type()
++                        || session.fileName() != d->authenticationSession.fileName()))
++                        break;
++                    d->acknowledgedSerial = serial;
++                    d->fingerprintRequestId = requestId;
++                    d->fingerprintAvailable = availability == quint32(AuthenticationAvailability::Available);
++                    d->fingerprintDetailCode = detail;
++                    d->authenticationBusy = phase >= quint32(AuthenticationPhase::WinnerSelected)
++                                           && phase <= quint32(AuthenticationPhase::Finished);
++                    emit fingerprintRequestIdChanged(requestId);
++                    emit fingerprintAvailableChanged(d->fingerprintAvailable);
++                    emit fingerprintDetailCodeChanged(detail);
++                    emit authenticationBusyChanged(d->authenticationBusy);
++                    if (user.isEmpty() && detail == QLatin1String("cleared"))
++                        emit authenticationContextCleared(serial);
++                    break;
++                }
++                case DaemonMessages::AuthenticationMethodState: {
++                    quint64 serial = 0;
++                    quint32 method = 0, state = 0, phase = 0;
++                    QString requestId, user, detail;
++                    Session session;
++                    input >> serial >> requestId >> method >> user >> session >> state >> phase >> detail;
++                    if (serial != d->contextSerial || serial != d->acknowledgedSerial
++                        || requestId != d->fingerprintRequestId || user != d->authenticationUser
++                        || session.type() != d->authenticationSession.type()
++                        || session.fileName() != d->authenticationSession.fileName()
++                        || method > quint32(AuthenticationMethod::Fingerprint)
++                        || state > quint32(FingerprintState::TimedOut))
++                        break;
++                    if (method == quint32(AuthenticationMethod::Password)) {
++                        if (state == quint32(FingerprintState::Failed))
++                            emit loginFailed();
++                        break;
+                     }
++                    static const char *const states[] = {
++                        "unavailable", "ready", "scanning", "retry", "matched", "failed", "cancelled", "timed_out"
++                    };
++                    d->fingerprintState = QString::fromLatin1(states[state]);
++                    d->fingerprintDetailCode = detail;
++                    d->fingerprintAvailable = state != quint32(FingerprintState::Unavailable);
++                    d->authenticationBusy = phase >= quint32(AuthenticationPhase::WinnerSelected)
++                                           && phase <= quint32(AuthenticationPhase::Finished);
++                    emit fingerprintStateChanged(d->fingerprintState);
++                    emit fingerprintDetailCodeChanged(detail);
++                    emit fingerprintAvailableChanged(d->fingerprintAvailable);
++                    emit authenticationBusyChanged(d->authenticationBusy);
++                    break;
+                 }
+-                break;
+                 case DaemonMessages::AuthenticationAttemptFinished: {
+-                    QString requestId;
+-                    quint32 success;
+-                    quint32 method;
+-                    input >> requestId >> success >> method;
+-                    Q_UNUSED(success);
+-                    Q_UNUSED(method);
+-                    if (d->fingerprintRequestId == requestId) {
+-                        d->fingerprintRequestId.clear();
+-                        emit fingerprintRequestIdChanged(d->fingerprintRequestId);
+-                    }
++                    quint64 serial = 0;
++                    quint32 result = 0, method = 0;
++                    QString requestId, user;
++                    Session session;
++                    input >> serial >> requestId >> user >> session >> result >> method;
++                    if (serial != d->contextSerial || serial != d->acknowledgedSerial
++                        || requestId != d->fingerprintRequestId || user != d->authenticationUser
++                        || session.type() != d->authenticationSession.type()
++                        || session.fileName() != d->authenticationSession.fileName()
++                        || result > quint32(AuthenticationResult::Cancelled))
++                        break;
++                    emit authenticationFinished(requestId, user, d->authenticationSessionIndex, result, method);
++                    if (result == quint32(AuthenticationResult::Succeeded))
++                        emit loginSucceeded();
++                    else
++                        emit loginFailed();
++                    d->authenticationBusy = true;
++                    emit authenticationBusyChanged(true);
++                    break;
+                 }
+-                break;
+                 case DaemonMessages::InformationMessage: {
+                     QString message;
+                     input >> message;
+-
+-                    qDebug() << "Information Message received from daemon: " << message;
+-                    emit informationMessage(message);
+-                }
+-                break;
+-                default: {
+-                    // log message
+-                    qWarning() << "Unknown message received from daemon.";
++                    if (!d->correlatedProtocol)
++                        emit informationMessage(message);
++                    break;
+                 }
++                default:
++                    d->socket->abort();
++                    return;
++            }
++            if (input.status() == QDataStream::ReadPastEnd) {
++                input.rollbackTransaction();
++                return;
++            }
++            if (input.status() != QDataStream::Ok || !input.commitTransaction()) {
++                d->socket->abort();
++                return;
+             }
+         }
+     }
+diff --git a/src/greeter/GreeterProxy.h b/src/greeter/GreeterProxy.h
+index 37670cd..d4833d3 100644
+--- a/src/greeter/GreeterProxy.h
++++ b/src/greeter/GreeterProxy.h
+@@ -32,52 +32,59 @@ namespace SDDM {
+         Q_OBJECT
+         Q_DISABLE_COPY(GreeterProxy)
+ 
+-        Q_PROPERTY(QString  hostName        READ hostName       NOTIFY hostNameChanged)
+-        Q_PROPERTY(bool     canPowerOff     READ canPowerOff    NOTIFY canPowerOffChanged)
+-        Q_PROPERTY(bool     canReboot       READ canReboot      NOTIFY canRebootChanged)
+-        Q_PROPERTY(bool     canSuspend      READ canSuspend     NOTIFY canSuspendChanged)
+-        Q_PROPERTY(bool     canHibernate    READ canHibernate   NOTIFY canHibernateChanged)
+-        Q_PROPERTY(bool     canHybridSleep  READ canHybridSleep NOTIFY canHybridSleepChanged)
+-        Q_PROPERTY(bool     authenticationMethodsAvailable READ authenticationMethodsAvailable NOTIFY authenticationMethodsAvailableChanged)
+-        Q_PROPERTY(QString  fingerprintState READ fingerprintState NOTIFY fingerprintStateChanged)
+-        Q_PROPERTY(QString  fingerprintRequestId READ fingerprintRequestId NOTIFY fingerprintRequestIdChanged)
+-
++        Q_PROPERTY(QString hostName READ hostName NOTIFY hostNameChanged)
++        Q_PROPERTY(bool canPowerOff READ canPowerOff NOTIFY canPowerOffChanged)
++        Q_PROPERTY(bool canReboot READ canReboot NOTIFY canRebootChanged)
++        Q_PROPERTY(bool canSuspend READ canSuspend NOTIFY canSuspendChanged)
++        Q_PROPERTY(bool canHibernate READ canHibernate NOTIFY canHibernateChanged)
++        Q_PROPERTY(bool canHybridSleep READ canHybridSleep NOTIFY canHybridSleepChanged)
++        Q_PROPERTY(bool authenticationMethodsAvailable READ authenticationMethodsAvailable NOTIFY authenticationMethodsAvailableChanged)
++        Q_PROPERTY(QString authenticationUser READ authenticationUser NOTIFY authenticationUserChanged)
++        Q_PROPERTY(int authenticationSessionIndex READ authenticationSessionIndex NOTIFY authenticationSessionIndexChanged)
++        Q_PROPERTY(bool fingerprintAvailable READ fingerprintAvailable NOTIFY fingerprintAvailableChanged)
++        Q_PROPERTY(QString fingerprintDetailCode READ fingerprintDetailCode NOTIFY fingerprintDetailCodeChanged)
++        Q_PROPERTY(bool authenticationBusy READ authenticationBusy NOTIFY authenticationBusyChanged)
++        Q_PROPERTY(QString fingerprintState READ fingerprintState NOTIFY fingerprintStateChanged)
++        Q_PROPERTY(QString fingerprintRequestId READ fingerprintRequestId NOTIFY fingerprintRequestIdChanged)
++        Q_PROPERTY(bool authenticationController READ authenticationController NOTIFY authenticationControllerChanged)
+     public:
+         explicit GreeterProxy(const QString &socket, QObject *parent = 0);
+         ~GreeterProxy();
+ 
+         const QString &hostName() const;
+-
+         bool canPowerOff() const;
+         bool canReboot() const;
+         bool canSuspend() const;
+         bool canHibernate() const;
+         bool canHybridSleep() const;
+         bool authenticationMethodsAvailable() const;
++        const QString &authenticationUser() const;
++        int authenticationSessionIndex() const;
++        bool fingerprintAvailable() const;
++        const QString &fingerprintDetailCode() const;
++        bool authenticationBusy() const;
++        bool authenticationController() const;
+         const QString &fingerprintState() const;
+         const QString &fingerprintRequestId() const;
+-
+         bool isConnected() const;
+-
+         void setSessionModel(SessionModel *model);
+-
+     public slots:
+         void powerOff();
+         void reboot();
+         void suspend();
+         void hibernate();
+         void hybridSleep();
+-
+-        void login(const QString &user, const QString &password, const int sessionIndex) const;
+-        void startFingerprint(const QString &user, const int sessionIndex) const;
+-        void cancelFingerprint() const;
+-
++        void login(const QString &user, const QString &password, int sessionIndex);
++        void setAuthenticationContext(const QString &user, int sessionIndex);
++        void clearAuthenticationContext();
++        void setAuthenticationController(bool controller);
++        void startFingerprint(const QString &user, int sessionIndex);
++        void cancelFingerprint();
+     private slots:
+         void connected();
+         void disconnected();
+         void readyRead();
+         void error();
+-
+     signals:
+         void informationMessage(const QString &message);
+         void hostNameChanged(const QString &hostName);
+@@ -87,9 +94,17 @@ namespace SDDM {
+         void canHibernateChanged(bool canHibernate);
+         void canHybridSleepChanged(bool canHybridSleep);
+         void authenticationMethodsAvailableChanged(bool available);
++        void authenticationUserChanged(const QString &user);
++        void authenticationSessionIndexChanged(int index);
++        void fingerprintAvailableChanged(bool available);
++        void fingerprintDetailCodeChanged(const QString &code);
++        void authenticationBusyChanged(bool busy);
+         void fingerprintStateChanged(const QString &state);
+         void fingerprintRequestIdChanged(const QString &requestId);
+-
++        void authenticationControllerChanged(bool controller);
++        void authenticationFinished(const QString &requestId, const QString &user, int sessionIndex,
++                                    quint32 result, quint32 winningMethod);
++        void authenticationContextCleared(quint64 serial);
+         void socketDisconnected();
+         void loginFailed();
+         void loginSucceeded();
+diff --git a/src/helper/HelperApp.cpp b/src/helper/HelperApp.cpp
+index b2e3d1c..7403982 100644
+--- a/src/helper/HelperApp.cpp
++++ b/src/helper/HelperApp.cpp
+@@ -21,8 +21,9 @@
+ #include "HelperApp.h"
+ #include "Backend.h"
+ #include "Configuration.h"
++#include "backend/PamBackend.h"
+ #include "UserSession.h"
+-#include "SafeDataStream.h"
++#include "Messages.h"
+ 
+ #include "MessageHandler.h"
+ #include "VirtualTerminal.h"
+@@ -147,6 +148,15 @@ namespace SDDM {
+         connect(m_session, &UserSession::finished, this, &HelperApp::sessionFinished);
+         m_socket->connectToServer(server, QIODevice::ReadWrite | QIODevice::Unbuffered);
+     }
++    void HelperApp::methodState(FingerprintState state, const QString &detailCode) {
++        if (m_method != AuthMethod::Fingerprint || !m_socket || m_socket->state() != QLocalSocket::ConnectedState)
++            return;
++        SafeDataStream str(m_socket);
++        str << Msg::METHOD_STATE << m_requestId << m_method << m_user
++            << quint32(state) << detailCode;
++        str.send();
++    }
++
+ 
+     void HelperApp::doAuth() {
+         SafeDataStream str(m_socket);
+@@ -155,6 +165,7 @@ namespace SDDM {
+         if (str.status() != QDataStream::Ok)
+             qCritical() << "Couldn't write initial message:" << str.status();
+ 
++
+         if (!m_backend->start(m_user)) {
+             QProcessEnvironment ignored;
+             authenticated(QString(), ignored);
+@@ -169,6 +180,9 @@ namespace SDDM {
+             return;
+         }
+ 
++        if (m_method == AuthMethod::Fingerprint)
++            methodState(FingerprintState::Scanning);
++
+         Q_ASSERT(getuid() == 0);
+         if (!m_backend->authenticate()) {
+             QProcessEnvironment ignored;
+@@ -180,6 +194,13 @@ namespace SDDM {
+             const QString vt = env.value(QStringLiteral("XDG_VTNR"));
+             utmpLogin(vt, displayId, m_user, 0, false);
+ 
++            if (m_method == AuthMethod::Fingerprint) {
++                const auto *pamBackend = qobject_cast<PamBackend *>(m_backend);
++                if (pamBackend && pamBackend->result() == PAM_AUTHINFO_UNAVAIL)
++                    methodState(FingerprintState::Unavailable, QStringLiteral("authentication_unavailable"));
++                else
++                    methodState(FingerprintState::Failed, QStringLiteral("authentication_failed"));
++            }
+             exit(Auth::HELPER_AUTH_ERROR);
+             return;
+         }
+diff --git a/src/helper/HelperApp.h b/src/helper/HelperApp.h
+index ac3a11a..49b2bc1 100644
+--- a/src/helper/HelperApp.h
++++ b/src/helper/HelperApp.h
+@@ -24,7 +24,7 @@
+ #include <QtCore/QCoreApplication>
+ #include <QtCore/QProcessEnvironment>
+ 
+-#include "AuthMessages.h"
++#include "Messages.h"
+ 
+ class QLocalSocket;
+ 
+@@ -48,6 +48,7 @@ namespace SDDM {
+         void error(const QString &message, Auth::Error type);
+         bool authenticated(const QString &user, QProcessEnvironment &environment);
+         void displayServerStarted(const QString &displayName);
++        void methodState(FingerprintState state, const QString &detailCode = QString());
+         void sessionOpened(bool success);
+ 
+     private slots:
+diff --git a/src/helper/backend/PamBackend.cpp b/src/helper/backend/PamBackend.cpp
+index 2e57e69..0de9c27 100644
+--- a/src/helper/backend/PamBackend.cpp
++++ b/src/helper/backend/PamBackend.cpp
+@@ -240,6 +240,9 @@ namespace SDDM {
+         }
+         return true;
+     }
++    int PamBackend::result() const {
++        return m_pam->result();
++    }
+ 
+     bool PamBackend::accountManagement() {
+         if (!m_pam->acctMgmt()) {
+diff --git a/src/helper/backend/PamBackend.h b/src/helper/backend/PamBackend.h
+index bf154dc..b04657b 100644
+--- a/src/helper/backend/PamBackend.h
++++ b/src/helper/backend/PamBackend.h
+@@ -70,6 +70,7 @@ namespace SDDM {
+         virtual bool closeSession();
+ 
+         virtual QString userName();
++        int result() const;
+ 
+     private:
+         PamData *m_data { nullptr };
+diff --git a/src/helper/backend/PamHandle.cpp b/src/helper/backend/PamHandle.cpp
+index e8e1d41..d906c3a 100644
+--- a/src/helper/backend/PamHandle.cpp
++++ b/src/helper/backend/PamHandle.cpp
+@@ -177,6 +177,9 @@ namespace SDDM {
+     QString PamHandle::errorString() {
+         return QString::fromLocal8Bit(pam_strerror(m_handle, m_result));
+     }
++    int PamHandle::result() const {
++        return m_result;
++    }
+ 
+     PamHandle::PamHandle(PamBackend *parent) : m_conv{&PamHandle::converse, parent} { // create context
+     }
+diff --git a/src/helper/backend/PamHandle.h b/src/helper/backend/PamHandle.h
+index 330b78e..bf1321b 100644
+--- a/src/helper/backend/PamHandle.h
++++ b/src/helper/backend/PamHandle.h
+@@ -177,6 +177,7 @@ namespace SDDM {
+         * \return error string
+         */
+         QString errorString();
++        int result() const;
+ 
+     private:
+         /**

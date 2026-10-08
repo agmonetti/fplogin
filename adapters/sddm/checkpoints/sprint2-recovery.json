@@ -1,0 +1,659 @@
+{
+  "format_version": 1,
+  "status": "recovered-unverified-not-accepted",
+  "recovered_at": "2026-10-08",
+  "source_session": "01a10bd6-457f-7000-be93-262cd943e2c0",
+  "original_source_path": "/tmp/fplogin-sddm-sprint2",
+  "persistent_source_path": ".work/sddm/sprint2",
+  "source_branch": "fplogin/sprint2-recovered",
+  "source_commit": "f5176903bbc3e7b6bd91ed8e3e0bc893230f2146",
+  "accepted_sprint1_base_tag": "fplogin/sprint1-accepted",
+  "accepted_sprint1_base_commit": "bb48519c79d21bf5534e66552bf31d3bdb3f2935",
+  "local_bundle": ".work/checkpoints/sddm-sprint2-20261008-recovered.bundle",
+  "local_bundle_verified": true,
+  "upstream_commit": "63780fcd79f1dbf81a30eef48c28c699ab15aded",
+  "arch_cmake_commit": "228778c2b4b7e26db1e1d69fe484ed75c5791c3a",
+  "accepted_patch": {
+    "path": "adapters/sddm/patches/0001-concurrent-authentication-methods.patch",
+    "sha256": "0f2a7bed069f8f81cefc531ee79e6d7b131e9ef90c8dfd241d42e0c8ae3fdd3d"
+  },
+  "checkpoint_patch": {
+    "path": "adapters/sddm/checkpoints/sprint2-recovered.patch",
+    "sha256": "fb9db1af3679629bb583123d6a74083be614998662540b7242fc7be7c924e779"
+  },
+  "source_sha256": {
+    "src/common/Messages.h": "102bb69068055206c6fff31418630f59ea0200bd19616a83d3dddba22b39bf1a",
+    "src/daemon/SocketServer.h": "259f2864123d5ba2e492cba8c2bb17c8e6ccba5ecea445fd0e5408d2a7ed229e",
+    "src/daemon/SocketServer.cpp": "06e4e0e545ff9bd349cc046a21cd162b6ec330e04389a5bf6c071652658884ab",
+    "src/daemon/Display.h": "fb5ea05026b900febe253d552498dea6744eeb84aa67ef2d4f34ee4124fa7355",
+    "src/daemon/Display.cpp": "cfc550b1e22a864bf108984eb4be7f8d96fd695c50c8df99c5087ce3919e6a83",
+    "src/greeter/GreeterProxy.h": "79473f6433a06c5b026fcceb7043a1dd240b0f8323ae1ff86953a91cb0ad7105",
+    "src/greeter/GreeterProxy.cpp": "0861fcf86fdf61a9c16fccb0735edea66089210c5e902804ff5a3c87a11b8a6f",
+    "src/greeter/GreeterApp.h": "6cd076ad06156c66a13644a5474a51290ec0add8bc7ab661f3627b035178bafb",
+    "src/greeter/GreeterApp.cpp": "a1b7e24a2323e6b5fc094447b9b434af16dfd43981a8e09874f89b90d1d674de",
+    "src/helper/HelperApp.h": "f8a20991ead1e0cd3a2d9cdbf5f1c0843541f9cffcceddea7ee5f5b475babd9e",
+    "src/helper/HelperApp.cpp": "be68c5f6f5e1b91bf920f55d73c9fe83cb1e5db6e8b403bd9b3527ad0e437323",
+    "src/helper/backend/PamHandle.h": "f4903288a162362ecf04cd8b8738ca419cb9a178aaca5bd1d34e1d229631f769",
+    "src/helper/backend/PamHandle.cpp": "aa38cf7a2665a9061f71d8452f8dc54657369771287c804a02ba686b15656fb4",
+    "src/common/Configuration.h": "1984921cc833710de4eb00801aa23c2e8fb14bf1579f7b39c6b6d0f52edbb48a",
+    "src/auth/Auth.h": "7b1e0e4e8e135000b0f7e37e522496a3b10a5c7e4c2c9198a79f9c18f21c2b1b",
+    "src/auth/Auth.cpp": "956e3147ff004b013cc1c89d05cb84a001d7dd563c07d61295882d145cc96011",
+    "src/helper/backend/PamBackend.h": "a77f0d12f4ee48d8848bc018e1418f7235ff44a045379bd7021ccf999cc5c2ea",
+    "src/helper/backend/PamBackend.cpp": "97006b8b985b0662541b9ba32ce50cd73e88d97504772a0ab9e1f201c15674da"
+  },
+  "theme_sha256": {
+    "adapters/sddm/assets/theme/Main.qml": "af647b34268a9013362e30a68b3655877b2cba710b3472fe7d4e14e61adce167",
+    "adapters/sddm/assets/theme/LICENSE": "0b842bafa6410d391544df74365fd2cf45a89905c7d3a96f25d2edff4f5e55a1",
+    "adapters/sddm/assets/theme/metadata.desktop": "4b2f952eca7a1ba47b31bb0b5a210855f2fe56a9147c24a334c7564962a78973",
+    "adapters/sddm/assets/theme/theme.conf": "a371ee2822ab833c1349cbe193bf4b9292d6ab6b49a22b525fc1dcd95aa933c1"
+  },
+  "reconstruction": {
+    "successful_edits": 83,
+    "files": 18,
+    "full_snapshot_pairs_checked": 37,
+    "method": "Replay successful archived per-file diffs chronologically against the pinned baseline plus accepted 0001; check every recorded context/deletion and every available complete preimage/postimage. Failed edits are excluded.",
+    "events": [
+      {
+        "file": "src/common/Messages.h",
+        "record_id": "a6741c02",
+        "agent": "main",
+        "timestamp": "2026-10-05T11:34:42.620Z",
+        "full_snapshot": true
+      },
+      {
+        "file": "src/daemon/SocketServer.h",
+        "record_id": "ff786c6f",
+        "agent": "main",
+        "timestamp": "2026-10-05T11:34:58.451Z",
+        "full_snapshot": true
+      },
+      {
+        "file": "src/daemon/SocketServer.cpp",
+        "record_id": "e8bc7dee",
+        "agent": "main",
+        "timestamp": "2026-10-05T11:35:16.490Z",
+        "full_snapshot": true
+      },
+      {
+        "file": "src/daemon/SocketServer.cpp",
+        "record_id": "b817e896",
+        "agent": "main",
+        "timestamp": "2026-10-05T11:35:34.782Z",
+        "full_snapshot": true
+      },
+      {
+        "file": "src/daemon/Display.h",
+        "record_id": "7c5d0ef9",
+        "agent": "main",
+        "timestamp": "2026-10-05T11:35:46.698Z",
+        "full_snapshot": true
+      },
+      {
+        "file": "src/daemon/Display.h",
+        "record_id": "28ee3df8",
+        "agent": "main",
+        "timestamp": "2026-10-05T11:35:53.940Z",
+        "full_snapshot": true
+      },
+      {
+        "file": "src/daemon/SocketServer.h",
+        "record_id": "c4236790",
+        "agent": "main",
+        "timestamp": "2026-10-05T11:36:03.064Z",
+        "full_snapshot": true
+      },
+      {
+        "file": "src/daemon/SocketServer.cpp",
+        "record_id": "17e71585",
+        "agent": "main",
+        "timestamp": "2026-10-05T11:36:18.068Z",
+        "full_snapshot": true
+      },
+      {
+        "file": "src/daemon/Display.cpp",
+        "record_id": "24799ad1",
+        "agent": "main",
+        "timestamp": "2026-10-05T11:36:25.661Z",
+        "full_snapshot": false
+      },
+      {
+        "file": "src/daemon/Display.cpp",
+        "record_id": "89d03413",
+        "agent": "main",
+        "timestamp": "2026-10-05T11:36:55.749Z",
+        "full_snapshot": false
+      },
+      {
+        "file": "src/daemon/Display.cpp",
+        "record_id": "a695a7be",
+        "agent": "main",
+        "timestamp": "2026-10-05T11:37:19.381Z",
+        "full_snapshot": false
+      },
+      {
+        "file": "src/daemon/Display.cpp",
+        "record_id": "e9b82534",
+        "agent": "main",
+        "timestamp": "2026-10-05T11:37:34.228Z",
+        "full_snapshot": false
+      },
+      {
+        "file": "src/daemon/Display.h",
+        "record_id": "d8017669",
+        "agent": "main",
+        "timestamp": "2026-10-05T11:37:45.206Z",
+        "full_snapshot": true
+      },
+      {
+        "file": "src/daemon/Display.cpp",
+        "record_id": "f8868652",
+        "agent": "main",
+        "timestamp": "2026-10-05T11:37:56.876Z",
+        "full_snapshot": false
+      },
+      {
+        "file": "src/daemon/Display.cpp",
+        "record_id": "71b95fed",
+        "agent": "main",
+        "timestamp": "2026-10-05T11:38:07.239Z",
+        "full_snapshot": false
+      },
+      {
+        "file": "src/daemon/Display.cpp",
+        "record_id": "6d77e512",
+        "agent": "main",
+        "timestamp": "2026-10-05T11:38:13.609Z",
+        "full_snapshot": false
+      },
+      {
+        "file": "src/daemon/Display.cpp",
+        "record_id": "0c34d317",
+        "agent": "main",
+        "timestamp": "2026-10-05T11:38:20.741Z",
+        "full_snapshot": false
+      },
+      {
+        "file": "src/daemon/Display.cpp",
+        "record_id": "726103d2",
+        "agent": "main",
+        "timestamp": "2026-10-05T11:38:35.084Z",
+        "full_snapshot": false
+      },
+      {
+        "file": "src/daemon/Display.cpp",
+        "record_id": "8816599a",
+        "agent": "main",
+        "timestamp": "2026-10-05T11:38:38.894Z",
+        "full_snapshot": false
+      },
+      {
+        "file": "src/daemon/Display.cpp",
+        "record_id": "e57449b1",
+        "agent": "main",
+        "timestamp": "2026-10-05T11:38:42.705Z",
+        "full_snapshot": false
+      },
+      {
+        "file": "src/daemon/Display.cpp",
+        "record_id": "ec1c18f3",
+        "agent": "main",
+        "timestamp": "2026-10-05T11:39:02.308Z",
+        "full_snapshot": false
+      },
+      {
+        "file": "src/daemon/Display.cpp",
+        "record_id": "d1cd7d3b",
+        "agent": "main",
+        "timestamp": "2026-10-05T11:39:26.578Z",
+        "full_snapshot": false
+      },
+      {
+        "file": "src/daemon/Display.cpp",
+        "record_id": "fdc04990",
+        "agent": "main",
+        "timestamp": "2026-10-05T11:39:34.466Z",
+        "full_snapshot": false
+      },
+      {
+        "file": "src/daemon/Display.cpp",
+        "record_id": "6aaf4fe0",
+        "agent": "main",
+        "timestamp": "2026-10-05T11:39:45.987Z",
+        "full_snapshot": false
+      },
+      {
+        "file": "src/greeter/GreeterProxy.h",
+        "record_id": "183bdc1f",
+        "agent": "main",
+        "timestamp": "2026-10-05T11:39:58.496Z",
+        "full_snapshot": true
+      },
+      {
+        "file": "src/greeter/GreeterProxy.h",
+        "record_id": "9b2374c6",
+        "agent": "main",
+        "timestamp": "2026-10-05T11:40:27.582Z",
+        "full_snapshot": true
+      },
+      {
+        "file": "src/greeter/GreeterProxy.cpp",
+        "record_id": "06f466b3",
+        "agent": "main",
+        "timestamp": "2026-10-05T11:40:43.257Z",
+        "full_snapshot": true
+      },
+      {
+        "file": "src/greeter/GreeterProxy.cpp",
+        "record_id": "bee9a7cd",
+        "agent": "main",
+        "timestamp": "2026-10-05T11:41:10.321Z",
+        "full_snapshot": true
+      },
+      {
+        "file": "src/greeter/GreeterProxy.cpp",
+        "record_id": "b4e3a93f",
+        "agent": "main",
+        "timestamp": "2026-10-05T11:41:42.495Z",
+        "full_snapshot": true
+      },
+      {
+        "file": "src/greeter/GreeterProxy.cpp",
+        "record_id": "32a433e6",
+        "agent": "main",
+        "timestamp": "2026-10-05T11:42:27.448Z",
+        "full_snapshot": false
+      },
+      {
+        "file": "src/greeter/GreeterProxy.cpp",
+        "record_id": "b80328ef",
+        "agent": "main",
+        "timestamp": "2026-10-05T11:42:35.469Z",
+        "full_snapshot": false
+      },
+      {
+        "file": "src/greeter/GreeterApp.h",
+        "record_id": "8ed60828",
+        "agent": "main",
+        "timestamp": "2026-10-05T11:44:05.727Z",
+        "full_snapshot": true
+      },
+      {
+        "file": "src/greeter/GreeterProxy.h",
+        "record_id": "e540672f",
+        "agent": "main",
+        "timestamp": "2026-10-05T11:44:57.451Z",
+        "full_snapshot": true
+      },
+      {
+        "file": "src/greeter/GreeterProxy.cpp",
+        "record_id": "956a54b3",
+        "agent": "main",
+        "timestamp": "2026-10-05T11:45:15.004Z",
+        "full_snapshot": false
+      },
+      {
+        "file": "src/greeter/GreeterProxy.cpp",
+        "record_id": "b3d4e3c0",
+        "agent": "main",
+        "timestamp": "2026-10-05T11:45:26.011Z",
+        "full_snapshot": false
+      },
+      {
+        "file": "src/greeter/GreeterProxy.cpp",
+        "record_id": "3e226c49",
+        "agent": "main",
+        "timestamp": "2026-10-05T11:45:33.857Z",
+        "full_snapshot": false
+      },
+      {
+        "file": "src/greeter/GreeterApp.cpp",
+        "record_id": "b29249e4",
+        "agent": "main",
+        "timestamp": "2026-10-05T11:46:02.149Z",
+        "full_snapshot": true
+      },
+      {
+        "file": "src/greeter/GreeterApp.cpp",
+        "record_id": "86a0b45a",
+        "agent": "main",
+        "timestamp": "2026-10-05T11:46:12.882Z",
+        "full_snapshot": true
+      },
+      {
+        "file": "src/greeter/GreeterApp.cpp",
+        "record_id": "ee6254fa",
+        "agent": "main",
+        "timestamp": "2026-10-05T11:46:33.032Z",
+        "full_snapshot": true
+      },
+      {
+        "file": "src/daemon/SocketServer.cpp",
+        "record_id": "a7e5a5eb",
+        "agent": "main",
+        "timestamp": "2026-10-05T11:47:07.271Z",
+        "full_snapshot": true
+      },
+      {
+        "file": "src/daemon/SocketServer.cpp",
+        "record_id": "49ff437a",
+        "agent": "main",
+        "timestamp": "2026-10-05T11:47:20.195Z",
+        "full_snapshot": true
+      },
+      {
+        "file": "src/daemon/Display.h",
+        "record_id": "3d182cb1",
+        "agent": "main",
+        "timestamp": "2026-10-05T11:48:09.721Z",
+        "full_snapshot": true
+      },
+      {
+        "file": "src/daemon/Display.h",
+        "record_id": "def55773",
+        "agent": "main",
+        "timestamp": "2026-10-05T11:48:24.623Z",
+        "full_snapshot": true
+      },
+      {
+        "file": "src/helper/HelperApp.h",
+        "record_id": "b3ae8657",
+        "agent": "HelperProgress2",
+        "timestamp": "2026-10-05T11:48:36.869Z",
+        "full_snapshot": true
+      },
+      {
+        "file": "src/helper/HelperApp.cpp",
+        "record_id": "b3ae8657",
+        "agent": "HelperProgress2",
+        "timestamp": "2026-10-05T11:48:36.869Z",
+        "full_snapshot": false
+      },
+      {
+        "file": "src/helper/backend/PamHandle.h",
+        "record_id": "b3ae8657",
+        "agent": "HelperProgress2",
+        "timestamp": "2026-10-05T11:48:36.869Z",
+        "full_snapshot": true
+      },
+      {
+        "file": "src/daemon/Display.h",
+        "record_id": "dfdf4347",
+        "agent": "main",
+        "timestamp": "2026-10-05T11:48:37.625Z",
+        "full_snapshot": true
+      },
+      {
+        "file": "src/helper/HelperApp.cpp",
+        "record_id": "98970c2d",
+        "agent": "HelperProgress2",
+        "timestamp": "2026-10-05T11:48:46.704Z",
+        "full_snapshot": true
+      },
+      {
+        "file": "src/helper/backend/PamHandle.h",
+        "record_id": "98970c2d",
+        "agent": "HelperProgress2",
+        "timestamp": "2026-10-05T11:48:46.704Z",
+        "full_snapshot": false
+      },
+      {
+        "file": "src/daemon/Display.cpp",
+        "record_id": "3bddc7db",
+        "agent": "main",
+        "timestamp": "2026-10-05T11:48:55.810Z",
+        "full_snapshot": false
+      },
+      {
+        "file": "src/helper/backend/PamHandle.cpp",
+        "record_id": "a068d525",
+        "agent": "HelperProgress2",
+        "timestamp": "2026-10-05T11:48:57.996Z",
+        "full_snapshot": true
+      },
+      {
+        "file": "src/daemon/Display.cpp",
+        "record_id": "42ee7117",
+        "agent": "main",
+        "timestamp": "2026-10-05T11:49:07.913Z",
+        "full_snapshot": false
+      },
+      {
+        "file": "src/helper/HelperApp.cpp",
+        "record_id": "836eeb35",
+        "agent": "HelperProgress2",
+        "timestamp": "2026-10-05T11:49:31.855Z",
+        "full_snapshot": true
+      },
+      {
+        "file": "src/daemon/Display.cpp",
+        "record_id": "b31c2c57",
+        "agent": "main",
+        "timestamp": "2026-10-05T11:49:35.094Z",
+        "full_snapshot": false
+      },
+      {
+        "file": "src/daemon/Display.cpp",
+        "record_id": "07d8e489",
+        "agent": "main",
+        "timestamp": "2026-10-05T11:49:56.375Z",
+        "full_snapshot": false
+      },
+      {
+        "file": "src/daemon/Display.cpp",
+        "record_id": "d9c658e7",
+        "agent": "main",
+        "timestamp": "2026-10-05T11:50:12.279Z",
+        "full_snapshot": false
+      },
+      {
+        "file": "src/daemon/Display.cpp",
+        "record_id": "2aab99e4",
+        "agent": "main",
+        "timestamp": "2026-10-05T11:50:24.051Z",
+        "full_snapshot": false
+      },
+      {
+        "file": "src/common/Configuration.h",
+        "record_id": "4dc58088",
+        "agent": "main",
+        "timestamp": "2026-10-05T11:51:07.536Z",
+        "full_snapshot": true
+      },
+      {
+        "file": "src/daemon/Display.h",
+        "record_id": "07b89827",
+        "agent": "main",
+        "timestamp": "2026-10-05T11:51:14.577Z",
+        "full_snapshot": true
+      },
+      {
+        "file": "src/daemon/Display.h",
+        "record_id": "c69dbced",
+        "agent": "main",
+        "timestamp": "2026-10-05T11:51:19.044Z",
+        "full_snapshot": true
+      },
+      {
+        "file": "src/daemon/Display.h",
+        "record_id": "5e69473f",
+        "agent": "main",
+        "timestamp": "2026-10-05T11:51:31.570Z",
+        "full_snapshot": true
+      },
+      {
+        "file": "src/daemon/Display.cpp",
+        "record_id": "378ba31b",
+        "agent": "main",
+        "timestamp": "2026-10-05T11:51:52.112Z",
+        "full_snapshot": false
+      },
+      {
+        "file": "src/daemon/Display.cpp",
+        "record_id": "1c30c9e8",
+        "agent": "main",
+        "timestamp": "2026-10-05T11:52:02.196Z",
+        "full_snapshot": false
+      },
+      {
+        "file": "src/daemon/Display.cpp",
+        "record_id": "446aa8b0",
+        "agent": "main",
+        "timestamp": "2026-10-05T11:52:16.554Z",
+        "full_snapshot": false
+      },
+      {
+        "file": "src/daemon/Display.cpp",
+        "record_id": "5aab1843",
+        "agent": "main",
+        "timestamp": "2026-10-05T11:52:36.302Z",
+        "full_snapshot": false
+      },
+      {
+        "file": "src/daemon/Display.cpp",
+        "record_id": "c4b12a80",
+        "agent": "main",
+        "timestamp": "2026-10-05T11:52:50.097Z",
+        "full_snapshot": false
+      },
+      {
+        "file": "src/daemon/Display.cpp",
+        "record_id": "c0453e11",
+        "agent": "main",
+        "timestamp": "2026-10-05T11:52:55.983Z",
+        "full_snapshot": false
+      },
+      {
+        "file": "src/daemon/Display.cpp",
+        "record_id": "de6c6189",
+        "agent": "main",
+        "timestamp": "2026-10-05T11:53:11.425Z",
+        "full_snapshot": false
+      },
+      {
+        "file": "src/daemon/Display.cpp",
+        "record_id": "7608f86c",
+        "agent": "main",
+        "timestamp": "2026-10-05T11:53:28.719Z",
+        "full_snapshot": false
+      },
+      {
+        "file": "src/daemon/Display.cpp",
+        "record_id": "bf844745",
+        "agent": "main",
+        "timestamp": "2026-10-05T11:53:45.657Z",
+        "full_snapshot": false
+      },
+      {
+        "file": "src/daemon/Display.cpp",
+        "record_id": "d892ff46",
+        "agent": "main",
+        "timestamp": "2026-10-05T11:53:57.122Z",
+        "full_snapshot": false
+      },
+      {
+        "file": "src/auth/Auth.h",
+        "record_id": "98d7995c",
+        "agent": "main",
+        "timestamp": "2026-10-05T11:54:47.788Z",
+        "full_snapshot": true
+      },
+      {
+        "file": "src/auth/Auth.h",
+        "record_id": "a36bf04f",
+        "agent": "main",
+        "timestamp": "2026-10-05T11:55:04.693Z",
+        "full_snapshot": true
+      },
+      {
+        "file": "src/auth/Auth.cpp",
+        "record_id": "f140c1cd",
+        "agent": "main",
+        "timestamp": "2026-10-05T11:55:18.740Z",
+        "full_snapshot": false
+      },
+      {
+        "file": "src/auth/Auth.cpp",
+        "record_id": "9f3bd6d6",
+        "agent": "main",
+        "timestamp": "2026-10-05T11:55:34.141Z",
+        "full_snapshot": false
+      },
+      {
+        "file": "src/helper/HelperApp.cpp",
+        "record_id": "a9a61e3e",
+        "agent": "HelperProgress2",
+        "timestamp": "2026-10-05T11:56:01.296Z",
+        "full_snapshot": true
+      },
+      {
+        "file": "src/helper/backend/PamBackend.h",
+        "record_id": "a9a61e3e",
+        "agent": "HelperProgress2",
+        "timestamp": "2026-10-05T11:56:01.296Z",
+        "full_snapshot": false
+      },
+      {
+        "file": "src/helper/backend/PamBackend.cpp",
+        "record_id": "a9a61e3e",
+        "agent": "HelperProgress2",
+        "timestamp": "2026-10-05T11:56:01.296Z",
+        "full_snapshot": false
+      },
+      {
+        "file": "src/daemon/Display.h",
+        "record_id": "0a781081",
+        "agent": "main",
+        "timestamp": "2026-10-05T11:56:07.508Z",
+        "full_snapshot": true
+      },
+      {
+        "file": "src/daemon/Display.cpp",
+        "record_id": "2403a05d",
+        "agent": "main",
+        "timestamp": "2026-10-05T11:56:28.669Z",
+        "full_snapshot": false
+      },
+      {
+        "file": "src/daemon/Display.cpp",
+        "record_id": "1bb32be3",
+        "agent": "main",
+        "timestamp": "2026-10-05T11:56:47.312Z",
+        "full_snapshot": false
+      },
+      {
+        "file": "src/greeter/GreeterProxy.cpp",
+        "record_id": "427a5e2a",
+        "agent": "main",
+        "timestamp": "2026-10-05T11:57:06.599Z",
+        "full_snapshot": false
+      },
+      {
+        "file": "src/greeter/GreeterProxy.cpp",
+        "record_id": "cf4d9c6d",
+        "agent": "main",
+        "timestamp": "2026-10-05T11:57:14.343Z",
+        "full_snapshot": false
+      }
+    ]
+  },
+  "verification": {
+    "recovery_roundtrip": "passed: checkpoint applied to separate accepted-Sprint-1 clone; all 18 source SHA-256 hashes match the reconstructed checkout",
+    "documented_restore": {
+      "tracked_files_route": "passed: fresh upstream clone, pinned delta, accepted 0001 and recovery checkpoint applied and committed",
+      "bundle_route": "passed: independent clone from verified self-contained source bundle",
+      "integrity_verifier": "Checkpoint integrity passed: 24 files",
+      "tracked_files_exit_status": 0,
+      "bundle_exit_status": 0
+    },
+    "sprint2_build": "not-run",
+    "sprint2_tests": "not-run",
+    "sprint2_authentication_smoke": "not-run",
+    "sprint2_actual_surface": "not-run",
+    "archived_diff_totals": {
+      "files": 22,
+      "added": 1714,
+      "deleted": 371,
+      "match": true
+    }
+  }
+}

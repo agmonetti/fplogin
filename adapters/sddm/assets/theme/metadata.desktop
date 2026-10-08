@@ -1,0 +1,12 @@
+[SddmGreeterTheme]
+Name=fplogin
+Description=Accessible SDDM greeter with concurrent password and fingerprint sign-in
+Author=fplogin contributors
+Copyright=(c) 2026 fplogin contributors
+License=MIT
+Type=sddm-theme
+Version=1.0
+MainScript=Main.qml
+ConfigFile=theme.conf
+Theme-Id=fplogin
+Theme-API=2.0
