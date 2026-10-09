@@ -8,7 +8,7 @@ SDDM does not natively support fingerprint authentication. Users must type their
 
 ## Planned approach
 
-The Foundation Gate, Sprint 0 and Sprint 1 are complete. Sprint 1 is accepted and closed by the [2026-10-04 independent review](docs/reviews/sprint-1.md#2026-10-04-sol-independent-acceptance-review--sprint-1-gate), including the final physical-reader matrix R01–R16. Sprint 2 implementation is partial, unverified and unaccepted; its source checkpoint was [recovered into persistent storage](docs/PERSISTENCE.md#recovered-checkpoint-2026-10-08). Continue the [execution plan](docs/SPRINT_2_EXECUTION_PLAN.md); integration, build/runtime verification and actual-surface acceptance remain pending.
+The Foundation Gate, Sprint 0 and Sprint 1 are complete. Sprint 1 is accepted and closed by the [2026-10-04 independent review](docs/reviews/sprint-1.md#2026-10-04-sol-independent-acceptance-review--sprint-1-gate), including the final physical-reader matrix R01–R16. Sprint 2 is integrated, with isolated build/tests and USB-free guest surface verification; physical acceptance G01–G16 remains pending fresh owner authorization and reader handoff. Source, assets and integrity metadata are [preserved in persistent storage](docs/PERSISTENCE.md). Continue the [execution plan](docs/SPRINT_2_EXECUTION_PLAN.md); Sprint 3 remains blocked until Sprint 2 acceptance.
 
 The planned product has:
 
