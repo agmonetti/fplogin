@@ -33,6 +33,9 @@ Rectangle {
     Accessible.role: Accessible.Pane
 
     readonly property bool controller: authenticationController
+    readonly property real keyboardInset: controller && Qt.inputMethod.visible &&
+            Qt.inputMethod.keyboardRectangle.height > 0
+        ? Math.max(0, root.height - Qt.inputMethod.keyboardRectangle.y) : 0
     property bool viewReady: false
     property bool contextPending: false
     property bool autoStartIssued: false
@@ -291,6 +294,7 @@ Rectangle {
 
     onWidthChanged: keepFocusVisible()
     onHeightChanged: keepFocusVisible()
+    onKeyboardInsetChanged: keepFocusVisible()
     Connections {
         target: root.Window.window
         function onActiveFocusItemChanged() { root.keepFocusVisible() }
@@ -381,6 +385,7 @@ Rectangle {
         id: scroll
         anchors.fill: parent
         anchors.margins: Math.max(16, Math.min(root.width, root.height) * 0.04)
+        anchors.bottomMargin: anchors.margins + root.keyboardInset
         clip: true
         contentWidth: availableWidth
 

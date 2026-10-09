@@ -1,15 +1,15 @@
 {
   "format_version": 1,
-  "status": "recovered-unverified-not-accepted",
+  "status": "integrated-synthetic-verified-physical-acceptance-pending",
   "recovered_at": "2026-10-08",
   "source_session": "01a10bd6-457f-7000-be93-262cd943e2c0",
   "original_source_path": "/tmp/fplogin-sddm-sprint2",
   "persistent_source_path": ".work/sddm/sprint2",
   "source_branch": "fplogin/sprint2-recovered",
-  "source_commit": "f5176903bbc3e7b6bd91ed8e3e0bc893230f2146",
+  "source_commit": "c1cddef7863422e32c8434ec4b298b2c7c38ad4e",
   "accepted_sprint1_base_tag": "fplogin/sprint1-accepted",
   "accepted_sprint1_base_commit": "bb48519c79d21bf5534e66552bf31d3bdb3f2935",
-  "local_bundle": ".work/checkpoints/sddm-sprint2-20261008-recovered.bundle",
+  "local_bundle": ".work/checkpoints/sddm-sprint2-20261009-keyboard-viewport.bundle",
   "local_bundle_verified": true,
   "upstream_commit": "63780fcd79f1dbf81a30eef48c28c699ab15aded",
   "arch_cmake_commit": "228778c2b4b7e26db1e1d69fe484ed75c5791c3a",
@@ -19,32 +19,50 @@
   },
   "checkpoint_patch": {
     "path": "adapters/sddm/checkpoints/sprint2-recovered.patch",
-    "sha256": "fb9db1af3679629bb583123d6a74083be614998662540b7242fc7be7c924e779"
+    "sha256": "fdeeefe687d0842f3c3f25f618fa41b7fcf852c1582c4b078b7462c6c01a2fb6"
   },
   "source_sha256": {
-    "src/common/Messages.h": "102bb69068055206c6fff31418630f59ea0200bd19616a83d3dddba22b39bf1a",
-    "src/daemon/SocketServer.h": "259f2864123d5ba2e492cba8c2bb17c8e6ccba5ecea445fd0e5408d2a7ed229e",
-    "src/daemon/SocketServer.cpp": "06e4e0e545ff9bd349cc046a21cd162b6ec330e04389a5bf6c071652658884ab",
-    "src/daemon/Display.h": "fb5ea05026b900febe253d552498dea6744eeb84aa67ef2d4f34ee4124fa7355",
-    "src/daemon/Display.cpp": "cfc550b1e22a864bf108984eb4be7f8d96fd695c50c8df99c5087ce3919e6a83",
-    "src/greeter/GreeterProxy.h": "79473f6433a06c5b026fcceb7043a1dd240b0f8323ae1ff86953a91cb0ad7105",
-    "src/greeter/GreeterProxy.cpp": "0861fcf86fdf61a9c16fccb0735edea66089210c5e902804ff5a3c87a11b8a6f",
-    "src/greeter/GreeterApp.h": "6cd076ad06156c66a13644a5474a51290ec0add8bc7ab661f3627b035178bafb",
-    "src/greeter/GreeterApp.cpp": "a1b7e24a2323e6b5fc094447b9b434af16dfd43981a8e09874f89b90d1d674de",
-    "src/helper/HelperApp.h": "f8a20991ead1e0cd3a2d9cdbf5f1c0843541f9cffcceddea7ee5f5b475babd9e",
-    "src/helper/HelperApp.cpp": "be68c5f6f5e1b91bf920f55d73c9fe83cb1e5db6e8b403bd9b3527ad0e437323",
-    "src/helper/backend/PamHandle.h": "f4903288a162362ecf04cd8b8738ca419cb9a178aaca5bd1d34e1d229631f769",
-    "src/helper/backend/PamHandle.cpp": "aa38cf7a2665a9061f71d8452f8dc54657369771287c804a02ba686b15656fb4",
+    "src/auth/Auth.cpp": "02fce74440fe2edef0939296b8779267c93f90974e3c1a98e7c7f9e511f6991f",
+    "src/auth/Auth.h": "1fcbfe31303d28df9a2dcf921aa11ce2e9637de70d26d3420d550143e76b867c",
+    "src/auth/AuthMessages.h": "39407332e5ca7d39e476aec91508cdb3c76fe2a317c335a29b92abc52c2baaab",
     "src/common/Configuration.h": "1984921cc833710de4eb00801aa23c2e8fb14bf1579f7b39c6b6d0f52edbb48a",
-    "src/auth/Auth.h": "7b1e0e4e8e135000b0f7e37e522496a3b10a5c7e4c2c9198a79f9c18f21c2b1b",
-    "src/auth/Auth.cpp": "956e3147ff004b013cc1c89d05cb84a001d7dd563c07d61295882d145cc96011",
-    "src/helper/backend/PamBackend.h": "a77f0d12f4ee48d8848bc018e1418f7235ff44a045379bd7021ccf999cc5c2ea",
-    "src/helper/backend/PamBackend.cpp": "97006b8b985b0662541b9ba32ce50cd73e88d97504772a0ab9e1f201c15674da"
+    "src/common/Messages.h": "102bb69068055206c6fff31418630f59ea0200bd19616a83d3dddba22b39bf1a",
+    "src/common/Session.cpp": "064cd03e05dbab9c4795ab835e599758f542c9410faa4de4674daa86f2b942f5",
+    "src/common/Session.h": "424dcae9a6b69c9362f2d5a8d05dfd373a269f9e7968c05f0e0a2cb77561c2b7",
+    "src/common/SocketWriter.cpp": "3980cbc881709421f1887ae3d2b5f044ba4a3d3b8737febf71ee695b028cd457",
+    "src/common/SocketWriter.h": "bebb067d10c6531135447829ac46e1bd3ee35168794b1c3f27ff1cbc32de9c72",
+    "src/daemon/DaemonApp.cpp": "616961893bc9d23cee5678d76234389a8d3949133709ac580361484210a16517",
+    "src/daemon/Display.cpp": "0a09099d2ca5d8a76174f379c1ecf132933491ff4073c7187841c41f800ef888",
+    "src/daemon/Display.h": "841630fe60c69c2e6544a1a78ab8b50e5f7c0f471833aac297af7616c139180d",
+    "src/daemon/SocketServer.cpp": "b60cfc24c3bc09e31d09d18d63d449d2f54a5c03fa50bb8a86038b2c034cef6e",
+    "src/daemon/SocketServer.h": "3902815038d26079fa58a5225a5c458a28d8d4f0eeed7485e38efcab89c243eb",
+    "src/greeter/GreeterApp.cpp": "847abaeb8f5522280a8b29969aa4de7c6967a8a26e7553bfafc0240d520fe67f",
+    "src/greeter/GreeterApp.h": "4641a17ee6932a497e352f63c1f324d8cd88262777f8aef3d48d4d79f3ff46a3",
+    "src/greeter/GreeterProxy.cpp": "160ce890485021d628986688dfa763ce6758be668a94bcdc25f521b3b5889ddd",
+    "src/greeter/GreeterProxy.h": "bcd69df076118d5a6957ece30857a224fd649be58d334aba2dfe615b7a79e8d0",
+    "src/greeter/SessionModel.cpp": "82f7682ad9dc2f0727e51ee31ac88189f14eddc087eefb5e22125a0f031ebb71",
+    "src/greeter/SessionModel.h": "e69665281f50302840b96959c65369a7f621c84bfe73c5483bd3d858719b562b",
+    "src/greeter/theme/Main.qml": "d5f628c1dce062e152911cb798a393aa389d41540277748544c257fe8a58e931",
+    "src/helper/HelperApp.cpp": "ecd31d2d4422814ad1bbd2409e781aa22d51003f0b87297a876de2a4a41e61ee",
+    "src/helper/HelperApp.h": "abd7a447073a32276849648095a43f5d2752d95efe25f3279b559a8619193c9e",
+    "src/helper/backend/PamBackend.cpp": "1a4918752c377f97d2fd4ce8a5aa774f4179ebb920bcbf455770ae33b716f614",
+    "src/helper/backend/PamBackend.h": "c81dad7a909222e50bc3fdb14cfdcd98325ab5b615f2c8557e945d277c3367e6",
+    "src/helper/backend/PamHandle.cpp": "da57c78357bb0dae176d7253e2cb1203ff3bd12e485dcb1c97bb29851b9365d1",
+    "src/helper/backend/PamHandle.h": "73db584d37f49d8087b2375512021f7ee706af449d9909cf7ae5760434d71dc5",
+    "test/AuthMessagesTest.cpp": "e83d2163e727a3fe35601ccc670cd33666736451965447b0c4f9336e6368031d",
+    "test/AuthTransportHelper.cpp": "352b8e23f2aed45fc664409f8ae99bbbdbdc555b58c38c4beacf956159474c3e",
+    "test/AuthTransportTest.cpp": "61b6d78df96a2fa4184d7934b56001b627cd66c036139cbea1d9c7f437462725",
+    "test/CMakeLists.txt": "b1e6df76949b2b82e49478a7db786f8b35cbebcbe42709402851f5843ff83389",
+    "test/DaemonContextHelper.cpp": "3e2af386ebd3aa0decb1bd328b20e695a822bf87f578cecf106ac20fdbb98c90",
+    "test/DaemonContextTest.cpp": "779dd57bdf98bd57381c078e90d017f44d8ec74a3f3d57e543f71fcebb7b5747",
+    "test/FploginThemeTest.cpp": "6cf3206afee881efe64f3af304ba290f6cb9db1962c208bb47929a17ce36b1fd",
+    "test/GreeterAppTest.cpp": "ed7ab5ef292958768cc5864460cae8d80ead9c4ea7d11aea402ee13c793f7bda",
+    "test/GreeterProxyTest.cpp": "2625571ec0a477141e556c5ed14f1a1518964f4a8f5f4e2f09d33e44d55db728"
   },
   "theme_sha256": {
-    "adapters/sddm/assets/theme/Main.qml": "af647b34268a9013362e30a68b3655877b2cba710b3472fe7d4e14e61adce167",
     "adapters/sddm/assets/theme/LICENSE": "0b842bafa6410d391544df74365fd2cf45a89905c7d3a96f25d2edff4f5e55a1",
-    "adapters/sddm/assets/theme/metadata.desktop": "4b2f952eca7a1ba47b31bb0b5a210855f2fe56a9147c24a334c7564962a78973",
+    "adapters/sddm/assets/theme/Main.qml": "fa9ba0369593e39cdae3fd168c88c5bd2e6d2920ae362772b3f869e6af4616f3",
+    "adapters/sddm/assets/theme/metadata.desktop": "7c360fc332c62fd16cc2edc0fbc087453d9654523988ec44c09e0ad310352d6c",
     "adapters/sddm/assets/theme/theme.conf": "a371ee2822ab833c1349cbe193bf4b9292d6ab6b49a22b525fc1dcd95aa933c1"
   },
   "reconstruction": {
@@ -637,23 +655,72 @@
     ]
   },
   "verification": {
-    "recovery_roundtrip": "passed: checkpoint applied to separate accepted-Sprint-1 clone; all 18 source SHA-256 hashes match the reconstructed checkout",
-    "documented_restore": {
-      "tracked_files_route": "passed: fresh upstream clone, pinned delta, accepted 0001 and recovery checkpoint applied and committed",
-      "bundle_route": "passed: independent clone from verified self-contained source bundle",
-      "integrity_verifier": "Checkpoint integrity passed: 24 files",
-      "tracked_files_exit_status": 0,
-      "bundle_exit_status": 0
+    "current_checkpoint_roundtrip": "passed: all 36 changed source files byte-match .work/sddm/recovery-check-20261009 and the clean pinned complete-series tree",
+    "current_bundle_verify": "passed: self-contained c1cddef source bundle verified on 2026-10-09",
+    "production_patch_equivalence": "passed: current checkpoint and exported 0002 are byte-identical; bundle commit delta reproduces exported 0002",
+    "sprint2_build": "passed: clean pinned baseline + Arch delta + complete exported series built on 2026-10-09; .work/evidence/sprint2/production-build-20261009.log",
+    "sprint2_tests": "passed: 9/9 production suites plus 1/1 separate FploginTheme suite configured with -DFPL_THEME_DIR=/theme; production-build-20261009.log and production-theme-test-20261009.log",
+    "sprint2_authentication_smoke": "previously recorded 3/3 synthetic PAM helper smoke; not physical authentication",
+    "sprint2_actual_surface": "passed scoped USB-free readiness only: custom theme and actual embedded fallback with focused empty password above virtual keyboard; custom theme also at QT_SCALE_FACTOR=2. No password entered/login authorized. Physical G01-G16 remain pending owner consent/handoff.",
+    "integrity_verifier": "passed: 42 files against independent current checkpoint restoration",
+    "traced_runtime": "passed: diagnostic overlay builds; final pinned VM daemon/helper/greeter hashes match installed build; distinct guest identity and ttyS0 recovery guard exercised; VM ACPI shutdown completed"
+  },
+  "historical_recovery": {
+    "status": "recovered-unverified-not-accepted",
+    "source_commit": "f5176903bbc3e7b6bd91ed8e3e0bc893230f2146",
+    "local_bundle": ".work/checkpoints/sddm-sprint2-20261008-recovered.bundle",
+    "checkpoint_patch": {
+      "path": "adapters/sddm/checkpoints/sprint2-recovered.patch",
+      "sha256": "fb9db1af3679629bb583123d6a74083be614998662540b7242fc7be7c924e779"
     },
-    "sprint2_build": "not-run",
-    "sprint2_tests": "not-run",
-    "sprint2_authentication_smoke": "not-run",
-    "sprint2_actual_surface": "not-run",
-    "archived_diff_totals": {
-      "files": 22,
-      "added": 1714,
-      "deleted": 371,
-      "match": true
+    "source_sha256": {
+      "src/common/Messages.h": "102bb69068055206c6fff31418630f59ea0200bd19616a83d3dddba22b39bf1a",
+      "src/daemon/SocketServer.h": "259f2864123d5ba2e492cba8c2bb17c8e6ccba5ecea445fd0e5408d2a7ed229e",
+      "src/daemon/SocketServer.cpp": "06e4e0e545ff9bd349cc046a21cd162b6ec330e04389a5bf6c071652658884ab",
+      "src/daemon/Display.h": "fb5ea05026b900febe253d552498dea6744eeb84aa67ef2d4f34ee4124fa7355",
+      "src/daemon/Display.cpp": "cfc550b1e22a864bf108984eb4be7f8d96fd695c50c8df99c5087ce3919e6a83",
+      "src/greeter/GreeterProxy.h": "79473f6433a06c5b026fcceb7043a1dd240b0f8323ae1ff86953a91cb0ad7105",
+      "src/greeter/GreeterProxy.cpp": "0861fcf86fdf61a9c16fccb0735edea66089210c5e902804ff5a3c87a11b8a6f",
+      "src/greeter/GreeterApp.h": "6cd076ad06156c66a13644a5474a51290ec0add8bc7ab661f3627b035178bafb",
+      "src/greeter/GreeterApp.cpp": "a1b7e24a2323e6b5fc094447b9b434af16dfd43981a8e09874f89b90d1d674de",
+      "src/helper/HelperApp.h": "f8a20991ead1e0cd3a2d9cdbf5f1c0843541f9cffcceddea7ee5f5b475babd9e",
+      "src/helper/HelperApp.cpp": "be68c5f6f5e1b91bf920f55d73c9fe83cb1e5db6e8b403bd9b3527ad0e437323",
+      "src/helper/backend/PamHandle.h": "f4903288a162362ecf04cd8b8738ca419cb9a178aaca5bd1d34e1d229631f769",
+      "src/helper/backend/PamHandle.cpp": "aa38cf7a2665a9061f71d8452f8dc54657369771287c804a02ba686b15656fb4",
+      "src/common/Configuration.h": "1984921cc833710de4eb00801aa23c2e8fb14bf1579f7b39c6b6d0f52edbb48a",
+      "src/auth/Auth.h": "7b1e0e4e8e135000b0f7e37e522496a3b10a5c7e4c2c9198a79f9c18f21c2b1b",
+      "src/auth/Auth.cpp": "956e3147ff004b013cc1c89d05cb84a001d7dd563c07d61295882d145cc96011",
+      "src/helper/backend/PamBackend.h": "a77f0d12f4ee48d8848bc018e1418f7235ff44a045379bd7021ccf999cc5c2ea",
+      "src/helper/backend/PamBackend.cpp": "97006b8b985b0662541b9ba32ce50cd73e88d97504772a0ab9e1f201c15674da"
+    },
+    "theme_sha256": {
+      "adapters/sddm/assets/theme/Main.qml": "af647b34268a9013362e30a68b3655877b2cba710b3472fe7d4e14e61adce167",
+      "adapters/sddm/assets/theme/LICENSE": "0b842bafa6410d391544df74365fd2cf45a89905c7d3a96f25d2edff4f5e55a1",
+      "adapters/sddm/assets/theme/metadata.desktop": "4b2f952eca7a1ba47b31bb0b5a210855f2fe56a9147c24a334c7564962a78973",
+      "adapters/sddm/assets/theme/theme.conf": "a371ee2822ab833c1349cbe193bf4b9292d6ab6b49a22b525fc1dcd95aa933c1"
+    },
+    "verification": {
+      "recovery_roundtrip": "passed: checkpoint applied to separate accepted-Sprint-1 clone; all 18 source SHA-256 hashes match the reconstructed checkout",
+      "documented_restore": {
+        "tracked_files_route": "passed: fresh upstream clone, pinned delta, accepted 0001 and recovery checkpoint applied and committed",
+        "bundle_route": "passed: independent clone from verified self-contained source bundle",
+        "integrity_verifier": "Checkpoint integrity passed: 24 files",
+        "tracked_files_exit_status": 0,
+        "bundle_exit_status": 0
+      },
+      "sprint2_build": "not-run",
+      "sprint2_tests": "not-run",
+      "sprint2_authentication_smoke": "not-run",
+      "sprint2_actual_surface": "not-run",
+      "archived_diff_totals": {
+        "files": 22,
+        "added": 1714,
+        "deleted": 371,
+        "match": true
+      }
     }
-  }
+  },
+  "local_bundle_sha256": "548245ada18c42d345656561b5daebee2412542abb2aeb18f0cb251cc2f7b6a2",
+  "updated_at": "2026-10-09",
+  "provenance": "Historical transcript reconstruction is retained in reconstruction and historical_recovery. Current integrated commit and checkpoint contain subsequent Sprint 2 changes; current hashes attest the integrated content, not equality with the recovered transcript."
 }
