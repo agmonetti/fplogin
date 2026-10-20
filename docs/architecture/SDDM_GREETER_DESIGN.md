@@ -106,11 +106,13 @@ No writable QML success/match/winner property. No PAM service name, password, fi
 
 ## 6. Availability and eight reader states
 
-### 6.1 Read-only availability
+### 6.1 Availability and bounded service activation
 
 For a concrete selected context, the daemon performs bounded asynchronous `GetDevices` and `ListEnrolledFingers(user)` queries through its existing Qt D-Bus infrastructure. It does not claim a reader, call `VerifyStart`, match, enroll or delete prints. Return only availability and an allowlisted reason to the proxy, not finger names or templates. A positive probe is advisory; actual authentication still occurs solely through `pam_fprintd`.
 
-Discard probe replies on serial/user/session/socket change or fprintd owner replacement. Keep only the latest pending context and a bounded device list; do not introduce a periodic probe/restart loop. A probe error produces unavailable/unknown evidence and immediately usable password fallback. Explicit retry may re-probe. Availability must never delay password authentication.
+**2026-10-20 owner-authorized activation correction:** initial selection and explicit Retry first resolve the service's unique owner. Only `NameHasNoOwner` may trigger one asynchronous `StartServiceByName`; resolve the owner again afterward and send all device/enrollment queries to that unique name. Activation and queries share one five-second total deadline. A missing service, activation failure or unavailable bus returns unavailable without delaying password authentication. There is no keepalive, periodic probe or automatic restart loop.
+
+An initial empty-to-owned service acquisition while the bounded probe has not pinned a different owner is expected, including acquisition caused by that probe's activation. It must not cancel its own probe. Owner loss/replacement, context replacement, clear, teardown and deadline invalidate outstanding replies. Confirm the owner again before publishing positive availability. A service change by itself never starts a new probe or authentication; explicit Retry may re-probe and reactivate an installed inactive service. Keep only the latest pending context and a bounded device list. Availability must never delay password authentication.
 
 ### 6.2 State sources and honest meanings
 

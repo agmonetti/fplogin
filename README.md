@@ -10,6 +10,8 @@ SDDM does not natively support fingerprint authentication. Users must type their
 
 The Foundation Gate, Sprint 0 and Sprint 1 are complete. Sprint 1 is accepted and closed by the [2026-10-04 independent review](docs/reviews/sprint-1.md#2026-10-04-sol-independent-acceptance-review--sprint-1-gate), including the final physical-reader matrix R01–R16. Sprint 2 is integrated, with isolated build/tests and USB-free guest surface verification; physical acceptance G01–G16 remains pending fresh owner authorization and reader handoff. Source, assets and integrity metadata are [preserved in persistent storage](docs/PERSISTENCE.md). Continue the [execution plan](docs/SPRINT_2_EXECUTION_PLAN.md); Sprint 3 remains blocked until Sprint 2 acceptance.
 
+The [2026-10-20 activation correction](docs/reviews/sprint-2.md#6-2026-10-20-bounded-fprintd-activation-correction) fixes initial availability and explicit Retry when installed fprintd is inactive, without a keepalive or restart loop. The exported series passes the isolated build, ten suites and scoped real-service/QML smoke. The preserved guest is not updated; physical G04 and Sprint 2 acceptance remain pending.
+
 The planned product has:
 
 - A minimal, upstream-quality SDDM patch coordinating concurrent PAM authentication methods.
