@@ -1,0 +1,96 @@
+diff --git a/src/daemon/Display.cpp b/src/daemon/Display.cpp
+index 78b2d86..f70a3c6 100644
+--- a/src/daemon/Display.cpp
++++ b/src/daemon/Display.cpp
+@@ -132,6 +132,10 @@ namespace SDDM {
+                 QDBusServiceWatcher::WatchForOwnerChange, this);
+         connect(m_fprintServiceWatcher, &QDBusServiceWatcher::serviceOwnerChanged, this,
+                 [this](const QString &, const QString &oldOwner, const QString &newOwner) {
++            qInfo().noquote().nospace() << "FPLOGIN_TRACE event=probe-owner-change serial=" << m_contextSerial
++                << " probe_generation=" << m_probeGeneration
++                << " old_owner=" << (oldOwner.isEmpty() ? QStringLiteral("none") : oldOwner)
++                << " new_owner=" << (newOwner.isEmpty() ? QStringLiteral("none") : newOwner);
+             // A bounded probe may be activating an unowned service. Accept
+             // its initial acquisition, but never carry replies across loss
+             // or replacement of an owner already bound to that probe.
+@@ -473,6 +477,12 @@ namespace SDDM {
+         if (serial != m_contextSerial || requestId != m_requestId || !m_contextOptedIn
+             || !m_contextSocket || m_contextCommitted || m_contextFinished || m_pendingContext || m_tearingDown)
+             return;
++        const char *reason = available ? "available"
++            : detailCode == QLatin1String("service_unavailable") ? "service_unavailable"
++            : detailCode == QLatin1String("reader_unavailable") ? "reader_unavailable"
++            : detailCode == QLatin1String("not_enrolled") ? "not_enrolled" : "availability_unavailable";
++        qInfo().noquote().nospace() << "FPLOGIN_TRACE event=probe-result request=" << requestId
++            << " serial=" << serial << " probe_generation=" << m_probeGeneration << " reason=" << reason;
+         invalidateProbe();
+         m_fingerprintAvailability = available ? AuthenticationAvailability::Available
+                                              : AuthenticationAvailability::Unavailable;
+@@ -498,6 +508,8 @@ namespace SDDM {
+         const quint64 generation = m_probeGeneration;
+         const quint64 serial = m_contextSerial;
+         const QString requestId = m_requestId;
++        qInfo().noquote().nospace() << "FPLOGIN_TRACE event=probe-start request=" << requestId
++            << " serial=" << serial << " probe_generation=" << generation;
+         m_fingerprintAvailability = AuthenticationAvailability::Unknown;
+         m_socketServer->authenticationContext(m_contextSocket, serial, 1, requestId, m_contextUser, m_contextSession,
+                 quint32(AuthenticationAvailability::Unknown), quint32(m_contextPhase), QStringLiteral("checking"));
+@@ -540,6 +552,8 @@ namespace SDDM {
+                 // One activation per probe; retries are user intent, not a
+                 // service-liveness loop. The original five-second deadline
+                 // also bounds activation and all subsequent read-only calls.
++                qInfo().noquote().nospace() << "FPLOGIN_TRACE event=probe-activation-request request=" << requestId
++                    << " serial=" << serial << " probe_generation=" << generation;
+                 auto activate = QDBusMessage::createMethodCall(QStringLiteral("org.freedesktop.DBus"),
+                         QStringLiteral("/org/freedesktop/DBus"), QStringLiteral("org.freedesktop.DBus"),
+                         QStringLiteral("StartServiceByName"));
+@@ -554,6 +568,9 @@ namespace SDDM {
+                     activationWatcher->deleteLater();
+                     if (generation != m_probeGeneration)
+                         return;
++                    qInfo().noquote().nospace() << "FPLOGIN_TRACE event=probe-activation-return request=" << requestId
++                        << " serial=" << serial << " probe_generation=" << generation
++                        << " success=" << (!activation.isError() && (activation.value() == 1 || activation.value() == 2));
+                     if (activation.isError() || (activation.value() != 1 && activation.value() != 2)) {
+                         setFingerprintAvailability(serial, requestId, false,
+                                                    QStringLiteral("service_unavailable"));
+@@ -569,6 +586,8 @@ namespace SDDM {
+             }
+             const QString owner = ownerReply.value();
+             m_probeServiceOwner = owner;
++            qInfo().noquote().nospace() << "FPLOGIN_TRACE event=probe-owner-pinned request=" << requestId
++                << " serial=" << serial << " probe_generation=" << generation << " owner=" << owner;
+             auto devicesCall = QDBusMessage::createMethodCall(owner,
+                     QStringLiteral("/net/reactivated/Fprint/Manager"),
+                     QStringLiteral("net.reactivated.Fprint.Manager"), QStringLiteral("GetDevices"));
+@@ -608,6 +627,8 @@ namespace SDDM {
+         if (socket != m_contextSocket || serial != m_contextSerial || !m_contextOptedIn
+             || m_contextFinished || m_methodWinnerChosen)
+             return;
++        qInfo().noquote().nospace() << "FPLOGIN_TRACE event=fingerprint-start-accepted request=" << m_requestId
++            << " serial=" << serial << " probe_generation=" << m_probeGeneration << " method=1";
+         if (m_fingerprintAuth->isActive()) {
+             if (isCurrentHelper(m_fingerprintAuth) && m_fingerprintTerminal)
+                 m_pendingFingerprintRetryGeneration = m_fingerprintGeneration;
+@@ -790,6 +811,9 @@ namespace SDDM {
+     }
+ 
+     void Display::invalidateProbe() {
++        if (m_probeDeadline)
++            qInfo().noquote().nospace() << "FPLOGIN_TRACE event=probe-invalidate request=" << m_requestId
++                << " serial=" << m_contextSerial << " probe_generation=" << m_probeGeneration;
+         ++m_probeGeneration;
+         m_probeServiceOwner.clear();
+         if (m_probeDeadline) {
+diff --git a/src/greeter/GreeterProxy.cpp b/src/greeter/GreeterProxy.cpp
+index 88994d6..658e00d 100644
+--- a/src/greeter/GreeterProxy.cpp
++++ b/src/greeter/GreeterProxy.cpp
+@@ -297,6 +297,7 @@ namespace SDDM {
+             || d->snapshot.sessionFile != sessionFile || d->pending == GreeterProxyPrivate::Clear) return;
+         const quint64 serial = d->pending == GreeterProxyPrivate::Selection ? d->pendingSerial : d->snapshot.serial;
+         if (!serial) return;
++        qInfo().noquote().nospace() << "FPLOGIN_TRACE event=fingerprint-start-sent serial=" << serial << " method=1";
+         SocketWriter(d->socket) << quint32(GreeterMessages::StartAuthenticationMethod)
+                                 << serial << quint32(AuthenticationMethod::Fingerprint);
+     }

@@ -53,6 +53,42 @@ class CaptureTest(unittest.TestCase):
         self.assertEqual(retried["role"], "password")
         self.assertIsNone(retried["generation"])
 
+    def test_probe_identity_does_not_inherit_a_helper_binding(self):
+        capture = Capture()
+        pinned = capture.normalize(entry(
+            f"FPLOGIN_TRACE event=probe-owner-pinned request={REQUEST} serial=7 probe_generation=12 owner=:1.24"
+        ))
+        self.assertEqual(pinned["request"], REQUEST)
+        self.assertEqual(pinned["probe_generation"], "12")
+        self.assertEqual(pinned["owner"], ":1.24")
+        changed = capture.normalize(entry(
+            "FPLOGIN_TRACE event=probe-owner-change serial=7 probe_generation=13 old_owner=:1.24 new_owner=none"
+        ))
+        self.assertIsNone(changed["request"])
+        self.assertEqual(changed["old_owner"], ":1.24")
+        self.assertEqual(changed["new_owner"], "none")
+        for token in ("owner=private-secret", "reason=private-secret", "probe_generation=secret"):
+            self.assertIsNone(capture.normalize(entry(f"FPLOGIN_TRACE event=probe-result {token}")))
+
+    def test_fprintd_manager_and_service_metadata_suppress_unclassified_content(self):
+        capture = Capture()
+        manager = entry("fprintd.service: Deactivated successfully.", pid="1", unit="init.scope")
+        manager.update(UNIT="fprintd.service", MESSAGE_ID="c" * 32, INVOCATION_ID="d" * 32,
+                       RESULT="success", PRIVATE="private-secret")
+        event = capture.normalize(manager)
+        self.assertEqual(event["event"], "deactivated-successfully")
+        self.assertEqual(event["invocation_id"], "d" * 32)
+        self.assertEqual(event["result"], "success")
+        self.assertNotIn("private-secret", str(event))
+        service = entry("unclassified private-secret", unit="fprintd.service")
+        service.update(_SYSTEMD_INVOCATION_ID="e" * 32, RESULT="private-secret",
+                       MESSAGE_ID="private-secret", EXIT_STATUS="private-secret")
+        event = capture.normalize(service)
+        self.assertEqual(event["event"], "message-suppressed")
+        self.assertEqual(event["systemd_invocation_id"], "e" * 32)
+        self.assertNotIn("private-secret", str(event))
+        self.assertNotIn("result", event)
+
     def test_unrecognized_messages_and_secret_shaped_fields_are_discarded(self):
         capture = Capture()
         for message in (

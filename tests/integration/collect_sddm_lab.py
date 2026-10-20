@@ -24,6 +24,9 @@ TRACE_VALUES = {
         "kill-handshake-timeout", "terminate-intent", "kill-intent",
         "cancel-fingerprint", "cancel-attempt", "winner-authorize",
         "winner-selected", "loser-barrier-wait", "loser-barrier-release",
+        "fingerprint-start-sent", "fingerprint-start-accepted",
+        "probe-start", "probe-activation-request", "probe-activation-return",
+        "probe-owner-pinned", "probe-owner-change", "probe-result", "probe-invalidate",
     },
     "role": {"greeter", "autologin", "password", "fingerprint"},
     "exit_status": {"normal", "crash"},
@@ -31,18 +34,32 @@ TRACE_VALUES = {
     "success": {"true", "false"},
     "phase": {"authenticate", "account", "setcred", "open-session", "close-session", "end"},
     "edge": {"enter", "return"},
+    "reason": {
+        "available", "service_unavailable", "reader_unavailable",
+        "not_enrolled", "availability_unavailable",
+    },
 }
 NUMERIC_KEYS = {
     "helper_pid", "auth_id", "generation", "method", "exit_code", "rc",
     "flags", "winner_method", "loser_method", "loser_generation", "process_error",
+    "serial", "probe_generation",
 }
-TRACE_KEYS = set(TRACE_VALUES) | NUMERIC_KEYS | {"request"}
+OWNER_KEYS = {"owner", "old_owner", "new_owner"}
+TRACE_KEYS = set(TRACE_VALUES) | NUMERIC_KEYS | OWNER_KEYS | {"request"}
 TOKEN = re.compile(r"([a-z_]+)=([A-Za-z0-9_.:+-]+)")
 SESSION_NEW = re.compile(r"New session '?([A-Za-z0-9_-]+)'? of user .+\.")
 SESSION_END = re.compile(r"(?:Removed session|Session) '?([A-Za-z0-9_-]+)'?(?:\.| logged out\..*)")
 DISPATCHER_WARNING = (
     "QBasicTimer::start: current thread's event dispatcher has already been destroyed"
 )
+SERVICE_MESSAGES = {
+    "Starting Fingerprint Authentication Daemon...": "starting",
+    "Started Fingerprint Authentication Daemon.": "started",
+    "Stopping Fingerprint Authentication Daemon...": "stopping",
+    "Stopped Fingerprint Authentication Daemon.": "stopped",
+    "fprintd.service: Deactivated successfully.": "deactivated-successfully",
+    "No devices in use, exit": "idle-exit",
+}
 
 
 def require_guest():
@@ -75,6 +92,8 @@ def fields(payload):
         if key in NUMERIC_KEYS and not re.fullmatch(r"-?\d+", value):
             return None
         if key == "request" and not re.fullmatch(r"[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}", value):
+            return None
+        if key in OWNER_KEYS and value != "none" and not re.fullmatch(r":\d+\.\d+", value):
             return None
         result[key] = value
     return result if "event" in result or {"phase", "edge"} <= result.keys() else None
@@ -121,6 +140,26 @@ class Capture:
             identity = self.helpers.get((boot, helper_pid or pid), {})
             for key in ("request", "role", "method", "generation"):
                 event.setdefault(key, identity.get(key))
+            return event
+        if record.get("UNIT") == "fprintd.service" or record.get("_SYSTEMD_UNIT") == "fprintd.service":
+            event.update(source="fprintd", event=SERVICE_MESSAGES.get(message, "message-suppressed"))
+            for key in ("MESSAGE_ID", "INVOCATION_ID", "_SYSTEMD_INVOCATION_ID"):
+                value = record.get(key)
+                if isinstance(value, str) and re.fullmatch(r"[0-9a-f]{32}", value):
+                    event[key.lower().lstrip("_")] = value
+            # Do not copy manager messages, service prose or arbitrary metadata.
+            for key, allowed in (
+                ("RESULT", {"success", "exit-code", "signal", "core-dump", "timeout", "watchdog", "resources"}),
+                ("JOB_TYPE", {"start", "stop", "restart", "reload"}),
+                ("JOB_RESULT", {"done", "failed", "timeout", "canceled", "dependency", "skipped"}),
+                ("EXIT_CODE", {"exited", "killed", "dumped"}),
+            ):
+                value = record.get(key)
+                if isinstance(value, str) and value in allowed:
+                    event[key.lower()] = value
+            status = record.get("EXIT_STATUS")
+            if isinstance(status, str) and re.fullmatch(r"\d{1,3}", status):
+                event["exit_status"] = status
             return event
         if DISPATCHER_WARNING in message:
             event.update(source="qt", event="dispatcher-destroyed", **self.helpers.get((boot, pid), {}))
@@ -191,7 +230,7 @@ def main():
                      "_EXE=/usr/local/libexec/sddm-helper", "+",
                      "_EXE=/usr/local/bin/sddm-greeter-qt6", "+",
                      "_SYSTEMD_UNIT=systemd-logind.service", "+",
-                     "_SYSTEMD_UNIT=fprintd.service"],
+                     "_SYSTEMD_UNIT=fprintd.service", "+", "UNIT=fprintd.service"],
                     stdout=subprocess.PIPE, text=True,
                 )
                 consume(process.stdout, output, guest_queries=True)
