@@ -470,7 +470,7 @@ index 490068e..5ff5a71 100644
  }
 +#endif
 diff --git a/src/daemon/Display.cpp b/src/daemon/Display.cpp
-index c58dc9c..0c558ec 100644
+index c58dc9c..2dda6d8 100644
 --- a/src/daemon/Display.cpp
 +++ b/src/daemon/Display.cpp
 @@ -30,6 +30,7 @@
@@ -481,7 +481,14 @@ index c58dc9c..0c558ec 100644
  
  #include <QDebug>
  #include <QFile>
-@@ -51,6 +52,9 @@
+@@ -45,12 +46,16 @@
+ #include <fcntl.h>
+ 
+ #include <QDBusConnection>
++#include <QDBusError>
+ #include <QDBusMessage>
+ #include <QDBusReply>
+ 
  #include "Login1Manager.h"
  #include "Login1Session.h"
  #include "VirtualTerminal.h"
@@ -491,7 +498,7 @@ index c58dc9c..0c558ec 100644
  #include "WaylandDisplayServer.h"
  #include "config.h"
  
-@@ -107,27 +111,42 @@ namespace SDDM {
+@@ -107,27 +112,48 @@ namespace SDDM {
      }
  
      Display::Display(Seat *parent, DisplayServerType serverType)
@@ -514,7 +521,13 @@ index c58dc9c..0c558ec 100644
 +                QStringLiteral("net.reactivated.Fprint"), QDBusConnection::systemBus(),
 +                QDBusServiceWatcher::WatchForOwnerChange, this);
 +        connect(m_fprintServiceWatcher, &QDBusServiceWatcher::serviceOwnerChanged, this,
-+                [this](const QString &, const QString &, const QString &) {
++                [this](const QString &, const QString &oldOwner, const QString &newOwner) {
++            // A bounded probe may be activating an unowned service. Accept
++            // its initial acquisition, but never carry replies across loss
++            // or replacement of an owner already bound to that probe.
++            if (m_probeDeadline && oldOwner.isEmpty() && !newOwner.isEmpty()
++                && (m_probeServiceOwner.isEmpty() || m_probeServiceOwner == newOwner))
++                return;
 +            invalidateProbe();
 +            if (m_contextOptedIn && !m_pendingContext && !m_contextFinished)
 +                setFingerprintAvailability(m_contextSerial, m_requestId, false,
@@ -537,7 +550,7 @@ index c58dc9c..0c558ec 100644
              m_displayServer = new WaylandDisplayServer(this);
              m_greeter->setDisplayServerCommand(mainConfig.Wayland.CompositorCommand.get());
              break;
-@@ -148,6 +167,8 @@ namespace SDDM {
+@@ -148,6 +174,8 @@ namespace SDDM {
          connect(m_fingerprintAuth, &Auth::authentication, this, &Display::slotAuthenticationFinished);
          connect(m_fingerprintAuth, &Auth::sessionStarted, this, &Display::slotSessionStarted);
          connect(m_fingerprintAuth, &Auth::finished, this, &Display::slotHelperFinished);
@@ -546,7 +559,7 @@ index c58dc9c..0c558ec 100644
          connect(m_fingerprintAuth, &Auth::info, this, &Display::slotAuthInfo);
          connect(m_fingerprintAuth, &Auth::error, this, &Display::slotAuthError);
  
-@@ -155,11 +176,12 @@ namespace SDDM {
+@@ -155,11 +183,12 @@ namespace SDDM {
          connect(m_displayServer, &DisplayServer::started, this, &Display::displayServerStarted);
          connect(m_displayServer, &DisplayServer::stopped, this, &Display::stop);
  
@@ -561,7 +574,7 @@ index c58dc9c..0c558ec 100644
          // connect login result signals
          connect(this, &Display::loginFailed, m_socketServer, &SocketServer::loginFailed);
          connect(this, &Display::loginSucceeded, m_socketServer, &SocketServer::loginSucceeded);
-@@ -310,231 +332,369 @@ namespace SDDM {
+@@ -310,231 +339,404 @@ namespace SDDM {
      }
  
      void Display::stopInternal(bool destroying) {
@@ -738,14 +751,8 @@ index c58dc9c..0c558ec 100644
 +            m_socketServer->authenticationContext(socket, serial, 0, QString(), QString(), Session(),
 +                    quint32(AuthenticationAvailability::Unavailable), quint32(AuthenticationPhase::Idle),
 +                    QStringLiteral("context_owned"));
-             return;
-         }
--        if (m_methodAttemptActive) {
--            if (socket != m_attemptSocket)
--                return;
--            if (user != m_attemptUser || session.type() != m_attemptSession.type()
--                || session.fileName() != m_attemptSession.fileName()) {
--                cancelMethodAttempt();
++            return;
++        }
 +        const quint64 previous = m_selectionSerials.value(socket);
 +        if (!serial || serial <= previous || (hasContext && (user.isEmpty()
 +            || user == QLatin1String("sddm") || !session.isValid()))) {
@@ -779,7 +786,7 @@ index c58dc9c..0c558ec 100644
 +                                            bool available, const QString &detailCode) {
 +        if (serial != m_contextSerial || requestId != m_requestId || !m_contextOptedIn
 +            || !m_contextSocket || m_contextCommitted || m_contextFinished || m_pendingContext || m_tearingDown)
-+            return;
+             return;
 +        invalidateProbe();
 +        m_fingerprintAvailability = available ? AuthenticationAvailability::Available
 +                                             : AuthenticationAvailability::Unavailable;
@@ -794,7 +801,9 @@ index c58dc9c..0c558ec 100644
 +                startFingerprint(m_contextSocket, serial);
 +            else
 +                m_fingerprintStartRequested = false;
-+        }
+         }
+-        if (m_methodAttemptActive) {
+-            if (socket != m_attemptSocket)
 +    }
 +
 +    void Display::probeFingerprintAvailability() {
@@ -805,11 +814,8 @@ index c58dc9c..0c558ec 100644
 +        const quint64 generation = m_probeGeneration;
 +        const quint64 serial = m_contextSerial;
 +        const QString requestId = m_requestId;
-+        const QPointer<QLocalSocket> socket = m_contextSocket;
-+        const QString user = m_contextUser;
-+        const Session session = m_contextSession;
 +        m_fingerprintAvailability = AuthenticationAvailability::Unknown;
-+        m_socketServer->authenticationContext(socket, serial, 1, requestId, user, session,
++        m_socketServer->authenticationContext(m_contextSocket, serial, 1, requestId, m_contextUser, m_contextSession,
 +                quint32(AuthenticationAvailability::Unknown), quint32(m_contextPhase), QStringLiteral("checking"));
 +        auto *deadline = new QTimer(this);
 +        deadline->setSingleShot(true);
@@ -819,8 +825,17 @@ index c58dc9c..0c558ec 100644
 +                setFingerprintAvailability(serial, requestId, false, QStringLiteral("availability_unavailable"));
 +        });
 +        deadline->start(5000);
-+        // Resolve the unique owner without activating fprintd. All subsequent
-+        // read-only calls target that owner, never a replacement service.
++        resolveFingerprintServiceOwner(generation, true);
++    }
++
++    void Display::resolveFingerprintServiceOwner(quint64 generation, bool allowActivation) {
++        if (generation != m_probeGeneration)
++            return;
++        const quint64 serial = m_contextSerial;
++        const QString requestId = m_requestId;
++        const QPointer<QLocalSocket> socket = m_contextSocket;
++        const QString user = m_contextUser;
++        const Session session = m_contextSession;
 +        auto call = QDBusMessage::createMethodCall(QStringLiteral("org.freedesktop.DBus"),
 +                QStringLiteral("/org/freedesktop/DBus"), QStringLiteral("org.freedesktop.DBus"),
 +                QStringLiteral("GetNameOwner"));
@@ -828,7 +843,7 @@ index c58dc9c..0c558ec 100644
 +        auto *watcher = new QDBusPendingCallWatcher(QDBusConnection::systemBus().asyncCall(call, 2000), this);
 +        m_probeWatchers.insert(watcher);
 +        connect(watcher, &QDBusPendingCallWatcher::finished, this,
-+                [this, watcher, generation, serial, requestId, socket, user, session] {
++                [this, watcher, generation, serial, requestId, socket, user, session, allowActivation] {
 +            QDBusPendingReply<QString> ownerReply = *watcher;
 +            m_probeWatchers.remove(watcher);
 +            watcher->deleteLater();
@@ -836,7 +851,37 @@ index c58dc9c..0c558ec 100644
 +                || serial != m_contextSerial || requestId != m_requestId || user != m_contextUser
 +                || session.type() != m_contextSession.type() || session.fileName() != m_contextSession.fileName())
                  return;
--            }
+-            if (user != m_attemptUser || session.type() != m_attemptSession.type()
+-                || session.fileName() != m_attemptSession.fileName()) {
+-                cancelMethodAttempt();
++            if (allowActivation && ownerReply.isError()
++                && ownerReply.error().name() == QLatin1String("org.freedesktop.DBus.Error.NameHasNoOwner")) {
++                // One activation per probe; retries are user intent, not a
++                // service-liveness loop. The original five-second deadline
++                // also bounds activation and all subsequent read-only calls.
++                auto activate = QDBusMessage::createMethodCall(QStringLiteral("org.freedesktop.DBus"),
++                        QStringLiteral("/org/freedesktop/DBus"), QStringLiteral("org.freedesktop.DBus"),
++                        QStringLiteral("StartServiceByName"));
++                activate << QStringLiteral("net.reactivated.Fprint") << quint32(0);
++                auto *activationWatcher = new QDBusPendingCallWatcher(
++                        QDBusConnection::systemBus().asyncCall(activate, 5000), this);
++                m_probeWatchers.insert(activationWatcher);
++                connect(activationWatcher, &QDBusPendingCallWatcher::finished, this,
++                        [this, activationWatcher, generation, serial, requestId] {
++                    QDBusPendingReply<quint32> activation = *activationWatcher;
++                    m_probeWatchers.remove(activationWatcher);
++                    activationWatcher->deleteLater();
++                    if (generation != m_probeGeneration)
++                        return;
++                    if (activation.isError() || (activation.value() != 1 && activation.value() != 2)) {
++                        setFingerprintAvailability(serial, requestId, false,
++                                                   QStringLiteral("service_unavailable"));
++                        return;
++                    }
++                    resolveFingerprintServiceOwner(generation, false);
++                });
+                 return;
+             }
 -            if (m_methodWinnerChosen) {
 -                m_socketServer->authenticationMethodState(socket, m_requestId, 4, QStringLiteral("matched"));
 +            if (ownerReply.isError() || ownerReply.value().isEmpty()) {
@@ -847,6 +892,7 @@ index c58dc9c..0c558ec 100644
 -                m_socketServer->authenticationMethodState(socket, m_requestId, 1, QStringLiteral("scanning"));
 -                return;
 +            const QString owner = ownerReply.value();
++            m_probeServiceOwner = owner;
 +            auto devicesCall = QDBusMessage::createMethodCall(owner,
 +                    QStringLiteral("/net/reactivated/Fprint/Manager"),
 +                    QStringLiteral("net.reactivated.Fprint.Manager"), QStringLiteral("GetDevices"));
@@ -917,14 +963,14 @@ index c58dc9c..0c558ec 100644
 +            m_fingerprintTerminal = false;
 +            m_fingerprintAvailability = AuthenticationAvailability::Unknown;
 +            probeFingerprintAvailability();
-             return;
-         }
--        m_socketServer->authenticationMethodState(socket, m_requestId, 1, QStringLiteral("scanning"));
++            return;
++        }
 +        if (m_fingerprintAvailability != AuthenticationAvailability::Available) {
 +            if (m_fingerprintAvailability != AuthenticationAvailability::Unknown)
 +                probeFingerprintAvailability();
-+            return;
-+        }
+             return;
+         }
+-        m_socketServer->authenticationMethodState(socket, m_requestId, 1, QStringLiteral("scanning"));
 +        m_fingerprintStartRequested = false;
 +        if (!m_methodAttemptActive)
 +            beginMethodAttempt(socket, m_contextUser, m_contextSession);
@@ -1058,7 +1104,8 @@ index c58dc9c..0c558ec 100644
 -        if (!m_pendingLogin || m_auth->isActive() || m_fingerprintAuth->isActive())
 +        if (!m_pendingLogin || m_pendingContext || m_tearingDown || m_contextCommitted
 +            || m_methodWinnerChosen || m_auth->isActive())
-+            return;
+             return;
+-        QPointer<QLocalSocket> socket = m_pendingSocket;
 +        if (m_pendingPasswordGeneration) {
 +            if (!m_methodAttemptActive || m_contextFinished
 +                || m_passwordGeneration != m_pendingPasswordGeneration
@@ -1069,8 +1116,7 @@ index c58dc9c..0c558ec 100644
 +                return;
 +            }
 +        } else if (m_fingerprintAuth->isActive()) {
-             return;
--        QPointer<QLocalSocket> socket = m_pendingSocket;
++            return;
 +        }
 +        const QPointer<QLocalSocket> socket = m_pendingSocket;
          const QString user = m_pendingUser;
@@ -1087,7 +1133,7 @@ index c58dc9c..0c558ec 100644
          if (socket && socket->state() == QLocalSocket::ConnectedState)
              login(socket, user, password, session);
      }
-@@ -542,12 +702,17 @@ namespace SDDM {
+@@ -542,12 +744,17 @@ namespace SDDM {
      void Display::finishMethodAttempt(bool success) {
          if (!m_methodAttemptActive)
              return;
@@ -1110,7 +1156,7 @@ index c58dc9c..0c558ec 100644
          m_methodAttemptActive = false;
          m_methodWinnerChosen = false;
          m_attemptGate.invalidate();
-@@ -557,6 +722,279 @@ namespace SDDM {
+@@ -557,6 +764,280 @@ namespace SDDM {
          m_attemptSocket.clear();
          m_attemptReuseSessionId.clear();
          m_reuseSessionSelected = false;
@@ -1133,6 +1179,7 @@ index c58dc9c..0c558ec 100644
 +
 +    void Display::invalidateProbe() {
 +        ++m_probeGeneration;
++        m_probeServiceOwner.clear();
 +        if (m_probeDeadline) {
 +            m_probeDeadline->stop();
 +            m_probeDeadline->deleteLater();
@@ -1390,7 +1437,7 @@ index c58dc9c..0c558ec 100644
      }
  
      QString Display::findGreeterTheme() const {
-@@ -700,46 +1138,79 @@ namespace SDDM {
+@@ -700,46 +1181,79 @@ namespace SDDM {
          if (m_methodAttemptActive)
              m_attemptGate.resume(method);
          auth->insertEnvironment(env);
@@ -1489,7 +1536,7 @@ index c58dc9c..0c558ec 100644
              } else {
                  authorizeWinner();
              }
-@@ -790,138 +1261,173 @@ namespace SDDM {
+@@ -790,138 +1304,173 @@ namespace SDDM {
          m_socket = nullptr;
      }
  
@@ -1751,7 +1798,7 @@ index c58dc9c..0c558ec 100644
              return;
          if (auth->request()->prompts().length() == 1) {
              auth->request()->prompts()[0]->setResponse(qPrintable(m_passPhrase));
-@@ -935,7 +1441,7 @@ namespace SDDM {
+@@ -935,7 +1484,7 @@ namespace SDDM {
  
      void Display::slotSessionStarted(bool success) {
          Auth *auth = qobject_cast<Auth *>(sender());
@@ -1760,7 +1807,7 @@ index c58dc9c..0c558ec 100644
              if (success) {
                  m_sessionAuth = auth;
                  if (mainConfig.Users.RememberLastUser.get())
-@@ -951,10 +1457,14 @@ namespace SDDM {
+@@ -951,10 +1500,14 @@ namespace SDDM {
                      emit loginSucceeded(m_attemptSocket);
                  finishMethodAttempt(true);
              } else {
@@ -1776,7 +1823,7 @@ index c58dc9c..0c558ec 100644
          qDebug() << "Session started" << success;
          if (success)
 diff --git a/src/daemon/Display.h b/src/daemon/Display.h
-index 9b26655..5879c49 100644
+index 9b26655..e4528e4 100644
 --- a/src/daemon/Display.h
 +++ b/src/daemon/Display.h
 @@ -26,12 +26,17 @@
@@ -1814,7 +1861,7 @@ index 9b26655..5879c49 100644
          bool attemptAutologin();
          void displayServerStarted();
  
-@@ -87,20 +92,85 @@ namespace SDDM {
+@@ -87,20 +92,87 @@ namespace SDDM {
          void loginSucceeded(QLocalSocket *socket);
  
      private:
@@ -1833,6 +1880,7 @@ index 9b26655..5879c49 100644
 +        void publishMethodState(AuthenticationMethod method, FingerprintState state,
 +                                AuthenticationPhase phase, const QString &detailCode);
 +        virtual void probeFingerprintAvailability();
++        void resolveFingerprintServiceOwner(quint64 generation, bool allowActivation);
 +        void setFingerprintAvailability(quint64 serial, const QString &requestId, bool available,
 +                                       const QString &detailCode);
          void startPendingLogin();
@@ -1875,6 +1923,7 @@ index 9b26655..5879c49 100644
 +        bool m_tearingDown { false };
 +        int m_pendingPower { -1 };
 +        quint64 m_probeGeneration { 0 };
++        QString m_probeServiceOwner;
 +        QDBusServiceWatcher *m_fprintServiceWatcher { nullptr };
 +        AuthenticationAvailability m_fingerprintAvailability { AuthenticationAvailability::Unknown };
 +        QSet<QDBusPendingCallWatcher *> m_probeWatchers;
@@ -1901,7 +1950,7 @@ index 9b26655..5879c49 100644
          DisplayServerType m_displayServerType = X11DisplayServerType;
  
          bool m_relogin { true };
-@@ -143,6 +213,8 @@ namespace SDDM {
+@@ -143,6 +215,8 @@ namespace SDDM {
      private slots:
          void slotRequestChanged();
          void slotAuthenticationFinished(const QString &user, bool success);
@@ -4854,10 +4903,10 @@ index 0015153..7ef2de3 100644
  
  QTEST_GUILESS_MAIN(AuthTransportTest)
 diff --git a/test/CMakeLists.txt b/test/CMakeLists.txt
-index 1950e1e..fb3da4c 100644
+index 1950e1e..8005098 100644
 --- a/test/CMakeLists.txt
 +++ b/test/CMakeLists.txt
-@@ -51,3 +51,95 @@ target_link_libraries(AuthTransportTest
+@@ -51,3 +51,98 @@ target_link_libraries(AuthTransportTest
      Qt${QT_MAJOR_VERSION}::Core Qt${QT_MAJOR_VERSION}::Network
      Qt${QT_MAJOR_VERSION}::Qml Qt${QT_MAJOR_VERSION}::Test)
  add_test(NAME AuthTransport COMMAND AuthTransportTest)
@@ -4902,6 +4951,9 @@ index 1950e1e..fb3da4c 100644
 +target_link_libraries(DaemonContextHelper Qt${QT_MAJOR_VERSION}::Core
 +    Qt${QT_MAJOR_VERSION}::Network Qt${QT_MAJOR_VERSION}::Qml)
 +
++
++add_executable(FingerprintAvailabilityService FingerprintAvailabilityService.cpp)
++target_link_libraries(FingerprintAvailabilityService Qt${QT_MAJOR_VERSION}::Core Qt${QT_MAJOR_VERSION}::DBus)
 +get_target_property(DaemonTest_SRCS sddm SOURCES)
 +set(DaemonTest_ABSOLUTE_SRCS)
 +foreach(source IN LISTS DaemonTest_SRCS)
@@ -4923,7 +4975,7 @@ index 1950e1e..fb3da4c 100644
 +    ${CMAKE_CURRENT_BINARY_DIR}/../src/common ${LIBXAU_INCLUDE_DIRS} ${LIBXCB_INCLUDE_DIR})
 +get_target_property(DaemonTest_LIBS sddm LINK_LIBRARIES)
 +target_link_libraries(DaemonContextTest ${DaemonTest_LIBS} Qt${QT_MAJOR_VERSION}::Test)
-+add_dependencies(DaemonContextTest DaemonContextHelper sddm)
++add_dependencies(DaemonContextTest DaemonContextHelper FingerprintAvailabilityService sddm)
 +add_test(NAME DaemonContext COMMAND DaemonContextTest)
 +
 +if(QT_MAJOR_VERSION EQUAL "5")
@@ -5090,10 +5142,10 @@ index 0000000..e61bbeb
 +}
 diff --git a/test/DaemonContextTest.cpp b/test/DaemonContextTest.cpp
 new file mode 100644
-index 0000000..5196131
+index 0000000..b721e43
 --- /dev/null
 +++ b/test/DaemonContextTest.cpp
-@@ -0,0 +1,778 @@
+@@ -0,0 +1,1025 @@
 +// Exercises production Display/SocketServer/Auth with private unprivileged peers.
 +#include "Display.h"
 +#include "SocketServer.h"
@@ -5109,6 +5161,10 @@ index 0000000..5196131
 +#include <QTemporaryDir>
 +#include <QTest>
 +#include <QTimer>
++#include <QDBusConnectionInterface>
++#include <QDBusMessage>
++#include <QDBusReply>
++#include <QProcess>
 +#include <memory>
 +#include <functional>
 +
@@ -5199,6 +5255,7 @@ index 0000000..5196131
 +        QString fingerprintMode = QStringLiteral("ignore-term");
 +        QString passwordMode = QStringLiteral("ignore-term");
 +        int probes = 0;
++        bool realAvailability = false;
 +        explicit Harness(const QString &controlPath) : Display(nullptr, WaylandDisplayServerType, -1) {
 +            controls.listen(controlPath);
 +            QObject::connect(&controls, &QLocalServer::newConnection, this, [this] {
@@ -5226,6 +5283,10 @@ index 0000000..5196131
 +        }
 +    private:
 +        void probeFingerprintAvailability() override {
++            if (realAvailability) {
++                Display::probeFingerprintAvailability();
++                return;
++            }
 +            // Delivery is controlled here; no system-bus service or reader is
 +            // a prerequisite for the production lifecycle cases.
 +            invalidateProbe();
@@ -5258,6 +5319,41 @@ index 0000000..5196131
 +    };
 +    std::unique_ptr<QTemporaryDir> directory;
 +    Session session;
++    std::unique_ptr<QTemporaryDir> busDirectory;
++    QProcess privateBus;
++    QStringList fixtureOwners;
++    QString serviceFile() const {
++        return busDirectory->filePath(QStringLiteral("services/net.reactivated.Fprint.service"));
++    }
++    void enableService(const QStringList &args = {}) {
++        QFile service(serviceFile());
++        QVERIFY(service.open(QIODevice::WriteOnly));
++        const auto executable = QCoreApplication::applicationDirPath() + QStringLiteral("/FingerprintAvailabilityService");
++        service.write(QStringLiteral("[D-BUS Service]\nName=net.reactivated.Fprint\nExec=%1 %2\n")
++                      .arg(executable, args.join(QLatin1Char(' '))).toUtf8());
++        service.close();
++        const auto reply = QDBusConnection::systemBus().interface()->call(QStringLiteral("ReloadConfig"));
++        QVERIFY(reply.type() != QDBusMessage::ErrorMessage);
++    }
++    QString fixtureOwner() {
++        const QDBusReply<QString> owner = QDBusConnection::systemBus().interface()->serviceOwner(
++                QStringLiteral("net.reactivated.Fprint"));
++        if (owner.isValid() && !fixtureOwners.contains(owner.value()))
++            fixtureOwners.append(owner.value());
++        return owner.isValid() ? owner.value() : QString();
++    }
++    QDBusMessage fixtureCall(const QString &owner, const QString &method, bool device = false) {
++        return QDBusConnection::systemBus().call(QDBusMessage::createMethodCall(owner,
++                device ? QStringLiteral("/net/reactivated/Fprint/Device/0")
++                       : QStringLiteral("/net/reactivated/Fprint/Manager"),
++                device ? QStringLiteral("net.reactivated.Fprint.Device")
++                       : QStringLiteral("net.reactivated.Fprint.Manager"), method));
++    }
++    int pendingEnrollment(const QString &owner) {
++        const auto reply = fixtureCall(owner, QStringLiteral("PendingReplies"), true);
++        return reply.type() == QDBusMessage::ReplyMessage && reply.arguments().size() == 1
++                ? reply.arguments().constFirst().toInt() : -1;
++    }
 +    template<typename Writer> static QByteArray packet(Writer write) {
 +        QByteArray bytes;
 +        QDataStream output(&bytes, QIODevice::WriteOnly);
@@ -5310,6 +5406,42 @@ index 0000000..5196131
 +        QTRY_VERIFY(client.state(FingerprintState::Scanning));
 +    }
 +private slots:
++    void initTestCase() {
++        busDirectory = std::make_unique<QTemporaryDir>(QDir::currentPath() + QStringLiteral("/availability-bus-XXXXXX"));
++        QVERIFY(busDirectory->isValid());
++        QVERIFY(QDir().mkdir(busDirectory->filePath(QStringLiteral("services"))));
++        const auto address = QStringLiteral("unix:path=") + busDirectory->filePath(QStringLiteral("bus.socket"));
++        QFile config(busDirectory->filePath(QStringLiteral("bus.conf")));
++        QVERIFY(config.open(QIODevice::WriteOnly));
++        config.write(QStringLiteral("<busconfig><type>session</type><listen>%1</listen><servicedir>%2</servicedir>"
++                "<policy context=\"default\"><allow send_destination=\"*\"/><allow receive_sender=\"*\"/>"
++                "<allow own=\"*\"/><allow user=\"*\"/></policy></busconfig>")
++                .arg(address, busDirectory->filePath(QStringLiteral("services"))).toUtf8());
++        config.close();
++        qputenv("DBUS_SYSTEM_BUS_ADDRESS", address.toUtf8());
++        privateBus.start(QStringLiteral("dbus-daemon"),
++                {QStringLiteral("--nofork"), QStringLiteral("--print-address=1"),
++                 QStringLiteral("--config-file=") + config.fileName()});
++        QVERIFY(privateBus.waitForStarted());
++        QVERIFY(privateBus.waitForReadyRead());
++        QVERIFY(privateBus.readLine().startsWith("unix:"));
++        QVERIFY(QDBusConnection::systemBus().isConnected());
++    }
++    void cleanup() {
++        const auto current = fixtureOwner();
++        Q_UNUSED(current);
++        for (const auto &owner : qAsConst(fixtureOwners))
++            fixtureCall(owner, QStringLiteral("Quit"));
++        fixtureOwners.clear();
++        QTRY_VERIFY(!QDBusConnection::systemBus().interface()->isServiceRegistered(
++                QStringLiteral("net.reactivated.Fprint")).value());
++        QFile::remove(serviceFile());
++        QDBusConnection::systemBus().interface()->call(QStringLiteral("ReloadConfig"));
++    }
++    void cleanupTestCase() {
++        privateBus.terminate();
++        QVERIFY(privateBus.waitForFinished());
++    }
 +    void init() {
 +        directory = std::make_unique<QTemporaryDir>(QDir::currentPath() + QStringLiteral("/daemon-context-XXXXXX"));
 +        QVERIFY(directory->isValid());
@@ -5321,6 +5453,173 @@ index 0000000..5196131
 +        mainConfig.FingerprintAuthTimeout.set(1);
 +        session.setTo(Session::X11Session, QStringLiteral("test.desktop"));
 +        QVERIFY(session.isValid());
++    }
++    void activationFailureReportsUnavailable() {
++        enableService({QStringLiteral("--fail-start")});
++        Harness display(directory->filePath(QStringLiteral("control")));
++        display.realAvailability = true;
++        Client client;
++        connectClient(display, client);
++        select(client, 1, QStringLiteral("a"));
++        start(client, 1);
++        QTRY_COMPARE(client.count(DaemonMessages::AuthenticationContext, QStringLiteral("service_unavailable")), 1);
++        QCOMPARE(display.m_fingerprintAvailability, AuthenticationAvailability::Unavailable);
++        QCOMPARE(display.m_fingerprintAuth->launchGeneration(), quint64(0));
++    }
++    void activationDeadlineRejectsLateOwnerAcquisition() {
++        const auto gate = directory->filePath(QStringLiteral("late-start"));
++        enableService({QStringLiteral("--startup-gate"), gate});
++        Harness display(directory->filePath(QStringLiteral("control")));
++        display.realAvailability = true;
++        Client client;
++        connectClient(display, client);
++        select(client, 1, QStringLiteral("a"));
++        start(client, 1);
++        QTRY_VERIFY(QFile::exists(gate + QStringLiteral(".waiting")));
++        QTRY_COMPARE_WITH_TIMEOUT(client.count(DaemonMessages::AuthenticationContext,
++                QStringLiteral("availability_unavailable")), 1, 6500);
++        QFile release(gate);
++        QVERIFY(release.open(QIODevice::WriteOnly));
++        release.close();
++        QTRY_VERIFY(!fixtureOwner().isEmpty());
++        QCOMPARE(display.m_fingerprintAvailability, AuthenticationAvailability::Unavailable);
++        QCOMPARE(display.m_fingerprintAuth->launchGeneration(), quint64(0));
++        QVERIFY(!client.state(FingerprintState::Ready));
++    }
++    void coldAvailabilityActivatesOnceAndStartsQueuedFingerprint() {
++        enableService();
++        Harness display(directory->filePath(QStringLiteral("control")));
++        display.realAvailability = true;
++        Client client;
++        connectClient(display, client);
++        select(client, 1, QStringLiteral("a"));
++        start(client, 1);
++        QTRY_VERIFY(display.peers.contains(int(AuthMethod::Fingerprint)));
++        QVERIFY(!fixtureOwner().isEmpty());
++        QCOMPARE(display.m_fingerprintAvailability, AuthenticationAvailability::Available);
++        QCOMPARE(display.m_fingerprintAuth->launchGeneration(), quint64(1));
++        QTRY_VERIFY(client.state(FingerprintState::Scanning));
++        display.command(AuthMethod::Fingerprint, "E");
++        QTRY_VERIFY(!display.m_fingerprintAuth->isActive());
++    }
++    void missingServiceCanRecoverOnExplicitRetryAndAfterOwnerExit() {
++        mainConfig.FingerprintAuthTimeout.set(30);
++        Harness display(directory->filePath(QStringLiteral("control")));
++        display.realAvailability = true;
++        Client client;
++        connectClient(display, client);
++        select(client, 1, QStringLiteral("a"));
++        QTRY_COMPARE(client.count(DaemonMessages::AuthenticationContext, QStringLiteral("service_unavailable")), 1);
++        const auto request = display.m_requestId;
++        QCOMPARE(display.m_fingerprintAuth->launchGeneration(), quint64(0));
++        enableService();
++        start(client, 1);
++        QTRY_VERIFY(display.peers.contains(int(AuthMethod::Fingerprint)));
++        QCOMPARE(display.m_requestId, request);
++        const auto owner = fixtureOwner();
++        QVERIFY(!owner.isEmpty());
++        display.command(AuthMethod::Fingerprint, "E");
++        QTRY_VERIFY(!display.m_fingerprintAuth->isActive());
++        fixtureCall(owner, QStringLiteral("Quit"));
++        QTRY_VERIFY(fixtureOwner().isEmpty());
++        QTRY_COMPARE(display.m_fingerprintAvailability, AuthenticationAvailability::Unavailable);
++        start(client, 1);
++        QTRY_COMPARE(display.m_fingerprintAuth->launchGeneration(), quint64(2));
++        QTRY_VERIFY(display.peers.contains(int(AuthMethod::Fingerprint)));
++        QCOMPARE(display.m_requestId, request);
++        QVERIFY(!fixtureOwner().isEmpty());
++        display.command(AuthMethod::Fingerprint, "E");
++        QTRY_VERIFY(!display.m_fingerprintAuth->isActive());
++    }
++    void unavailableActivationDoesNotBlockPassword() {
++        enableService({QStringLiteral("--startup-gate"), directory->filePath(QStringLiteral("never-open"))});
++        Harness display(directory->filePath(QStringLiteral("control")));
++        display.realAvailability = true;
++        Client client;
++        connectClient(display, client);
++        select(client, 1, QStringLiteral("a"));
++        QTRY_VERIFY(QFile::exists(directory->filePath(QStringLiteral("never-open.waiting"))));
++        password(client, QStringLiteral("a"));
++        QTRY_VERIFY(display.peers.contains(int(AuthMethod::Password)));
++        QCOMPARE(display.m_fingerprintAvailability, AuthenticationAvailability::Unknown);
++        QFile release(directory->filePath(QStringLiteral("never-open")));
++        QVERIFY(release.open(QIODevice::WriteOnly));
++        release.close();
++        QTRY_COMPARE(display.m_fingerprintAvailability, AuthenticationAvailability::Available);
++        QCOMPARE(display.m_auth->launchGeneration(), quint64(1));
++        display.command(AuthMethod::Password, "E");
++        QTRY_VERIFY(!display.m_auth->isActive());
++    }
++    void staleEnrollmentCannotRestoreReplacedContext() {
++        enableService({QStringLiteral("--hold-enrollment")});
++        Harness display(directory->filePath(QStringLiteral("control")));
++        display.realAvailability = true;
++        Client client;
++        connectClient(display, client);
++        select(client, 1, QStringLiteral("a"));
++        QTRY_VERIFY(!fixtureOwner().isEmpty());
++        const auto owner = fixtureOwner();
++        QTRY_COMPARE(pendingEnrollment(owner), 1);
++        start(client, 1);
++        select(client, 2, QStringLiteral("b"));
++        QTRY_COMPARE(pendingEnrollment(owner), 2);
++        fixtureCall(owner, QStringLiteral("ReleaseReplies"), true);
++        QTRY_COMPARE(client.count(DaemonMessages::AuthenticationContext, QStringLiteral("not_enrolled")), 1);
++        QCOMPARE(display.m_contextUser, QStringLiteral("b"));
++        QCOMPARE(display.m_fingerprintAvailability, AuthenticationAvailability::Unavailable);
++        QCOMPARE(display.m_fingerprintAuth->launchGeneration(), quint64(0));
++        for (const auto &event : client.events)
++            QVERIFY(event.availability != quint32(AuthenticationAvailability::Available));
++    }
++    void replacedOwnerCannotCompleteOldProbeOrAutomaticallyRestart() {
++        mainConfig.FingerprintAuthTimeout.set(30);
++        enableService({QStringLiteral("--hold-enrollment")});
++        Harness display(directory->filePath(QStringLiteral("control")));
++        display.realAvailability = true;
++        Client client;
++        connectClient(display, client);
++        select(client, 1, QStringLiteral("a"));
++        start(client, 1);
++        QTRY_VERIFY(!fixtureOwner().isEmpty());
++        const auto oldOwner = fixtureOwner();
++        QTRY_COMPARE(pendingEnrollment(oldOwner), 1);
++        QProcess replacement;
++        replacement.start(QCoreApplication::applicationDirPath() + QStringLiteral("/FingerprintAvailabilityService"),
++                          {QStringLiteral("--replace")});
++        QVERIFY(replacement.waitForStarted());
++        QTRY_VERIFY(!fixtureOwner().isEmpty() && fixtureOwner() != oldOwner);
++        const auto newOwner = fixtureOwner();
++        QTRY_COMPARE(client.count(DaemonMessages::AuthenticationContext, QStringLiteral("service_unavailable")), 1);
++        fixtureCall(oldOwner, QStringLiteral("ReleaseReplies"), true);
++        QTest::qWait(50);
++        QCOMPARE(display.m_fingerprintAvailability, AuthenticationAvailability::Unavailable);
++        QCOMPARE(display.m_fingerprintAuth->launchGeneration(), quint64(0));
++        start(client, 1);
++        QTRY_VERIFY(display.peers.contains(int(AuthMethod::Fingerprint)));
++        QCOMPARE(display.m_fingerprintAvailability, AuthenticationAvailability::Available);
++        display.command(AuthMethod::Fingerprint, "E");
++        QTRY_VERIFY(!display.m_fingerprintAuth->isActive());
++        fixtureCall(newOwner, QStringLiteral("Quit"));
++        QVERIFY(replacement.waitForFinished());
++    }
++    void availabilityDeadlineRejectsLateEnrollment() {
++        enableService({QStringLiteral("--hold-enrollment")});
++        Harness display(directory->filePath(QStringLiteral("control")));
++        display.realAvailability = true;
++        Client client;
++        connectClient(display, client);
++        select(client, 1, QStringLiteral("a"));
++        start(client, 1);
++        QTRY_VERIFY(!fixtureOwner().isEmpty());
++        const auto owner = fixtureOwner();
++        QTRY_COMPARE(pendingEnrollment(owner), 1);
++        QTRY_COMPARE_WITH_TIMEOUT(client.count(DaemonMessages::AuthenticationContext,
++                QStringLiteral("availability_unavailable")), 1, 6500);
++        fixtureCall(owner, QStringLiteral("ReleaseReplies"), true);
++        QTest::qWait(50);
++        QCOMPARE(display.m_fingerprintAvailability, AuthenticationAvailability::Unavailable);
++        QCOMPARE(display.m_fingerprintAuth->launchGeneration(), quint64(0));
++        QVERIFY(!client.state(FingerprintState::Ready));
 +    }
 +    void fragmentedContextAndSocketIsolation() {
 +        Harness display(directory->filePath(QStringLiteral("control")));
@@ -5872,6 +6171,103 @@ index 0000000..5196131
 +}
 +QTEST_GUILESS_MAIN(SDDM::DaemonContextTest)
 +#include "DaemonContextTest.moc"
+diff --git a/test/FingerprintAvailabilityService.cpp b/test/FingerprintAvailabilityService.cpp
+new file mode 100644
+index 0000000..041dbf8
+--- /dev/null
++++ b/test/FingerprintAvailabilityService.cpp
+@@ -0,0 +1,91 @@
++// Availability-only private D-Bus fixture; never authenticates or accesses a reader.
++#include <QCoreApplication>
++#include <QDBusConnection>
++#include <QDBusConnectionInterface>
++#include <QDBusContext>
++#include <QDBusMessage>
++#include <QDBusMetaType>
++#include <QDBusObjectPath>
++#include <QDBusReply>
++#include <QFile>
++#include <QTimer>
++
++class Device final : public QObject, protected QDBusContext {
++    Q_OBJECT
++    Q_CLASSINFO("D-Bus Interface", "net.reactivated.Fprint.Device")
++public:
++    bool hold = false;
++    QList<QDBusMessage> pending;
++    QStringList users;
++public slots:
++    QStringList ListEnrolledFingers(const QString &user) {
++        if (hold) {
++            setDelayedReply(true);
++            pending.append(message());
++            users.append(user);
++            return {};
++        }
++        return user == QLatin1String("b") ? QStringList() : QStringList{QStringLiteral("test-finger")};
++    }
++    void ReleaseReplies() {
++        hold = false;
++        for (int i = 0; i < pending.size(); ++i) {
++            const auto fingers = users.at(i) == QLatin1String("b")
++                    ? QStringList() : QStringList{QStringLiteral("test-finger")};
++            QDBusConnection::systemBus().send(pending.at(i).createReply(QVariant::fromValue(fingers)));
++        }
++        pending.clear(); users.clear();
++    }
++    int PendingReplies() const { return pending.size(); }
++};
++
++class Manager final : public QObject {
++    Q_OBJECT
++    Q_CLASSINFO("D-Bus Interface", "net.reactivated.Fprint.Manager")
++public slots:
++    QList<QDBusObjectPath> GetDevices() const {
++        return {QDBusObjectPath(QStringLiteral("/net/reactivated/Fprint/Device/0"))};
++    }
++    void Quit() { QTimer::singleShot(0, QCoreApplication::instance(), &QCoreApplication::quit); }
++};
++
++int main(int argc, char **argv) {
++    QCoreApplication app(argc, argv);
++    const auto args = app.arguments();
++    if (args.contains(QStringLiteral("--fail-start"))) return 1;
++    qDBusRegisterMetaType<QList<QDBusObjectPath>>();
++    Device device;
++    device.hold = args.contains(QStringLiteral("--hold-enrollment"));
++    Manager manager;
++    auto bus = QDBusConnection::systemBus();
++    if (!bus.isConnected()) return 2;
++    if (!bus.registerObject(QStringLiteral("/net/reactivated/Fprint/Manager"), &manager,
++                            QDBusConnection::ExportAllSlots)
++        || !bus.registerObject(QStringLiteral("/net/reactivated/Fprint/Device/0"), &device,
++                               QDBusConnection::ExportAllSlots)) return 3;
++    bus.connect(QString(), QStringLiteral("/org/freedesktop/DBus/Local"),
++                QStringLiteral("org.freedesktop.DBus.Local"), QStringLiteral("Disconnected"),
++                &app, SLOT(quit()));
++    auto acquire = [&] {
++        const auto reply = bus.interface()->registerService(QStringLiteral("net.reactivated.Fprint"),
++                args.contains(QStringLiteral("--replace")) ? QDBusConnectionInterface::ReplaceExistingService
++                                                           : QDBusConnectionInterface::DontQueueService,
++                QDBusConnectionInterface::AllowReplacement);
++        if (!reply.isValid() || reply.value() != QDBusConnectionInterface::ServiceRegistered)
++            app.exit(4);
++    };
++    const int gateIndex = args.indexOf(QStringLiteral("--startup-gate"));
++    QTimer gate;
++    if (gateIndex >= 0 && gateIndex + 1 < args.size()) {
++        const auto path = args.at(gateIndex + 1);
++        QFile waiting(path + QStringLiteral(".waiting"));
++        if (!waiting.open(QIODevice::WriteOnly)) return 5;
++        waiting.close();
++        QObject::connect(&gate, &QTimer::timeout, &app, [&, path] {
++            if (QFile::exists(path)) { gate.stop(); acquire(); }
++        });
++        gate.start(10);
++    } else QTimer::singleShot(0, &app, acquire);
++    return app.exec();
++}
++#include "FingerprintAvailabilityService.moc"
 diff --git a/test/FploginThemeTest.cpp b/test/FploginThemeTest.cpp
 new file mode 100644
 index 0000000..bfadaff

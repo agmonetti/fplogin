@@ -1,15 +1,15 @@
 {
   "format_version": 1,
-  "status": "integrated-synthetic-verified-physical-acceptance-pending",
+  "status": "activation-fix-isolated-verified-physical-retest-pending",
   "recovered_at": "2026-10-08",
   "source_session": "01a10bd6-457f-7000-be93-262cd943e2c0",
   "original_source_path": "/tmp/fplogin-sddm-sprint2",
   "persistent_source_path": ".work/sddm/sprint2",
   "source_branch": "fplogin/sprint2-recovered",
-  "source_commit": "c1cddef7863422e32c8434ec4b298b2c7c38ad4e",
+  "source_commit": "480332c33ee463606a8284a33854077820e9286f",
   "accepted_sprint1_base_tag": "fplogin/sprint1-accepted",
   "accepted_sprint1_base_commit": "bb48519c79d21bf5534e66552bf31d3bdb3f2935",
-  "local_bundle": ".work/checkpoints/sddm-sprint2-20261009-keyboard-viewport.bundle",
+  "local_bundle": ".work/checkpoints/sddm-sprint2-20261020-activation.bundle",
   "local_bundle_verified": true,
   "upstream_commit": "63780fcd79f1dbf81a30eef48c28c699ab15aded",
   "arch_cmake_commit": "228778c2b4b7e26db1e1d69fe484ed75c5791c3a",
@@ -19,7 +19,7 @@
   },
   "checkpoint_patch": {
     "path": "adapters/sddm/checkpoints/sprint2-recovered.patch",
-    "sha256": "fdeeefe687d0842f3c3f25f618fa41b7fcf852c1582c4b078b7462c6c01a2fb6"
+    "sha256": "1706624e0af02e08bc264b8ab95d26bdfa11637deaa0577df0f2ba33584da4ca"
   },
   "source_sha256": {
     "src/auth/Auth.cpp": "02fce74440fe2edef0939296b8779267c93f90974e3c1a98e7c7f9e511f6991f",
@@ -32,8 +32,8 @@
     "src/common/SocketWriter.cpp": "3980cbc881709421f1887ae3d2b5f044ba4a3d3b8737febf71ee695b028cd457",
     "src/common/SocketWriter.h": "bebb067d10c6531135447829ac46e1bd3ee35168794b1c3f27ff1cbc32de9c72",
     "src/daemon/DaemonApp.cpp": "616961893bc9d23cee5678d76234389a8d3949133709ac580361484210a16517",
-    "src/daemon/Display.cpp": "0a09099d2ca5d8a76174f379c1ecf132933491ff4073c7187841c41f800ef888",
-    "src/daemon/Display.h": "841630fe60c69c2e6544a1a78ab8b50e5f7c0f471833aac297af7616c139180d",
+    "src/daemon/Display.cpp": "644f4af1ca6f79c464675511960a9a5cd4654af329b5222fae43056491e965d4",
+    "src/daemon/Display.h": "bf5acf705e03ef045884686a29fe2de407fb216cb55b7673d37023572d710c7e",
     "src/daemon/SocketServer.cpp": "b60cfc24c3bc09e31d09d18d63d449d2f54a5c03fa50bb8a86038b2c034cef6e",
     "src/daemon/SocketServer.h": "3902815038d26079fa58a5225a5c458a28d8d4f0eeed7485e38efcab89c243eb",
     "src/greeter/GreeterApp.cpp": "847abaeb8f5522280a8b29969aa4de7c6967a8a26e7553bfafc0240d520fe67f",
@@ -52,9 +52,10 @@
     "test/AuthMessagesTest.cpp": "e83d2163e727a3fe35601ccc670cd33666736451965447b0c4f9336e6368031d",
     "test/AuthTransportHelper.cpp": "352b8e23f2aed45fc664409f8ae99bbbdbdc555b58c38c4beacf956159474c3e",
     "test/AuthTransportTest.cpp": "61b6d78df96a2fa4184d7934b56001b627cd66c036139cbea1d9c7f437462725",
-    "test/CMakeLists.txt": "b1e6df76949b2b82e49478a7db786f8b35cbebcbe42709402851f5843ff83389",
+    "test/CMakeLists.txt": "16162b44f2f8e7af0fa657ae9e3793ea9c181481e9a405c4dcdb13b49ac46e31",
     "test/DaemonContextHelper.cpp": "3e2af386ebd3aa0decb1bd328b20e695a822bf87f578cecf106ac20fdbb98c90",
-    "test/DaemonContextTest.cpp": "779dd57bdf98bd57381c078e90d017f44d8ec74a3f3d57e543f71fcebb7b5747",
+    "test/DaemonContextTest.cpp": "604e3d3567b00e8afc7e8a97989cf74b04b5d55632763d355fdf7cc8c2913876",
+    "test/FingerprintAvailabilityService.cpp": "218cfebd5032b62bfa891f1094d7614cef9cfea4df45f6cbc973d7e34d790331",
     "test/FploginThemeTest.cpp": "6cf3206afee881efe64f3af304ba290f6cb9db1962c208bb47929a17ce36b1fd",
     "test/GreeterAppTest.cpp": "ed7ab5ef292958768cc5864460cae8d80ead9c4ea7d11aea402ee13c793f7bda",
     "test/GreeterProxyTest.cpp": "2625571ec0a477141e556c5ed14f1a1518964f4a8f5f4e2f09d33e44d55db728"
@@ -655,15 +656,16 @@
     ]
   },
   "verification": {
-    "current_checkpoint_roundtrip": "passed: all 36 changed source files byte-match .work/sddm/recovery-check-20261009 and the clean pinned complete-series tree",
-    "current_bundle_verify": "passed: self-contained c1cddef source bundle verified on 2026-10-09",
-    "production_patch_equivalence": "passed: current checkpoint and exported 0002 are byte-identical; bundle commit delta reproduces exported 0002",
-    "sprint2_build": "passed: clean pinned baseline + Arch delta + complete exported series built on 2026-10-09; .work/evidence/sprint2/production-build-20261009.log",
-    "sprint2_tests": "passed: 9/9 production suites plus 1/1 separate FploginTheme suite configured with -DFPL_THEME_DIR=/theme; production-build-20261009.log and production-theme-test-20261009.log",
-    "sprint2_authentication_smoke": "previously recorded 3/3 synthetic PAM helper smoke; not physical authentication",
-    "sprint2_actual_surface": "passed scoped USB-free readiness only: custom theme and actual embedded fallback with focused empty password above virtual keyboard; custom theme also at QT_SCALE_FACTOR=2. No password entered/login authorized. Physical G01-G16 remain pending owner consent/handoff.",
-    "integrity_verifier": "passed: 42 files against independent current checkpoint restoration",
-    "traced_runtime": "passed: diagnostic overlay builds; final pinned VM daemon/helper/greeter hashes match installed build; distinct guest identity and ttyS0 recovery guard exercised; VM ACPI shutdown completed"
+    "current_checkpoint_roundtrip": "passed: all 37 changed source files byte-match the clean pinned upstream + cherry-picked Arch delta + complete exported series in .work/sddm/recovery-check-20261020-activation",
+    "current_bundle_verify": "passed: self-contained full-history 480332c source bundle verified on 2026-10-20",
+    "production_patch_equivalence": "passed: current checkpoint and exported 0002 are byte-identical, generated from the complete accepted-Sprint-1-to-HEAD delta",
+    "sprint2_build": "passed: clean exported-series Arch Qt 6 build; .work/evidence/sprint2/g04-fix-20261020/configure.log and retry1-build.log; original build.log preserves corrected Qt API failure",
+    "sprint2_tests": "passed: 10/10 CTest suites, including eight private-D-Bus availability regressions in DaemonContext and external theme suite; retry1-ctest.log",
+    "sprint2_authentication_smoke": "not rerun; current real-service smoke deliberately blocks authentication launch. Earlier synthetic PAM records are historical, not new physical evidence.",
+    "activation_runtime_smoke": "passed: production Display/SocketServer/GreeterProxy objects from the clean exported build activate real fprintd on initial context and reactivate on explicit Retry after observed owner loss; no accessible USB reader, PAM or session. .work/evidence/sprint2/g04-fix-20261020/service/",
+    "sprint2_actual_surface": "passed scoped real compiled QML/proxy synthetic-peer keyboard Retry smoke on private Xvfb: two explicit Space activations preserve serial/method, no unavailable auto-start; readable empty-field captures inspected with public Liberation fonts mounted read-only. Not genuine PAM, physical reader, actual guest G01-G16 or full keyboard/scaled-layout acceptance. .work/evidence/sprint2/g04-fix-20261020/surface-fonts/",
+    "integrity_verifier": "passed: 43 entries (37 sources, four theme assets, accepted 0001 and checkpoint) against clean complete-series restoration",
+    "traced_runtime": "not rebuilt or installed; preserved stopped VM and old image remain at c1cddef. Userspace build/smoke container image is not evidence of guest deployment."
   },
   "historical_recovery": {
     "status": "recovered-unverified-not-accepted",
@@ -720,7 +722,27 @@
       }
     }
   },
-  "local_bundle_sha256": "548245ada18c42d345656561b5daebee2412542abb2aeb18f0cb251cc2f7b6a2",
-  "updated_at": "2026-10-09",
-  "provenance": "Historical transcript reconstruction is retained in reconstruction and historical_recovery. Current integrated commit and checkpoint contain subsequent Sprint 2 changes; current hashes attest the integrated content, not equality with the recovered transcript."
+  "local_bundle_sha256": "e3be408a95e174aa5afbd92e50ecb84295117355e493c668107b5d646a5989d1",
+  "updated_at": "2026-10-20",
+  "provenance": "Historical transcript reconstruction is retained in reconstruction and historical_recovery. Current integrated commit and checkpoint contain subsequent Sprint 2 changes; current hashes attest the integrated content, not equality with the recovered transcript. Owner explicitly authorized the 2026-10-20 bounded activation correction after the G04 investigation. Current source includes the production fix and private-bus regressions; no keepalive, host/guest modification, physical acceptance or Sprint 3 authorization.",
+  "historical_integrated_checkpoints": [
+    {
+      "date": "2026-10-09",
+      "source_commit": "c1cddef7863422e32c8434ec4b298b2c7c38ad4e",
+      "checkpoint_sha256": "fdeeefe687d0842f3c3f25f618fa41b7fcf852c1582c4b078b7462c6c01a2fb6",
+      "local_bundle": ".work/checkpoints/sddm-sprint2-20261009-keyboard-viewport.bundle",
+      "local_bundle_sha256": "548245ada18c42d345656561b5daebee2412542abb2aeb18f0cb251cc2f7b6a2",
+      "verification": {
+        "current_checkpoint_roundtrip": "passed: all 36 changed source files byte-match .work/sddm/recovery-check-20261009 and the clean pinned complete-series tree",
+        "current_bundle_verify": "passed: self-contained c1cddef source bundle verified on 2026-10-09",
+        "production_patch_equivalence": "passed: current checkpoint and exported 0002 are byte-identical; bundle commit delta reproduces exported 0002",
+        "sprint2_build": "passed: clean pinned baseline + Arch delta + complete exported series built on 2026-10-09; .work/evidence/sprint2/production-build-20261009.log",
+        "sprint2_tests": "passed: 9/9 production suites plus 1/1 separate FploginTheme suite configured with -DFPL_THEME_DIR=/theme; production-build-20261009.log and production-theme-test-20261009.log",
+        "sprint2_authentication_smoke": "previously recorded 3/3 synthetic PAM helper smoke; not physical authentication",
+        "sprint2_actual_surface": "passed scoped USB-free readiness only: custom theme and actual embedded fallback with focused empty password above virtual keyboard; custom theme also at QT_SCALE_FACTOR=2. No password entered/login authorized. Physical G01-G16 remain pending owner consent/handoff.",
+        "integrity_verifier": "passed: 42 files against independent current checkpoint restoration",
+        "traced_runtime": "passed: diagnostic overlay builds; final pinned VM daemon/helper/greeter hashes match installed build; distinct guest identity and ttyS0 recovery guard exercised; VM ACPI shutdown completed"
+      }
+    }
+  ]
 }
