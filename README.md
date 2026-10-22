@@ -91,10 +91,33 @@ No existing system files will be modified in place. The installer will generate 
 | SDDM | Yes | Patched package will be installed and configured through the selected adapter/platform provider |
 | qt6-declarative | Yes | Required for SDDM QML themes |
 
+## CLI Usage
+
+`fplogin` provides a standalone command-line interface for installation, uninstallation, inspection, and analysis:
+
+```bash
+# Analyze system for password-derived facilities affected by biometric login
+fplogin analyze [--json] [--user <username>]
+
+# Perform dry-run installation (validates prerequisites and outputs proposed plan without mutating)
+fplogin install --dry-run
+
+# Perform full atomic installation
+sudo fplogin install
+
+# View current installation status and manifest details
+fplogin status
+
+# Clean uninstallation (restores backed up files and previous display manager)
+sudo fplogin uninstall
+```
+
 ## Documentation
 
 - [Agent Instructions](AGENTS.md) and [Persistent Work and Recovery](docs/PERSISTENCE.md): Mandatory storage paths, portable checkpoints, source bundles and verified restoration; `/tmp` is not a durable workspace.
 - [Implementation Plan](docs/IMPLEMENTATION_PLAN.md): Sprint roadmap, verification matrix, security model, and Definition of Done.
+- [Emergency Recovery Guide](docs/EMERGENCY_RECOVERY.md): Step-by-step procedures for interrupted transactions, journal recovery, and PAM restore.
+- [Supported Versions & Policy](docs/SUPPORTED_VERSIONS.md): Supported Linux distributions, desktop environments, PAM, and toolchain dependencies.
 - [Core Language and Adapter Contract](docs/architecture/CORE_ADAPTER_ANALYSIS.md): Language evaluation, adapter protocol, repository foundation, and architectural risks.
 - [SDDM Concurrent Authentication Design](docs/architecture/SDDM_AUTHENTICATION_DESIGN.md): Pinned baseline, stock message flow, winner gate, cancellation boundary, and proposed SDDM IPC.
 - [SDDM Greeter and Theme Design](docs/architecture/SDDM_GREETER_DESIGN.md): Sprint 2 context correlation, typed reader states, controlling-view lifecycle and password fallback.
@@ -105,3 +128,4 @@ No existing system files will be modified in place. The installer will generate 
 ## License
 
 MIT
+

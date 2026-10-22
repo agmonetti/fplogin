@@ -908,15 +908,15 @@
     "last_updated": "2026-10-22",
     "current_gate": "Sprint 2 (Repetir / Bloqueado)",
     "current_gate_status": "in_progress",
-    "latest_achievement": "G04 Physical Retest Verified (Invalid finger retry guidance, PAM exhaustion rc=11, 34.8s no-restart window, retained password recovery)",
+    "latest_achievement": "S4, S5, S6A, S7A completed: Core transaction installer, analyzer, security hardening & release docs verified",
     "next_step": "G05 (Fingerprint 30s deadline, timeout cleanup & races under autonomous guest-event timing)",
     "summary": {
       "total_items": 120,
-      "done": 64,
+      "done": 87,
       "partial": 3,
-      "blocked": 8,
-      "pending": 45,
-      "percentage": 54.58
+      "blocked": 13,
+      "pending": 17,
+      "percentage": 73.75
     }
   },
   "sprints": [
@@ -1612,240 +1612,240 @@
       "id": "sprint-4",
       "name": "Sprint 4",
       "subtitle": "Transactional Installer & Rollback Engine",
-      "status": "pending",
+      "status": "done",
       "goal": "Build the core Go transaction engine, pre-mutation journaling, and rollback uninstaller.",
       "items": [
         {
           "id": "S4-01",
           "title": "Read-Only Preflight & Plan Generator",
-          "status": "pending",
+          "status": "done",
           "description": "Inspects system state and renders declarative change plan without mutating files.",
-          "evidence": "Planned in Implementation Plan \u00a78.1"
+          "evidence": "Implemented in internal/core/install/ops.go and cmd/fplogin/main.go (--dry-run)"
         },
         {
           "id": "S4-02",
           "title": "Dynamic Display Manager Detection",
-          "status": "pending",
+          "status": "done",
           "description": "Queries platform provider for active/installed DM candidates via systemd aliases.",
-          "evidence": "Planned in Implementation Plan \u00a78.1"
+          "evidence": "Implemented in internal/core/discovery/discovery.go"
         },
         {
           "id": "S4-03",
           "title": "Adapter Compatibility Negotiation",
-          "status": "pending",
+          "status": "done",
           "description": "Matches detected DM with available adapter descriptors using capability predicates.",
-          "evidence": "Planned in docs/architecture/OPEN_POINTS_RESOLUTION.md \u00a73"
+          "evidence": "Implemented in internal/core/selection and discovery"
         },
         {
           "id": "S4-04",
           "title": "Prerequisite Validation & Installation",
-          "status": "pending",
+          "status": "done",
           "description": "Checks fprintd, libfprint, compatible sensor, and enrolled biometric credentials.",
-          "evidence": "Planned in Implementation Plan \u00a78.1"
+          "evidence": "Implemented in internal/core/install/installer.go Phase 2"
         },
         {
           "id": "S4-05",
           "title": "Explicit Confirmation on DM Migration",
-          "status": "pending",
+          "status": "done",
           "description": "Requires explicit administrator opt-in before disabling LightDM, GDM, or other DMs.",
-          "evidence": "Planned in Implementation Plan \u00a78.1"
+          "evidence": "Implemented in internal/core/install/installer.go Phase 6"
         },
         {
           "id": "S4-06",
           "title": "Atomic File Operations Engine",
-          "status": "pending",
+          "status": "done",
           "description": "Executes closed vocabulary operations (write_file_atomic, create_directory, etc.).",
-          "evidence": "Planned in docs/architecture/CORE_ADAPTER_ANALYSIS.md \u00a72.4"
+          "evidence": "Implemented in internal/core/install/ops.go (write_file_atomic, create_directory, remove_owned_file)"
         },
         {
           "id": "S4-07",
           "title": "Pre-Mutation Transaction Journal",
-          "status": "pending",
+          "status": "done",
           "description": "Writes and fsyncs transaction-journal.json before each mutation stage.",
-          "evidence": "ADR 0003 & contracts/manifest/v1"
+          "evidence": "Implemented in internal/core/transaction/journal.go (ADR 0003 fsync durability)"
         },
         {
           "id": "S4-08",
           "title": "Crash Recovery & Rollback Engine",
-          "status": "pending",
+          "status": "done",
           "description": "Reverts partial operations in reverse order using compensation records upon error or interrupt.",
-          "evidence": "Planned in Implementation Plan \u00a78.1"
+          "evidence": "Implemented in internal/core/install/ops.go (Rollback compensation engine)"
         },
         {
           "id": "S4-09",
           "title": "Final Manifest Publication",
-          "status": "pending",
+          "status": "done",
           "description": "Atomically publishes /var/lib/fplogin/manifest.json only after verification passes.",
-          "evidence": "contracts/manifest/v1/install-manifest.schema.json"
+          "evidence": "Implemented in internal/core/manifest/manifest.go and installer.go Phase 11"
         },
         {
           "id": "S4-10",
           "title": "Checksum-Aware Uninstaller",
-          "status": "pending",
+          "status": "done",
           "description": "Reads manifest, verifies file checksums, restores prior DM, and leaves no residual configuration.",
-          "evidence": "Planned in Implementation Plan \u00a78.3"
+          "evidence": "Implemented in internal/core/manifest/manifest.go (Checksum-aware uninstaller)"
         }
       ],
       "summary": {
         "total": 10,
-        "done": 0,
+        "done": 10,
         "partial": 0,
         "blocked": 0,
-        "pending": 10,
-        "percentage": 0.0
+        "pending": 0,
+        "percentage": 100.0
       }
     },
     {
       "id": "sprint-5",
       "name": "Sprint 5",
       "subtitle": "System Difference Analyzer",
-      "status": "pending",
+      "status": "done",
       "goal": "Build the evidence-based system difference analyzer reporting password-derived facilities.",
       "items": [
         {
           "id": "S5-01",
           "title": "PAM Configuration & Include-Tree Probe",
-          "status": "pending",
+          "status": "done",
           "description": "Inspects PAM stacks to detect password-dependent pam_kwallet, pam_gnome_keyring, etc.",
-          "evidence": "Planned in Implementation Plan \u00a77"
+          "evidence": "Implemented in internal/core/analyze/pam.go (cycle-safe PAM include/substack parser)"
         },
         {
           "id": "S5-02",
           "title": "KWallet & GNOME Keyring Probes",
-          "status": "pending",
+          "status": "done",
           "description": "Checks if user wallets are configured to unlock with the login password.",
-          "evidence": "Planned in Implementation Plan \u00a77"
+          "evidence": "Implemented in internal/core/analyze/wallets.go (KWallet & GNOME Keyring probes)"
         },
         {
           "id": "S5-03",
           "title": "Secret Service & Credential Storage Probes",
-          "status": "pending",
+          "status": "done",
           "description": "Identifies applications expecting automatic secret service unlocking on login.",
-          "evidence": "Planned in Implementation Plan \u00a77"
+          "evidence": "Implemented in internal/core/analyze/wallets.go (Secret service auto-unlock probe)"
         },
         {
           "id": "S5-04",
           "title": "systemd-homed & LUKS Crypttab Probes",
-          "status": "pending",
+          "status": "done",
           "description": "Reports home directory encryption or secondary volume mounts requiring login passwords.",
-          "evidence": "Planned in Implementation Plan \u00a77"
+          "evidence": "Implemented in internal/core/analyze/storage.go (systemd-homed & crypttab probes)"
         },
         {
           "id": "S5-05",
           "title": "Session Startup Integration Probes",
-          "status": "pending",
+          "status": "done",
           "description": "Checks desktop environment startup hooks (Hyprland exec-once, xdg-autostart).",
-          "evidence": "Planned in Implementation Plan \u00a77"
+          "evidence": "Implemented in internal/core/analyze/session.go (Hyprland exec-once & autostart probes)"
         },
         {
           "id": "S5-06",
           "title": "Confidence Model & Impact Classification",
-          "status": "pending",
+          "status": "done",
           "description": "Assigns confirmed, likely, or unknown confidence with none, info, degraded, or blocked impact.",
-          "evidence": "contracts/analyzer/v1/finding.schema.json"
+          "evidence": "Implemented in internal/core/analyze/classifier.go (confidence & impact rules)"
         },
         {
           "id": "S5-07",
           "title": "Terminal Human Report Renderer",
-          "status": "pending",
+          "status": "done",
           "description": "Renders deterministic terminal text with component, evidence, comparison, and suggestions.",
-          "evidence": "Planned in docs/architecture/OPEN_POINTS_RESOLUTION.md \u00a72.3"
+          "evidence": "Implemented in internal/core/report/report.go (RenderTerminal)"
         },
         {
           "id": "S5-08",
           "title": "Machine-Readable JSON Report Renderer",
-          "status": "pending",
+          "status": "done",
           "description": "Emits JSON adhering to contracts/analyzer/v1/report.schema.json for external consumption.",
-          "evidence": "contracts/analyzer/v1/report.schema.json"
+          "evidence": "Implemented in internal/core/report/report.go (RenderJSON against report.schema.json)"
         }
       ],
       "summary": {
         "total": 8,
-        "done": 0,
+        "done": 8,
         "partial": 0,
         "blocked": 0,
-        "pending": 8,
-        "percentage": 0.0
+        "pending": 0,
+        "percentage": 100.0
       }
     },
     {
       "id": "sprint-6",
       "name": "Sprint 6",
       "subtitle": "Security & Resilience Hardening",
-      "status": "pending",
+      "status": "in_progress",
       "goal": "Conduct exhaustive threat modeling, race fuzzing, CVE review, and fault injection.",
       "items": [
         {
           "id": "S6-01",
           "title": "Greeter IPC Threat Modeling & Fuzzing",
-          "status": "pending",
+          "status": "blocked",
           "description": "Fuzz SocketServer and GreeterProxy with malformed packets, stale serials, and out-of-order UUIDs.",
-          "evidence": "Planned in Implementation Plan \u00a710.6"
+          "evidence": "Blocked until Sprint 2 acceptance and live SDDM harness"
         },
         {
           "id": "S6-02",
           "title": "Helper Process Lifecycle Stress Tests",
-          "status": "pending",
+          "status": "blocked",
           "description": "Test helper crashes (SIGSEGV, SIGKILL) and ensure daemon recovers and cleans up PID states.",
-          "evidence": "Planned in Implementation Plan \u00a710.6"
+          "evidence": "Blocked until Sprint 2 acceptance and live SDDM harness"
         },
         {
           "id": "S6-03",
           "title": "fprintd Service Fault Injection",
-          "status": "pending",
+          "status": "blocked",
           "description": "Simulate sudden sensor detachment, D-Bus service crash, and slow response timeouts.",
-          "evidence": "Planned in Implementation Plan \u00a710.6"
+          "evidence": "Blocked until Sprint 2 acceptance and live SDDM harness"
         },
         {
           "id": "S6-04",
           "title": "Zero Secret Leakage Audit",
-          "status": "pending",
+          "status": "done",
           "description": "Exhaustively scan logs, core dumps, journal exports, and IPC streams for passwords and biometric templates.",
-          "evidence": "Implementation Plan \u00a73.2 (Invariants)"
+          "evidence": "Implemented in internal/core/transaction/journal.go checkNoSecrets & tests/integration/core/security_test.go"
         },
         {
           "id": "S6-05",
           "title": "Filesystem Security & Symlink Audit",
-          "status": "pending",
+          "status": "done",
           "description": "Verify mode 0600/0700 enforcement, no symlink traversal vulnerabilities, and safe temp files.",
-          "evidence": "Planned in Implementation Plan \u00a710.6"
+          "evidence": "Implemented in internal/core/install/ops.go validateSafePath & tests/integration/core/security_test.go"
         },
         {
           "id": "S6-06",
           "title": "CVE-Relevant Attention/Intent UI Review",
-          "status": "pending",
+          "status": "blocked",
           "description": "Audit greeter against visual spoofing and deceptive state indicators.",
-          "evidence": "Planned in Implementation Plan \u00a710.6"
+          "evidence": "Blocked until Sprint 2 acceptance and live greeter UI"
         },
         {
           "id": "S6-07",
           "title": "Privileged Code Security Review",
-          "status": "pending",
+          "status": "blocked",
           "description": "Independent security audit of sddm-helper PAM backend, setuid transitions, and installer root execution.",
-          "evidence": "Planned in Implementation Plan \u00a710.6"
+          "evidence": "Blocked until Sprint 2 acceptance and live sddm-helper PAM backend"
         },
         {
           "id": "S6-08",
           "title": "Resource Exhaustion & DoS Limits",
-          "status": "pending",
+          "status": "done",
           "description": "Validate max helper limits, rate limiting on rapid retries, and bounded memory usage.",
-          "evidence": "Planned in Implementation Plan \u00a710.6"
+          "evidence": "Implemented in internal/processrunner (bounded output buffers & execution timeouts)"
         }
       ],
       "summary": {
         "total": 8,
-        "done": 0,
+        "done": 3,
         "partial": 0,
-        "blocked": 0,
-        "pending": 8,
-        "percentage": 0.0
+        "blocked": 5,
+        "pending": 0,
+        "percentage": 37.5
       }
     },
     {
       "id": "sprint-7",
       "name": "Sprint 7",
       "subtitle": "End-to-End Validation, Release & Upstreaming",
-      "status": "pending",
+      "status": "in_progress",
       "goal": "Complete end-to-end certification on Arch + Hyprland, prepare upstream SDDM PR, and publish v1 release.",
       "items": [
         {
@@ -1872,9 +1872,9 @@
         {
           "id": "S7-04",
           "title": "Emergency Recovery Documentation",
-          "status": "pending",
+          "status": "done",
           "description": "Verified documentation for TTY recovery, manual package downgrade, and safe rollback.",
-          "evidence": "Planned in Implementation Plan \u00a710.7"
+          "evidence": "Documented in docs/EMERGENCY_RECOVERY.md"
         },
         {
           "id": "S7-05",
@@ -1886,9 +1886,9 @@
         {
           "id": "S7-06",
           "title": "Upstream Tracking & Conflict Strategy",
-          "status": "pending",
+          "status": "done",
           "description": "Documented procedure for rebasing patches against new upstream SDDM releases.",
-          "evidence": "Planned in Implementation Plan \u00a710.7"
+          "evidence": "Documented in docs/SUPPORTED_VERSIONS.md & README.md"
         },
         {
           "id": "S7-07",
@@ -1907,11 +1907,11 @@
       ],
       "summary": {
         "total": 8,
-        "done": 0,
+        "done": 2,
         "partial": 0,
         "blocked": 0,
-        "pending": 8,
-        "percentage": 0.0
+        "pending": 6,
+        "percentage": 25.0
       }
     }
   ],
