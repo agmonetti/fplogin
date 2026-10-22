@@ -112,7 +112,7 @@
       background: var(--bg-surface);
       border: 1px solid var(--border-base);
       padding: 24px;
-      margin-bottom: 20px;
+      margin-bottom: 24px;
     }
 
     .header-main-row {
@@ -235,21 +235,11 @@
       justify-content: space-between;
     }
 
-    .metric-card.accent {
-      border-left: 4px solid var(--accent-solid);
-    }
-    .metric-card.done {
-      border-left: 4px solid var(--status-done-solid);
-    }
-    .metric-card.partial {
-      border-left: 4px solid var(--status-partial-solid);
-    }
-    .metric-card.blocked {
-      border-left: 4px solid var(--status-blocked-solid);
-    }
-    .metric-card.pending {
-      border-left: 4px solid var(--status-pending-solid);
-    }
+    .metric-card.accent { border-left: 4px solid var(--accent-solid); }
+    .metric-card.done { border-left: 4px solid var(--status-done-solid); }
+    .metric-card.partial { border-left: 4px solid var(--status-partial-solid); }
+    .metric-card.blocked { border-left: 4px solid var(--status-blocked-solid); }
+    .metric-card.pending { border-left: 4px solid var(--status-pending-solid); }
 
     .metric-label {
       font-size: 10px;
@@ -295,6 +285,172 @@
     .progress-seg.done { background: var(--status-done-solid); }
     .progress-seg.partial { background: var(--status-partial-solid); }
     .progress-seg.blocked { background: var(--status-blocked-solid); }
+
+    /* ==========================================================================
+       QUADRANT MATRIX OVERVIEW (THE VISUAL SPRINT GRAPH)
+       - Visual matrix of solid square tiles per sprint
+       - Instant bird's eye view of all 160 tasks
+       ========================================================================== */
+    .matrix-section {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-base);
+      padding: 20px 24px;
+      margin-bottom: 24px;
+    }
+
+    .matrix-section-title {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+      border-bottom: 1px solid var(--border-base);
+      padding-bottom: 10px;
+    }
+
+    .matrix-section-title h3 {
+      font-size: 13px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      color: #ffffff;
+      text-transform: uppercase;
+    }
+
+    .matrix-legend {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .legend-box {
+      width: 12px;
+      height: 12px;
+      border: 1px solid;
+    }
+    .legend-box.done { background: var(--status-done-solid); border-color: #22c55e; }
+    .legend-box.partial { background: var(--status-partial-solid); border-color: #f59e0b; }
+    .legend-box.blocked { background: var(--status-blocked-solid); border-color: #ef4444; }
+    .legend-box.pending { background: var(--status-pending-solid); border-color: #52525b; }
+
+    .quadrant-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+      gap: 14px;
+    }
+
+    .quadrant-card {
+      background: #000000;
+      border: 1px solid var(--border-base);
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      transition: border-color 0.1s ease;
+    }
+
+    .quadrant-card:hover {
+      border-color: var(--border-light);
+    }
+
+    .quadrant-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 10px;
+      gap: 8px;
+    }
+
+    .quadrant-title-wrap {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .quadrant-id {
+      font-size: 11px;
+      font-weight: 800;
+      color: var(--accent-solid);
+    }
+
+    .quadrant-name {
+      font-size: 13px;
+      font-weight: 700;
+      color: #ffffff;
+    }
+
+    .quadrant-counter {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--text-muted);
+    }
+
+    .quadrant-mini-bar {
+      height: 4px;
+      background: #18181b;
+      margin-bottom: 12px;
+      display: flex;
+      width: 100%;
+    }
+
+    /* The Solid Square Tiles Grid */
+    .tiles-matrix {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      align-items: center;
+      min-height: 48px;
+    }
+
+    .tile-square {
+      width: 22px;
+      height: 22px;
+      border: 1px solid transparent;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 9px;
+      font-weight: 800;
+      cursor: pointer;
+      user-select: none;
+      transition: transform 0.08s ease, border-color 0.08s ease;
+    }
+
+    .tile-square:hover {
+      border-color: #ffffff !important;
+      transform: scale(1.18);
+      z-index: 10;
+    }
+
+    .tile-square.status-done {
+      background: var(--status-done-solid);
+      border-color: #22c55e;
+      color: #ffffff;
+    }
+
+    .tile-square.status-partial {
+      background: var(--status-partial-solid);
+      border-color: #f59e0b;
+      color: #ffffff;
+    }
+
+    .tile-square.status-blocked {
+      background: var(--status-blocked-solid);
+      border-color: #ef4444;
+      color: #ffffff;
+    }
+
+    .tile-square.status-pending {
+      background: var(--status-pending-solid);
+      border-color: #3f3f46;
+      color: #71717a;
+    }
 
     /* Controls Bar: Search, Filters & View Mode */
     .controls-panel {
@@ -388,7 +544,7 @@
       border-color: #71717a;
     }
 
-    /* Sprint Section */
+    /* Sprint Detailed Section */
     .sprint-block {
       background: var(--bg-surface);
       border: 1px solid var(--border-base);
@@ -607,53 +763,45 @@
       color: #ffffff;
     }
 
-    /* Compact Grid View Mode */
-    .compact-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-      gap: 8px;
-      padding: 16px 20px;
-      background: #050507;
+    /* Hover Tooltip (Strictly Squared) */
+    .task-tooltip {
+      position: fixed;
+      display: none;
+      background: #09090b;
+      border: 1px solid var(--border-light);
+      padding: 12px 14px;
+      z-index: 10000;
+      max-width: 320px;
+      pointer-events: none;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.8);
     }
 
-    .compact-card {
-      background: #0d0d10;
-      border: 1px solid var(--border-base);
-      padding: 10px 12px;
-      display: flex;
-      flex-direction: column;
-      justify-content: space-between;
-      gap: 8px;
-      cursor: pointer;
-    }
-
-    .compact-card:hover {
-      background: #141419;
-      border-color: var(--border-light);
-    }
-
-    .compact-top {
+    .tooltip-top {
       display: flex;
       justify-content: space-between;
-      align-items: flex-start;
+      align-items: center;
+      margin-bottom: 6px;
       gap: 8px;
     }
 
-    .compact-card h4 {
+    .tooltip-id {
+      font-size: 11px;
+      font-weight: 800;
+      color: var(--accent-solid);
+    }
+
+    .tooltip-title {
       font-size: 12px;
       font-weight: 700;
-      color: #e4e4e7;
+      color: #ffffff;
+      margin-bottom: 4px;
       line-height: 1.3;
     }
 
-    .compact-card p {
+    .tooltip-desc {
       font-size: 11px;
-      color: var(--text-dim);
-      display: -webkit-box;
-      -webkit-line-clamp: 2;
-      -webkit-box-orient: vertical;
-      overflow: hidden;
-      line-height: 1.35;
+      color: var(--text-muted);
+      line-height: 1.4;
     }
 
     /* Filtered Out State */
@@ -868,6 +1016,25 @@
     </div>
   </div>
 
+  <!-- ========================================================================
+       VISUAL QUADRANT MATRIX OVERVIEW (THE GRAPHIC OVERVIEW)
+       - The visual matrix of solid square tiles per sprint
+       ======================================================================== -->
+  <div class="matrix-section">
+    <div class="matrix-section-title">
+      <h3 class="mono">// MATRIZ DE CUADRANTES DE HITOS · VISTA GRÁFICA GENERAL</h3>
+      <div class="matrix-legend mono">
+        <div class="legend-item"><span class="legend-box done"></span> DONE</div>
+        <div class="legend-item"><span class="legend-box partial"></span> PARCIAL</div>
+        <div class="legend-item"><span class="legend-box blocked"></span> BLOQUEADO</div>
+        <div class="legend-item"><span class="legend-box pending"></span> PENDIENTE</div>
+      </div>
+    </div>
+
+    <!-- Dynamic Quadrant Grid -->
+    <div class="quadrant-grid" id="quadrant-matrix-grid"></div>
+  </div>
+
   <!-- Interactive Controls: Filter Chips, View Modes & Real-time Search -->
   <div class="controls-panel">
     <div class="filters-group mono">
@@ -880,12 +1047,12 @@
 
     <div class="search-and-actions">
       <input type="text" id="global-search" class="search-box" placeholder="Filtrar por ID, título, archivo o palabra clave (ej: journal, PAM, G05)...">
-      <button class="action-btn mono" id="btn-toggle-all">COLAPSAR TODO</button>
-      <button class="action-btn mono" id="btn-switch-view">VISTA: DETALLADA</button>
+      <button class="action-btn mono" id="btn-toggle-all">COLAPSAR DETALLES</button>
+      <button class="action-btn mono" id="btn-scroll-matrix">IR A MATRIZ GRÁFICA ↑</button>
     </div>
   </div>
 
-  <!-- Sprints Container (Dynamically rendered) -->
+  <!-- Sprints Detailed Breakdown Section -->
   <div id="sprints-container"></div>
 
   <!-- Footer -->
@@ -894,6 +1061,16 @@
     <div>Strict AST Isolation · WAL Journal Engine · Pure Solid Dark Mode</div>
   </footer>
 
+</div>
+
+<!-- Hover Tooltip -->
+<div class="task-tooltip mono" id="hover-tooltip">
+  <div class="tooltip-top">
+    <span class="tooltip-id" id="tt-id">S4-07</span>
+    <span class="badge-status done" id="tt-badge" style="font-size: 8px; padding: 1px 4px;">DONE</span>
+  </div>
+  <div class="tooltip-title" id="tt-title">Task Title</div>
+  <div class="tooltip-desc" id="tt-desc">Description of the task...</div>
 </div>
 
 <!-- Inspector Modal -->
@@ -2241,14 +2418,15 @@
   let projectData = null;
   let currentFilter = 'all';
   let searchQuery = '';
-  let viewMode = 'detailed'; // 'detailed' | 'compact'
   let allExpanded = true;
 
-  const container = document.getElementById('sprints-container');
+  const quadrantGrid = document.getElementById('quadrant-matrix-grid');
+  const sprintContainer = document.getElementById('sprints-container');
   const modal = document.getElementById('inspector-modal');
+  const tooltip = document.getElementById('hover-tooltip');
   const searchInput = document.getElementById('global-search');
-  const viewToggleBtn = document.getElementById('btn-switch-view');
   const collapseToggleBtn = document.getElementById('btn-toggle-all');
+  const scrollMatrixBtn = document.getElementById('btn-scroll-matrix');
 
   // Load metrics data
   async function init() {
@@ -2265,7 +2443,8 @@
     }
 
     renderMetricsSummary();
-    renderSprints();
+    renderQuadrantMatrix();
+    renderDetailedSprints();
     bindEvents();
   }
 
@@ -2316,11 +2495,105 @@
     );
   }
 
-  // Render all sprints and their granular tasks
-  function renderSprints() {
-    container.innerHTML = '';
+  // =========================================================================
+  // RENDER QUADRANT MATRIX (GRAPHIC OVERVIEW OF SOLID SQUARE TILES)
+  // =========================================================================
+  function renderQuadrantMatrix() {
+    quadrantGrid.innerHTML = '';
 
-    projectData.sprints.forEach((sprint, sIdx) => {
+    projectData.sprints.forEach(sprint => {
+      const qCard = document.createElement('div');
+      qCard.className = 'quadrant-card';
+      qCard.id = `qcard-${sprint.id}`;
+
+      const sDone = sprint.items.filter(i => i.status === 'done').length;
+      const sTotal = sprint.items.length;
+      const sPct = ((sDone / sTotal) * 100).toFixed(0);
+
+      const statusBadge = 
+        sprint.status === 'done' ? 'DONE' :
+        sprint.status === 'blocked' ? 'BLOQ' : 'ACTIVO';
+
+      qCard.innerHTML = `
+        <div class="quadrant-header">
+          <div class="quadrant-title-wrap">
+            <span class="quadrant-id mono">${sprint.id.toUpperCase()}</span>
+            <span class="quadrant-name">${sprint.name}</span>
+          </div>
+          <div class="mono" style="display: flex; align-items: center; gap: 8px;">
+            <span class="quadrant-counter">[${sDone}/${sTotal} · ${sPct}%]</span>
+            <span class="badge-status ${sprint.status}" style="font-size: 9px; padding: 2px 5px;">${statusBadge}</span>
+          </div>
+        </div>
+        <div class="quadrant-mini-bar">
+          <div style="width: ${sPct}%; background: ${sprint.status === 'done' ? 'var(--status-done-solid)' : sprint.status === 'blocked' ? 'var(--status-blocked-solid)' : 'var(--status-partial-solid)'}; height: 100%;"></div>
+        </div>
+        <div class="tiles-matrix" id="qmatrix-${sprint.id}"></div>
+      `;
+
+      const tilesBox = qCard.querySelector(`#qmatrix-${sprint.id}`);
+
+      sprint.items.forEach(item => {
+        const tile = document.createElement('div');
+        tile.className = `tile-square mono status-${item.status}`;
+        tile.setAttribute('data-id', item.id);
+
+        if (!isVisible(item)) {
+          tile.classList.add('filtered-out');
+        }
+
+        // Short label inside tile (e.g. 01, 07, R3, G5)
+        const parts = item.id.split('-');
+        const shortNum = parts[parts.length - 1];
+        tile.textContent = shortNum.length <= 3 ? shortNum : shortNum.substring(0, 2);
+
+        // Tooltip listeners
+        tile.addEventListener('mouseenter', (e) => showTooltip(e, item));
+        tile.addEventListener('mousemove', (e) => moveTooltip(e));
+        tile.addEventListener('mouseleave', hideTooltip);
+
+        // Click to inspect
+        tile.addEventListener('click', () => openModal(item, sprint));
+
+        tilesBox.appendChild(tile);
+      });
+
+      quadrantGrid.appendChild(qCard);
+    });
+  }
+
+  // Tooltip Handling
+  function showTooltip(e, item) {
+    document.getElementById('tt-id').textContent = item.id;
+    const badge = document.getElementById('tt-badge');
+    badge.textContent = item.status.toUpperCase();
+    badge.className = `badge-status ${item.status}`;
+
+    document.getElementById('tt-title').textContent = item.title;
+    document.getElementById('tt-desc').textContent = item.description;
+
+    tooltip.style.display = 'block';
+    moveTooltip(e);
+  }
+
+  function moveTooltip(e) {
+    const x = e.clientX + 14;
+    const y = e.clientY + 14;
+    tooltip.style.left = Math.min(x, window.innerWidth - 340) + 'px';
+    tooltip.style.top = Math.min(y, window.innerHeight - 120) + 'px';
+  }
+
+  function hideTooltip() {
+    tooltip.style.display = 'none';
+  }
+
+  // =========================================================================
+  // RENDER DETAILED SPRINTS (DIVIDE AND CONQUER EXHAUSTIVE LIST)
+  // =========================================================================
+  function renderDetailedSprints() {
+    sprintContainer.innerHTML = '';
+
+    projectData.sprints.forEach(sprint => {
       const matchingItems = sprint.items.filter(isVisible);
 
       const sprintBlock = document.createElement('div');
@@ -2365,90 +2638,64 @@
       `;
 
       // Task container
-      const taskContainer = document.createElement('div');
-      taskContainer.id = `tasks-container-${sprint.id}`;
+      const taskList = document.createElement('div');
+      taskList.className = 'sprint-tasks-list';
+      taskList.id = `tasks-container-${sprint.id}`;
 
-      if (viewMode === 'detailed') {
-        taskContainer.className = 'sprint-tasks-list';
-        sprint.items.forEach(item => {
-          const row = document.createElement('div');
-          row.className = 'task-row';
-          if (!isVisible(item)) row.classList.add('filtered-out');
+      sprint.items.forEach(item => {
+        const row = document.createElement('div');
+        row.className = 'task-row';
+        if (!isVisible(item)) row.classList.add('filtered-out');
 
-          const statusLabel = 
-            item.status === 'done' ? 'DONE' :
-            item.status === 'partial' ? 'PARCIAL' :
-            item.status === 'blocked' ? 'BLOQUEADO' : 'PENDIENTE';
+        const statusLabel = 
+          item.status === 'done' ? 'DONE' :
+          item.status === 'partial' ? 'PARCIAL' :
+          item.status === 'blocked' ? 'BLOQUEADO' : 'PENDIENTE';
 
-          row.innerHTML = `
-            <div class="task-id mono">[${item.id}]</div>
-            <div class="task-badge-cell">
-              <span class="badge-status ${item.status} mono">${statusLabel}</span>
+        row.innerHTML = `
+          <div class="task-id mono">[${item.id}]</div>
+          <div class="task-badge-cell">
+            <span class="badge-status ${item.status} mono">${statusLabel}</span>
+          </div>
+          <div class="task-body">
+            <div class="task-title">${item.title}</div>
+            <div class="task-desc">${item.description}</div>
+            <div class="task-evidence mono">
+              <span>EVIDENCIA:</span>
+              <code>${item.evidence || 'N/A'}</code>
             </div>
-            <div class="task-body">
-              <div class="task-title">${item.title}</div>
-              <div class="task-desc">${item.description}</div>
-              <div class="task-evidence mono">
-                <span>EVIDENCIA:</span>
-                <code>${item.evidence || 'N/A'}</code>
-              </div>
-            </div>
-            <div class="task-action-cell mono">
-              <button class="btn-inspect" data-task-id="${item.id}">INSPECCIONAR</button>
-            </div>
-          `;
+          </div>
+          <div class="task-action-cell mono">
+            <button class="btn-inspect" data-task-id="${item.id}">INSPECCIONAR</button>
+          </div>
+        `;
 
-          row.querySelector('.btn-inspect').addEventListener('click', (e) => {
-            e.stopPropagation();
-            openModal(item, sprint);
-          });
-
-          taskContainer.appendChild(row);
+        row.querySelector('.btn-inspect').addEventListener('click', (e) => {
+          e.stopPropagation();
+          openModal(item, sprint);
         });
-      } else {
-        // Compact grid view
-        taskContainer.className = 'compact-grid';
-        sprint.items.forEach(item => {
-          const card = document.createElement('div');
-          card.className = `compact-card mono status-${item.status}`;
-          if (!isVisible(item)) card.classList.add('filtered-out');
 
-          const statusLabel = 
-            item.status === 'done' ? 'DONE' :
-            item.status === 'partial' ? 'PARCIAL' :
-            item.status === 'blocked' ? 'BLOQ' : 'PEND';
-
-          card.innerHTML = `
-            <div class="compact-top">
-              <span class="task-id" style="font-size: 11px;">[${item.id}]</span>
-              <span class="badge-status ${item.status}" style="font-size: 9px; padding: 1px 5px;">${statusLabel}</span>
-            </div>
-            <h4>${item.title}</h4>
-            <p>${item.description}</p>
-          `;
-
-          card.addEventListener('click', () => openModal(item, sprint));
-          taskContainer.appendChild(card);
-        });
-      }
+        taskList.appendChild(row);
+      });
 
       // Toggle collapse on header click
       header.addEventListener('click', () => {
-        const isHidden = taskContainer.style.display === 'none';
-        taskContainer.style.display = isHidden ? '' : 'none';
+        const isHidden = taskList.style.display === 'none';
+        taskList.style.display = isHidden ? '' : 'none';
         goalBox.style.display = isHidden ? '' : 'none';
         document.getElementById(`toggle-icon-${sprint.id}`).textContent = isHidden ? '[ - ]' : '[ + ]';
       });
 
       sprintBlock.appendChild(header);
       sprintBlock.appendChild(goalBox);
-      sprintBlock.appendChild(taskContainer);
-      container.appendChild(sprintBlock);
+      sprintBlock.appendChild(taskList);
+      sprintContainer.appendChild(sprintBlock);
     });
   }
 
   // Inspector modal
   function openModal(item, sprint) {
+    hideTooltip();
     document.getElementById('modal-id').textContent = `[${sprint.id.toUpperCase()}] // ${item.id}`;
     document.getElementById('modal-title').textContent = item.title;
     document.getElementById('modal-desc').textContent = item.description;
@@ -2485,30 +2732,30 @@
         document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
         this.classList.add('active');
         currentFilter = this.getAttribute('data-filter');
-        renderSprints();
+        renderQuadrantMatrix();
+        renderDetailedSprints();
       });
     });
 
     // Search input
     searchInput.addEventListener('input', function(e) {
       searchQuery = e.target.value;
-      renderSprints();
+      renderQuadrantMatrix();
+      renderDetailedSprints();
     });
 
-    // Switch view mode
-    viewToggleBtn.addEventListener('click', function() {
-      viewMode = (viewMode === 'detailed') ? 'compact' : 'detailed';
-      this.textContent = `VISTA: ${viewMode === 'detailed' ? 'DETALLADA' : 'COMPACTA'}`;
-      renderSprints();
+    // Scroll to matrix
+    scrollMatrixBtn.addEventListener('click', function() {
+      window.scrollTo({ top: 300, behavior: 'smooth' });
     });
 
     // Collapse all toggle
     collapseToggleBtn.addEventListener('click', function() {
       allExpanded = !allExpanded;
-      this.textContent = allExpanded ? 'COLAPSAR TODO' : 'EXPANDIR TODO';
+      this.textContent = allExpanded ? 'COLAPSAR DETALLES' : 'EXPANDIR DETALLES';
       projectData.sprints.forEach(s => {
         const tc = document.getElementById(`tasks-container-${s.id}`);
-        const gb = tc.previousElementSibling;
+        const gb = tc ? tc.previousElementSibling : null;
         const icon = document.getElementById(`toggle-icon-${s.id}`);
         if (tc) tc.style.display = allExpanded ? '' : 'none';
         if (gb) gb.style.display = allExpanded ? '' : 'none';
