@@ -19,5 +19,6 @@ profile.out
 
 # Disposable test roots and caches
 tmp/
+target/
 .cache/
 __pycache__/
