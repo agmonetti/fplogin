@@ -1,0 +1,65 @@
+# Maintainer: Agustin Monetti <agmonetti@github>
+pkgname=fplogin-git
+pkgver=0.1.0.r1
+pkgrel=1
+pkgdesc="Biometric Fingerprint Authentication Suite for Linux Display Managers"
+arch=('x86_64' 'aarch64')
+url="https://github.com/agmonetti/fplogin"
+license=('GPL-3.0-or-later')
+depends=('glibc' 'systemd' 'fprintd')
+makedepends=('go' 'git')
+optdepends=(
+    'sddm: for SDDM display manager integration'
+    'hyprland: Wayland compositor support'
+)
+provides=('fplogin')
+conflicts=('fplogin')
+source=("fplogin::git+file://${PWD}")
+sha256sums=('SKIP')
+
+pkgver() {
+    cd "${srcdir}/fplogin"
+    printf "0.1.0.r%s.%s" "$(git rev-list --count HEAD)" "$(git rev-parse --short=7 HEAD)"
+}
+
+build() {
+    cd "${srcdir}/fplogin"
+    export CGO_CPPFLAGS="${CPPFLAGS}"
+    export CGO_CFLAGS="${CFLAGS}"
+    export CGO_CXXFLAGS="${CXXFLAGS}"
+    export CGO_LDFLAGS="${LDFLAGS}"
+    export GOFLAGS="-buildmode=pie -trimpath -ldflags=-linkmode=external"
+
+    make build
+}
+
+check() {
+    cd "${srcdir}/fplogin"
+    make test
+}
+
+package() {
+    cd "${srcdir}/fplogin"
+
+    # 1. Authoritative Core Binary
+    install -Dm755 bin/fplogin "${pkgdir}/usr/bin/fplogin"
+
+    # 2. Out-of-process Subprocess Providers
+    install -Dm755 bin/fplogin-platform-arch "${pkgdir}/usr/lib/fplogin/platforms/arch"
+    install -Dm755 bin/fplogin-adapter-sddm "${pkgdir}/usr/lib/fplogin/adapters/sddm"
+
+    # 3. Root-owned Static Descriptors (UID 0, 0644)
+    install -Dm644 platforms/arch/platform.json "${pkgdir}/usr/lib/fplogin/platforms/arch.json"
+    install -Dm644 adapters/sddm/adapter.json "${pkgdir}/usr/lib/fplogin/adapters/sddm.json"
+
+    # 4. SDDM Theme Assets (if present)
+    if [ -d "adapters/sddm/assets" ]; then
+        install -d "${pkgdir}/usr/share/sddm/themes/fplogin"
+        cp -r adapters/sddm/assets/* "${pkgdir}/usr/share/sddm/themes/fplogin/"
+    fi
+
+    # 5. Documentation and Emergency Recovery Runbook
+    install -Dm644 docs/EMERGENCY_RECOVERY.md "${pkgdir}/usr/share/doc/fplogin/EMERGENCY_RECOVERY.md"
+    install -Dm644 docs/SUPPORTED_VERSIONS.md "${pkgdir}/usr/share/doc/fplogin/SUPPORTED_VERSIONS.md"
+    install -Dm644 README.md "${pkgdir}/usr/share/doc/fplogin/README.md"
+}

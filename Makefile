@@ -1,4 +1,4 @@
-.PHONY: all build clean test fuzz coverage lint verify-architecture
+.PHONY: all build clean test fuzz coverage lint verify-architecture package ci
 
 # Output directories and binary targets
 BIN_DIR := bin
@@ -7,6 +7,10 @@ BIN_PLATFORM := $(BIN_DIR)/fplogin-platform-arch
 BIN_ADAPTER := $(BIN_DIR)/fplogin-adapter-sddm
 
 all: build
+
+# Full CI target (lint, test, fuzz, package verification, binary compilation)
+ci: lint test fuzz package build
+
 
 # Build all three executables (Core CLI, Arch Platform Provider, SDDM Adapter)
 build: $(BIN_CORE) $(BIN_PLATFORM) $(BIN_ADAPTER)
@@ -47,6 +51,11 @@ coverage:
 	go tool cover -html=target/coverage/coverage.out -o target/coverage/coverage.html
 	@echo "Coverage HTML generated at target/coverage/coverage.html"
 
+# Package verification and staging validation
+package: build
+	@bash scripts/verify_package.sh
+
 # Clean build artifacts
 clean:
 	rm -rf $(BIN_DIR) target/
+

@@ -1123,15 +1123,15 @@
     "last_updated": "2026-10-22",
     "current_gate": "Sprint 2 (Repetir / Bloqueado en Hardware Real)",
     "current_gate_status": "in_progress",
-    "latest_achievement": "S4, S5, S6A, S7A completados al 100%: Engine transaccional WAL, analizador PAM recursivo, hardening de seguridad AST y subprocesos IPC",
+    "latest_achievement": "CI automatizado (.github/workflows), PKGBUILD Arch verificado y target make ci integrado",
     "next_step": "G05 a G16: Retesteo físico en hardware con sensor Synaptics bajo temporización de eventos de invitado (sin reloj de chat)",
     "summary": {
       "total_items": 160,
-      "done": 120,
+      "done": 122,
       "partial": 2,
-      "blocked": 32,
+      "blocked": 30,
       "pending": 6,
-      "percentage": 75.0
+      "percentage": 76.25
     }
   },
   "sprints": [
@@ -1808,14 +1808,14 @@
         {
           "id": "S3-04",
           "title": "Receta Arch PKGBUILD para fplogin",
-          "status": "blocked",
+          "status": "done",
           "description": "Script de empaquetado oficial para Arch Linux que compila binarios Go, instala descriptores y empaqueta el tema QML.",
           "evidence": "platforms/arch/PKGBUILD"
         },
         {
           "id": "S3-05",
           "title": "Reglas de Conflicts / Provides en Gestor de Paquetes",
-          "status": "blocked",
+          "status": "done",
           "description": "Definición de dependencias pacman evitando conflictos con sddm upstream mediante sustitución o drop-ins limpios.",
           "evidence": "platforms/arch/PKGBUILD"
         },
@@ -1899,11 +1899,11 @@
       ],
       "summary": {
         "total": 16,
-        "done": 0,
+        "done": 2,
         "partial": 0,
-        "blocked": 16,
+        "blocked": 14,
         "pending": 0,
-        "percentage": 0.0
+        "percentage": 12.5
       }
     },
     {

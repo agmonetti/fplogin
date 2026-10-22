@@ -1,0 +1,98 @@
+name: CI / Conformance & Quality Gate
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  lint-and-architecture:
+    name: AST Boundaries & Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache: true
+
+      - name: Verify Architecture Contract Boundaries (No hardcoded DM/distro in core)
+        run: make verify-architecture
+
+      - name: Go Vet Static Analysis
+        run: make lint
+
+  test-suite:
+    name: Test Suite (Unit, Contract, Security, E2E)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache: true
+
+      - name: Run Full Test Suite
+        run: make test
+
+      - name: Generate Test Coverage
+        run: make coverage
+
+      - name: Upload Coverage Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: target/coverage/
+          if-no-files-found: ignore
+
+  fuzz-smoke:
+    name: Native Go Fuzz Smoke Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache: true
+
+      - name: Fuzz Journal and PAM Parsers
+        run: make fuzz
+
+  build-artifacts:
+    name: Build Authoritative Binaries
+    runs-on: ubuntu-latest
+    needs: [lint-and-architecture, test-suite]
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache: true
+
+      - name: Build Core CLI and Subprocesses
+        run: make build
+
+      - name: Verify Binaries Execution
+        run: |
+          ./bin/fplogin --help
+          ./bin/fplogin-platform-arch --help || true
+          ./bin/fplogin-adapter-sddm --help || true
+
+      - name: Upload Binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: fplogin-binaries
+          path: bin/
