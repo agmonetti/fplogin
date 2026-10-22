@@ -168,55 +168,6 @@
       color: var(--text-muted);
     }
 
-    /* Gate Status Banner */
-    .gate-callout {
-      background: #110505;
-      border: 2px solid var(--status-blocked-solid);
-      padding: 16px 20px;
-      max-width: 480px;
-    }
-
-    .gate-callout-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      margin-bottom: 8px;
-    }
-
-    .gate-title {
-      font-size: 11px;
-      font-weight: 800;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      color: #fca5a5;
-    }
-
-    .gate-badge {
-      background: var(--status-blocked-solid);
-      color: #ffffff;
-      font-size: 10px;
-      font-weight: 800;
-      padding: 2px 6px;
-      text-transform: uppercase;
-    }
-
-    .gate-desc {
-      font-size: 12px;
-      color: #e4e4e7;
-      line-height: 1.4;
-      margin-bottom: 8px;
-    }
-
-    .gate-next {
-      font-size: 11px;
-      color: var(--text-muted);
-      border-top: 1px solid #331111;
-      padding-top: 6px;
-    }
-    .gate-next strong {
-      color: #ffffff;
-    }
 
     /* Global Metrics Bar */
     .metrics-summary-grid {
@@ -897,19 +848,6 @@
       word-break: break-all;
     }
 
-    /* Footer */
-    footer {
-      margin-top: 32px;
-      padding-top: 20px;
-      border-top: 1px solid var(--border-base);
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      flex-wrap: wrap;
-      gap: 16px;
-      font-size: 11px;
-      color: var(--text-dim);
-    }
 
     @media (max-width: 860px) {
       .task-row {
@@ -962,19 +900,6 @@
         </div>
       </div>
 
-      <!-- Active Gate Callout -->
-      <div class="gate-callout">
-        <div class="gate-callout-header">
-          <span class="gate-title mono">COMPUERTA ACTIVA / RETESTEO</span>
-          <span class="gate-badge mono" id="gate-badge-status">BLOQUEADO</span>
-        </div>
-        <div class="gate-desc" id="gate-name">
-          Sprint 2: Retesteo de Casos Físicos G05–G16 en Sensor Synaptics
-        </div>
-        <div class="gate-next mono">
-          <strong>SIGUIENTE ACCIÓN:</strong> <span id="gate-next-step">Ejecutar G05-G16 bajo temporización de eventos de invitado cuando el usuario tenga acceso al hardware.</span>
-        </div>
-      </div>
     </div>
 
     <!-- Global Metrics Grid -->
@@ -1055,11 +980,6 @@
   <!-- Sprints Detailed Breakdown Section -->
   <div id="sprints-container"></div>
 
-  <!-- Footer -->
-  <footer class="mono">
-    <div>fplogin // Biometric Concurrency Authentication Suite · Zero-leakage PAM architecture</div>
-    <div>Strict AST Isolation · WAL Journal Engine · Pure Solid Dark Mode</div>
-  </footer>
 
 </div>
 
@@ -2474,9 +2394,6 @@
     document.getElementById('bar-seg-done').style.width = doneWidth + '%';
     document.getElementById('bar-seg-partial').style.width = partWidth + '%';
     document.getElementById('bar-seg-blocked').style.width = blockWidth + '%';
-
-    document.getElementById('gate-name').textContent = p.current_gate;
-    document.getElementById('gate-next-step').textContent = p.next_step;
   }
 
   // Check if item passes search and filter
