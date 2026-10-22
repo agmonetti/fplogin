@@ -10,8 +10,10 @@ import (
 	"time"
 
 	"fplogin/internal/adapterclient"
+	"fplogin/internal/core/analyze"
 	"fplogin/internal/core/install"
 	"fplogin/internal/core/manifest"
+	"fplogin/internal/core/report"
 	"fplogin/internal/platformclient"
 	"fplogin/internal/processrunner"
 	"fplogin/internal/protocol"
@@ -33,6 +35,8 @@ func main() {
 		fmt.Printf("fplogin v%s (Core Transaction Engine)\n", version)
 	case "status":
 		runStatus(args)
+	case "analyze":
+		runAnalyze(args)
 	case "install":
 		runInstall(args)
 	case "uninstall":
@@ -56,6 +60,7 @@ Subcommands:
   install     Discover compatible display managers, plan, and install integration
   uninstall   Safely remove fplogin-managed integration and restore previous DM
   status      Display current installation state from manifest
+  analyze     Analyze password-derived facilities impacted by biometric login
   version     Show version information
   help        Show this help message
 
@@ -217,3 +222,46 @@ func runInstall(args []string) {
 	fmt.Printf("  Manifest:         %s\n", res.ManifestPath)
 	fmt.Printf("  Operations:       %d applied and verified\n", len(res.AppliedReceipts))
 }
+
+func runAnalyze(args []string) {
+	fs := flag.NewFlagSet("analyze", flag.ExitOnError)
+	outputJSON := fs.Bool("json", false, "Output report as JSON")
+	root := fs.String("root", "/", "Root filesystem directory")
+	service := fs.String("service", "sddm", "Display manager PAM service name to inspect")
+	user := fs.String("user", os.Getenv("USER"), "Target user to inspect for wallets and encrypted storage")
+	_ = fs.Parse(args)
+
+	userHome := os.Getenv("HOME")
+	if *user != "" && *user != os.Getenv("USER") {
+		userHome = filepath.Join(*root, "home", *user)
+	}
+
+	engine := analyze.NewEngine()
+	ctx := context.Background()
+
+	cfg := analyze.EngineConfig{
+		Root:        *root,
+		Username:    *user,
+		UserHome:    userHome,
+		ServiceName: *service,
+	}
+
+	rep, err := engine.Analyze(ctx, cfg)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Analysis failed: %v\n", err)
+		os.Exit(1)
+	}
+
+	if *outputJSON {
+		data, err := report.FormatJSON(rep)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Format JSON failed: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println(string(data))
+		return
+	}
+
+	fmt.Print(report.FormatTerminal(rep))
+}
+
