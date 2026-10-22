@@ -1,6 +1,8 @@
 exports/
 HANDOFF.md
 RUNBOOK.md
+AGENTS.md
+docs/PERSISTENCE.md
 
 # Build and binary artifacts
 /bin/
