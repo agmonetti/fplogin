@@ -14,10 +14,14 @@ import (
 	"path/filepath"
 	"time"
 
-	"fplogin/internal/core/install"
 	"fplogin/internal/protocol"
 	manifestv1 "fplogin/internal/protocol/manifest/v1"
 )
+
+// PlatformApplier abstracts the execution of platform-specific operations.
+type PlatformApplier interface {
+	ApplyOperation(ctx context.Context, op protocol.Operation) (manifestv1.OperationReceipt, error)
+}
 
 var (
 	ErrManifestNotFound = errors.New("installation manifest not found")
@@ -161,7 +165,7 @@ func VerifyFiles(m manifestv1.InstallManifest) ([]FileMismatch, error) {
 type UninstallConfig struct {
 	ManifestPath string
 	Force        bool // Allow uninstall even if installed files were modified
-	Platform     install.PlatformApplier
+	Platform     PlatformApplier
 }
 
 // Uninstall executes a safe, checksum-aware removal of fplogin components
