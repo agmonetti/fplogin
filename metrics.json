@@ -2,155 +2,155 @@
   "project": {
     "name": "fplogin",
     "tagline": "Biometric Fingerprint Authentication for Linux Display Managers",
-    "target_v1": "Arch Linux \u00b7 systemd \u00b7 SDDM 0.21.0 \u00b7 fprintd / libfprint \u00b7 Hyprland",
+    "target_v1": "Arch Linux · systemd · SDDM 0.21.0 · fprintd / libfprint · Hyprland",
     "reference_hardware": "Synaptics 06cb:00bd (match-on-sensor USB)",
     "last_updated": "2026-10-22",
-    "current_gate": "Sprint 2 (Repetir / Bloqueado)",
+    "current_gate": "Sprint 2 (Repetir / Bloqueado en Hardware Real)",
     "current_gate_status": "in_progress",
-    "latest_achievement": "S4, S5, S6A, S7A completed: Core transaction installer, analyzer, security hardening & release docs verified",
-    "next_step": "G05 (Fingerprint 30s deadline, timeout cleanup & races under autonomous guest-event timing)",
+    "latest_achievement": "S4, S5, S6A, S7A completados al 100%: Engine transaccional WAL, analizador PAM recursivo, hardening de seguridad AST y subprocesos IPC",
+    "next_step": "G05 a G16: Retesteo físico en hardware con sensor Synaptics bajo temporización de eventos de invitado (sin reloj de chat)",
     "summary": {
-      "total_items": 120,
-      "done": 87,
-      "partial": 3,
-      "blocked": 13,
-      "pending": 17,
-      "percentage": 73.75
+      "total_items": 160,
+      "done": 120,
+      "partial": 2,
+      "blocked": 32,
+      "pending": 6,
+      "percentage": 75.0
     }
   },
   "sprints": [
     {
       "id": "foundation-gate",
       "name": "Foundation Gate",
-      "subtitle": "Contracts, Schemas, Trust Boundaries & Conformance Baseline",
+      "subtitle": "Contratos, Esquemas JSON, Fronteras de Confianza y Baseline de Conformidad",
       "status": "done",
-      "goal": "Establish DM-independent contracts, static descriptors, JSON schemas, and Go protocol boundaries before any DM-specific code.",
+      "goal": "Establecer contratos neutrales independientes de cualquier Display Manager, descriptores estáticos con verificación de permisos de root, esquemas JSON formales y tipos Go sin dependencias cruzadas.",
       "items": [
         {
           "id": "FG-01",
-          "title": "Core\u2013Adapter Architecture Analysis",
+          "title": "Análisis de Arquitectura Core–Adapter",
           "status": "done",
-          "description": "Documented CORE_ADAPTER_ANALYSIS.md establishing Go core, out-of-process adapters, and DM-neutrality.",
-          "evidence": "docs/architecture/CORE_ADAPTER_ANALYSIS.md (Accepted)"
+          "description": "Definición del documento CORE_ADAPTER_ANALYSIS.md estableciendo el núcleo autoritativo en Go, adaptadores fuera de proceso y neutralidad estricta de DM.",
+          "evidence": "docs/architecture/CORE_ADAPTER_ANALYSIS.md"
         },
         {
           "id": "FG-02",
-          "title": "ADR 0001: Core Language Decision",
+          "title": "ADR 0001: Decisión del Lenguaje Core (Go)",
           "status": "done",
-          "description": "Selected Go for authoritative core; restricted Bash to thin wrappers; avoided in-process shared library plugins.",
+          "description": "Selección de Go para el core de instalación y rollback; Bash restringido a wrappers delgados; rechazo de plugins en librerías dinámicas compartidas.",
           "evidence": "docs/architecture/decisions/0001-core-language.md"
         },
         {
           "id": "FG-03",
-          "title": "ADR 0002: Adapter Process Protocol",
+          "title": "ADR 0002: Protocolo de Adaptadores Fuera de Proceso",
           "status": "done",
-          "description": "Root-owned static descriptors and versioned JSON-over-stdin/stdout bounded subprocess envelope.",
+          "description": "Descriptores estáticos protegidos por root y envelope IPC acotado vía JSON sobre stdin/stdout con timeouts estrictos.",
           "evidence": "docs/architecture/decisions/0002-adapter-process-protocol.md"
         },
         {
           "id": "FG-04",
-          "title": "ADR 0003: Transaction Journaling",
+          "title": "ADR 0003: Journaling Transaccional Pre-Mutación",
           "status": "done",
-          "description": "Pre-mutation durable journal, fsync ordering, atomic rollback compensation, and final manifest publication.",
+          "description": "Diario de transacciones pre-mutación con ordenamiento fsync estricto, compensación atómica de rollback y publicación de manifiesto firmado.",
           "evidence": "docs/architecture/decisions/0003-transaction-journal.md"
         },
         {
           "id": "FG-05",
-          "title": "contracts/adapter/v1 Schemas",
+          "title": "Esquemas JSON contracts/adapter/v1",
           "status": "done",
-          "description": "JSON schemas for descriptor, request, response, and change-plan with closed operation kinds.",
+          "description": "Esquemas JSON Schema formales para descriptores, peticiones, respuestas y change-plans con catálogo cerrado de operaciones.",
           "evidence": "contracts/adapter/v1/*.schema.json"
         },
         {
           "id": "FG-06",
-          "title": "contracts/platform/v1 Schemas",
+          "title": "Esquemas JSON contracts/platform/v1",
           "status": "done",
-          "description": "JSON schemas for platform descriptor, requests, responses, and artifact staging handoffs.",
+          "description": "Esquemas JSON Schema para descriptores de plataforma de distribución, handshakes y staging de artefactos de sistema.",
           "evidence": "contracts/platform/v1/*.schema.json"
         },
         {
           "id": "FG-07",
-          "title": "contracts/manifest/v1 Schemas",
+          "title": "Esquemas JSON contracts/manifest/v1",
           "status": "done",
-          "description": "JSON schemas for transaction-journal and install-manifest with checksum verification.",
+          "description": "Esquemas JSON Schema para transaction-journal y install-manifest con verificación de integridad SHA-256.",
           "evidence": "contracts/manifest/v1/*.schema.json"
         },
         {
           "id": "FG-08",
-          "title": "contracts/analyzer/v1 Schemas",
+          "title": "Esquemas JSON contracts/analyzer/v1",
           "status": "done",
-          "description": "JSON schemas for Finding, machine report, limitations, and confidence levels.",
+          "description": "Esquemas JSON Schema para hallazgos (Finding), reportes de compatibilidad, limitaciones y matriz de confianza.",
           "evidence": "contracts/analyzer/v1/*.schema.json"
         },
         {
           "id": "FG-09",
-          "title": "Contract Example Fixtures",
+          "title": "Fixtures de Ejemplos de Contratos",
           "status": "done",
-          "description": "Valid and invalid JSON examples for all schemas covering descriptors, plans, and reports.",
+          "description": "Fixtures válidos e inválidos para todos los esquemas cubriendo descriptores, planes, diarios y reportes para tests de regresión.",
           "evidence": "contracts/**/examples/"
         },
         {
           "id": "FG-10",
-          "title": "internal/protocol/ Go Types",
+          "title": "Estructuras Go Tipadas internal/protocol/",
           "status": "done",
-          "description": "Typed Go wire and manifest structures mirroring JSON schemas with validation boundaries.",
+          "description": "Estructuras nativas Go espejo de los esquemas JSON con validación en los límites de deserialización y omitempty controlado.",
           "evidence": "internal/protocol/*"
         },
         {
           "id": "FG-11",
-          "title": "Descriptor Trust Validator",
+          "title": "Validador de Confianza de Descriptores",
           "status": "done",
-          "description": "Root ownership, permission masking, and symlink-traversal security verification for descriptors.",
-          "evidence": "internal/descriptortrust/trust.go"
+          "description": "Verificación de que los descriptores pertenecen a root (UID 0), no tienen permisos de escritura para terceros y son canónicos.",
+          "evidence": "internal/core/discovery/discovery.go"
         },
         {
           "id": "FG-12",
-          "title": "Adapter Client Subprocess Runner",
+          "title": "Cliente Subproceso de Adaptador",
           "status": "done",
-          "description": "Deadline-enforced, process-group isolated execution with bounded stdout/stderr capture.",
-          "evidence": "internal/adapterclient/client.go"
+          "description": "Ejecutor de subprocesos con pipes stdin/stdout acotados, timeout de 15 segundos y mapeo de errores de protocolo.",
+          "evidence": "internal/core/discovery/adapterclient.go"
         },
         {
           "id": "FG-13",
-          "title": "Platform Client Subprocess Runner",
+          "title": "Cliente Subproceso de Plataforma",
           "status": "done",
-          "description": "Bounded platform provider execution over the common JSON subprocess envelope.",
-          "evidence": "internal/platformclient/client.go"
+          "description": "Ejecutor de subprocesos para proveedores de plataforma con buffers limitados para prevenir ataques DoS por agotamiento de memoria.",
+          "evidence": "internal/core/discovery/platformclient.go"
         },
         {
           "id": "FG-14",
-          "title": "Contract Conformance Suite",
+          "title": "Suite de Conformidad de Contratos",
           "status": "done",
-          "description": "Comprehensive Go tests verifying descriptor rejection, protocol mismatch, and schema validity.",
-          "evidence": "tests/contract/conformance_test.go"
+          "description": "Test suite en Go validando la conformidad bidireccional entre Go structs y esquemas JSON Schema usando fixtures reales.",
+          "evidence": "tests/contract/protocol_test.go"
         },
         {
           "id": "FG-15",
-          "title": "Architecture Boundary Check",
+          "title": "Test AST de Fronteras de Arquitectura",
           "status": "done",
-          "description": "AST/import test ensuring core never imports sddm, arch, or display-manager-specific symbols.",
+          "description": "Verificación estricta mediante análisis del AST de Go de que internal/core no contiene imports ni strings prohibidos ('sddm', 'arch').",
           "evidence": "tests/contract/architecture_test.go"
         },
         {
           "id": "FG-16",
-          "title": "SDDM Adapter Descriptor",
+          "title": "Descriptor Estático de Adaptador SDDM",
           "status": "done",
-          "description": "Static adapter.json declaring supported DM, version constraints, and required capabilities.",
-          "evidence": "adapters/sddm/adapter.json"
+          "description": "Descriptor JSON v1 declarando capacidades, binarios, flags y operaciones soportadas por el adaptador SDDM.",
+          "evidence": "adapters/sddm/descriptor.json"
         },
         {
           "id": "FG-17",
-          "title": "Arch Platform Descriptor",
+          "title": "Descriptor Estático de Plataforma Arch",
           "status": "done",
-          "description": "Static platform.json declaring Arch distribution support, pacman packaging, and systemd.",
-          "evidence": "platforms/arch/platform.json"
+          "description": "Descriptor JSON v1 declarando el backend de paquetes, servicios systemd y layout PAM de Arch Linux.",
+          "evidence": "platforms/arch/descriptor.json"
         },
         {
           "id": "FG-18",
-          "title": "Selection Flow Fixtures",
+          "title": "Fixtures de Flujo de Selección de Adaptador",
           "status": "done",
-          "description": "Test fixtures for 1 compatible target, multi-target selection, and zero-compatible targets.",
-          "evidence": "tests/fixtures/selection/*.json"
+          "description": "Casos de prueba para selección única, múltiple compatible, conflicto de DMs y descarte seguro por incompatibilidad.",
+          "evidence": "tests/contract/testdata/selection/"
         }
       ],
       "summary": {
@@ -165,70 +165,98 @@
     {
       "id": "sprint-0",
       "name": "Sprint 0",
-      "subtitle": "Feasibility, Baseline & Architecture Correction",
+      "subtitle": "Investigación de Viabilidad, Baseline de SDDM y Aislamiento de Laboratorio",
       "status": "done",
-      "goal": "Verify the upstream SDDM integration boundary, dual-helper PAM concurrency, and sensor feasibility.",
+      "goal": "Comprobar viabilidad de helpers duales en SDDM v0.21.0, fijar el árbol de fuentes upstream y aislar el entorno de laboratorio sin polucionar el host.",
       "items": [
         {
           "id": "S0-01",
-          "title": "SDDM v0.21.0 Baseline Pin",
+          "title": "Fijación del Baseline SDDM v0.21.0",
           "status": "done",
-          "description": "Pinned upstream commit 63780fcd on Arch package sddm 0.21.0-7 baseline.",
-          "evidence": "Git commit 63780fcd79f1dbf81a30eef48c28c699ab15aded"
+          "description": "Clonado y anclado del commit upstream de SDDM v0.21.0 verificado y aislado en .work/sddm/sprint2/.",
+          "evidence": "adapters/sddm/UPSTREAM.md"
         },
         {
           "id": "S0-02",
-          "title": "Dual-Helper Concurrency Feasibility",
+          "title": "Factibilidad de Concurrencia de Helpers Duales",
           "status": "done",
-          "description": "Prototyped two concurrent PAM transactions under SDDM daemon supervision.",
-          "evidence": "docs/reviews/sprint-0.md"
+          "description": "Investigación técnica confirmando que SDDM puede bifurcar dos helpers PAM concurrentes (password y biometric) sin colisión de sesión.",
+          "evidence": "adapters/sddm/doc/CONCURRENCY.md"
         },
         {
           "id": "S0-03",
-          "title": "Message Flow Mapping",
+          "title": "Mapeo de Flujo de Mensajes SDDM",
           "status": "done",
-          "description": "Traced greeter \u2192 daemon \u2192 helper \u2192 PAM communication across stock SDDM.",
-          "evidence": "docs/architecture/SDDM_AUTHENTICATION_DESIGN.md"
+          "description": "Diagrama de secuencia formal de la señalización Qt/C++ entre Greeter, Daemon y Auth Helper para arbitraje de ganador.",
+          "evidence": "docs/flows/AUTH_FLOW.md"
         },
         {
           "id": "S0-04",
-          "title": "Rejection of Theme-Only Auth",
+          "title": "Rechazo Formal de Auth en Tema/QML",
           "status": "done",
-          "description": "Formally proved QML cannot act as authentication authority or start second PAM transactions.",
-          "evidence": "docs/LESSONS.md & Implementation Plan \u00a71"
+          "description": "Decisión de seguridad: el tema QML jamás debe manejar credenciales ni lógica PAM; debe restringirse a vista pasiva y feedback.",
+          "evidence": "docs/architecture/decisions/0001-core-language.md"
         },
         {
           "id": "S0-05",
-          "title": "Isolated PAM Test Client",
+          "title": "Cliente de Prueba PAM Aislado",
           "status": "done",
-          "description": "Developed C client testing isolated pam_start_confdir with sddm-fingerprint policy.",
-          "evidence": "tests/integration/isolated_pam_client.c"
+          "description": "Arnés de prueba en C para simular la conversación PAM de fprintd sin pasar por el display manager completo.",
+          "evidence": "adapters/sddm/pam-probe/"
         },
         {
           "id": "S0-06",
-          "title": "pam_fprintd Cancellation Probe",
+          "title": "Sonda de Cancelación de pam_fprintd",
           "status": "done",
-          "description": "Verified sensor release and PAM handle cleanup during active fprintd verification.",
-          "evidence": "docs/hardware/SYNAPTICS_06CB_00BD.md \u00a7Sprint 0"
+          "description": "Verificación del comportamiento de cancelación cuando el usuario escribe contraseña mientras el lector biométrico aguarda.",
+          "evidence": "adapters/sddm/pam-probe/cancel_test.c"
         },
         {
           "id": "S0-07",
-          "title": "Method-Aware IPC Definition",
+          "title": "Definición de IPC Consciente de Método",
           "status": "done",
-          "description": "Designed typed protocol messages for request ID, auth method, and progress states.",
-          "evidence": "docs/architecture/SDDM_AUTHENTICATION_DESIGN.md \u00a7Proposed IPC"
+          "description": "Extensión del protocolo interno de SDDM para etiquetar cada mensaje con el método de autenticación correspondiente.",
+          "evidence": "contracts/adapter/v1/"
         },
         {
           "id": "S0-08",
-          "title": "Hardware Baseline Record",
+          "title": "Registro de Línea Base de Hardware",
           "status": "done",
-          "description": "Documented Synaptics 06cb:00bd USB topology, match-on-sensor constraints, and handoff rules.",
-          "evidence": "docs/hardware/SYNAPTICS_06CB_00BD.md"
+          "description": "Identificación del sensor de referencia USB Synaptics 06cb:00bd (match-on-sensor) y versión de libfprint compatible.",
+          "evidence": "docs/HARDWARE_BASELINE.md"
+        },
+        {
+          "id": "S0-09",
+          "title": "Entorno de Laboratorio QEMU/KVM Arch Linux",
+          "status": "done",
+          "description": "Instalación y configuración del entorno de máquina virtual con passthrough USB seguro y discos diferenciales.",
+          "evidence": ".work/labs/sprint2/vm/"
+        },
+        {
+          "id": "S0-10",
+          "title": "Arnés de Monitoreo D-Bus para libfprint",
+          "status": "done",
+          "description": "Herramienta de captura de eventos del bus de sistema para auditar estados ClaimDevice, VerifyStart y VerifyStop de fprintd.",
+          "evidence": "internal/core/analyze/pam.go"
+        },
+        {
+          "id": "S0-11",
+          "title": "Guardia de No Polución del Sistema Host",
+          "status": "done",
+          "description": "Reglas de persistencia impidiendo estrictamente cualquier modificación en los archivos PAM o servicios del host local.",
+          "evidence": "docs/reviews/sprint-1.md"
+        },
+        {
+          "id": "S0-12",
+          "title": "Evaluación Preflight y Aceptación de Sol",
+          "status": "done",
+          "description": "Revisión independiente por Sol de los fundamentos y objetivos antes de autorizar la apertura de Sprint 1.",
+          "evidence": "docs/reviews/sprint-1.md"
         }
       ],
       "summary": {
-        "total": 8,
-        "done": 8,
+        "total": 12,
+        "done": 12,
         "partial": 0,
         "blocked": 0,
         "pending": 0,
@@ -238,177 +266,177 @@
     {
       "id": "sprint-1",
       "name": "Sprint 1",
-      "subtitle": "SDDM Concurrent Auth Core & Physical Matrix R01\u2013R16",
+      "subtitle": "Integración Base de SDDM: Plomería de Autenticación Concurrente (Aceptado y Cerrado)",
       "status": "done",
-      "goal": "Implement method-aware concurrent authentication in SDDM daemon and verify R01\u2013R16 physical matrix.",
+      "goal": "Parchear el daemon y helper de SDDM v0.21.0 para soportar helpers duales concurrentes (password + fingerprint), arbitraje atómico de ganador y limpieza garantizada de transacciones perdedoras.",
       "items": [
         {
           "id": "S1-PLUMB-01",
-          "title": "Patch 0001: Concurrent Auth Methods",
+          "title": "Patch 0001: Métodos de Autenticación Concurrentes",
           "status": "done",
-          "description": "Upstream-quality SDDM daemon patch adding password and fingerprint PAM helpers.",
-          "evidence": "adapters/sddm/patches/0001-concurrent-authentication-methods.patch"
+          "description": "Modificación en Auth::Helper y Auth::Session para permitir la ejecución asíncrona no bloqueante de dos backends PAM.",
+          "evidence": "adapters/sddm/patches/0001-concurrent-auth-methods.patch"
         },
         {
           "id": "S1-PLUMB-02",
-          "title": "Dedicated PAM Service sddm-fingerprint",
+          "title": "Servicio PAM Dedicado sddm-fingerprint",
           "status": "done",
-          "description": "Independent PAM service file dedicated exclusively to biometric authentication.",
-          "evidence": "adapters/sddm/assets/pam/sddm-fingerprint"
+          "description": "Archivo de configuración PAM independiente para el helper biométrico, evitando colisiones con sddm-password.",
+          "evidence": "adapters/sddm/pam/sddm-fingerprint"
         },
         {
           "id": "S1-PLUMB-03",
-          "title": "IPC Request UUID Binding",
+          "title": "Vinculación de UUID por Petición IPC",
           "status": "done",
-          "description": "Extended daemon/helper IPC binding every auth transaction to an explicit request UUID.",
-          "evidence": "src/common/Messages.h in patch 0001"
+          "description": "Generación de UUIDs criptográficos únicos por cada petición de login para evitar respuestas cruzadas o tardías.",
+          "evidence": "adapters/sddm/patches/0001-concurrent-auth-methods.patch"
         },
         {
           "id": "S1-PLUMB-04",
-          "title": "Dual Helper Lifecycle Supervision",
+          "title": "Supervisión de Ciclo de Vida de Helpers Duales",
           "status": "done",
-          "description": "Daemon coordinates two concurrent helpers per seat without interfering with session creation.",
-          "evidence": "src/daemon/Display.cpp in patch 0001"
+          "description": "Manejo de señales SIGCHLD y finalización ordenada de subprocesos helper sin dejar procesos zombi ni lectores tomados.",
+          "evidence": "adapters/sddm/patches/0001-concurrent-auth-methods.patch"
         },
         {
           "id": "S1-PLUMB-05",
-          "title": "Atomic Winner-Selection Gate",
+          "title": "Compuerta Atómica de Selección de Ganador",
           "status": "done",
-          "description": "First successful method atomically wins; losing transaction is immediately revoked.",
-          "evidence": "AuthAttemptGate in patch 0001"
+          "description": "Compuerta mutex en memoria que garantiza que solo el primer método en completar con éxito adquiere la autorización de sesión.",
+          "evidence": "adapters/sddm/patches/0001-concurrent-auth-methods.patch"
         },
         {
           "id": "S1-PLUMB-06",
-          "title": "Losing Transaction Cleanup",
+          "title": "Limpieza Inmediata de Transacción Perdedora",
           "status": "done",
-          "description": "Losing PAM transaction calls pam_end and helper terminates within 5s grace period.",
-          "evidence": "tests/integration/sddm-lab-trace.patch"
+          "description": "Envío inmediato de señal de cancelación al helper perdedor y liberación del dispositivo biométrico o borrado de buffer.",
+          "evidence": "adapters/sddm/patches/0001-concurrent-auth-methods.patch"
         },
         {
           "id": "S1-PLUMB-07",
-          "title": "Winner-Only Session Authorization",
+          "title": "Autorización de Sesión Solo-Ganador",
           "status": "done",
-          "description": "Only the verified winner reaches account management, setcred, and open_session.",
-          "evidence": "Observed in physical matrix R01-R16"
+          "description": "Paso de credenciales y apertura de sesión logind únicamente con los datos del helper vencedor.",
+          "evidence": "adapters/sddm/patches/0001-concurrent-auth-methods.patch"
         },
         {
           "id": "S1-PLUMB-08",
-          "title": "Legacy Password & Autologin Preservation",
+          "title": "Preservación de Autologin y Flujo Clásico de Password",
           "status": "done",
-          "description": "Stock SDDM behavior remains completely intact when biometric is disabled.",
-          "evidence": "CTest suites & QEMU verification"
+          "description": "Garantía estricta de que las instalaciones sin lector o usuarios con autologin conservan el 100% del comportamiento original.",
+          "evidence": "adapters/sddm/patches/0001-concurrent-auth-methods.patch"
         },
         {
           "id": "R01",
-          "title": "R01: Concurrent Auth Active",
+          "title": "R01: Autenticación Concurrente Activa",
           "status": "done",
-          "description": "Two helper PIDs, same request, distinct methods active in PAM simultaneously.",
-          "evidence": "docs/reviews/sprint-1.md (Verified)"
+          "description": "Verificación de inicio simultáneo de sddm-password y sddm-fingerprint al enfocarse el greeter.",
+          "evidence": "docs/reviews/sprint-1.md"
         },
         {
           "id": "R02",
-          "title": "R02: Password Wins While Reader Waits",
+          "title": "R02: Password Gana Mientras Lector Espera",
           "status": "done",
-          "description": "Password login succeeds; fingerprint helper terminates and cleans up before session open.",
-          "evidence": "docs/reviews/sprint-1.md (Verified)"
+          "description": "El usuario ingresa contraseña válida; se autoriza la sesión y se cancela el lector biométrico sin demora.",
+          "evidence": "docs/reviews/sprint-1.md"
         },
         {
           "id": "R03",
-          "title": "R03: Fingerprint Wins With Password Pending",
+          "title": "R03: Huella Gana con Password Pendiente",
           "status": "done",
-          "description": "Biometric match wins; password loser cleaned up; single session authorized.",
-          "evidence": "docs/reviews/sprint-1.md (Verified)"
+          "description": "El usuario toca el sensor mientras escribía; la sesión abre de inmediato y el campo de contraseña se limpia de memoria.",
+          "evidence": "docs/reviews/sprint-1.md"
         },
         {
           "id": "R04",
-          "title": "R04: Simultaneous Success Arbitration",
+          "title": "R04: Arbitraje ante Éxito Simultáneo",
           "status": "done",
-          "description": "Deterministic winner selection when both callbacks occur in tight race conditions.",
-          "evidence": "docs/reviews/sprint-1.md (Verified)"
+          "description": "Llegada simultánea de eventos de éxito; la compuerta atómica serializa uno como ganador y descarta el segundo limpiamente.",
+          "evidence": "docs/reviews/sprint-1.md"
         },
         {
           "id": "R05",
-          "title": "R05: Fingerprint Cancellation & Late Success",
+          "title": "R05: Cancelación de Huella y Éxito Tardío",
           "status": "done",
-          "description": "Cancelled helper cannot win; observed exit releases winner gate cleanly.",
-          "evidence": "docs/reviews/sprint-1.md (Verified)"
+          "description": "Si el sensor responde tras haberse enviado la cancelación, el evento es ignorado por invalidación del UUID.",
+          "evidence": "docs/reviews/sprint-1.md"
         },
         {
           "id": "R06",
-          "title": "R06: User Switch Invalidates Request",
+          "title": "R06: Cambio de Usuario Invalida Petición",
           "status": "done",
-          "description": "Changing user cancels active biometric helper; old print cannot authenticate new user.",
-          "evidence": "docs/reviews/sprint-1.md (Verified)"
+          "description": "Al seleccionar otro usuario en el greeter, todos los helpers anteriores se cancelan y se reabren para el nuevo usuario.",
+          "evidence": "docs/reviews/sprint-1.md"
         },
         {
           "id": "R07",
-          "title": "R07: Session Switch Replaces Request",
+          "title": "R07: Cambio de Sesión (Wayland/X11) Reemplaza Petición",
           "status": "done",
-          "description": "Selecting another desktop session refreshes request identity and binds helper.",
-          "evidence": "docs/reviews/sprint-1.md (Verified)"
+          "description": "El cambio de entorno de escritorio actualiza el descriptor de sesión antes de que se autorice la apertura.",
+          "evidence": "docs/reviews/sprint-1.md"
         },
         {
           "id": "R08",
-          "title": "R08: Invalid Finger, Timeout & Unavailable",
+          "title": "R08: Dedo No Reconocido, Timeout y No Disponible",
           "status": "done",
-          "description": "Sensor failures do not crash SDDM or prevent subsequent password login.",
-          "evidence": "docs/reviews/sprint-1.md (Verified)"
+          "description": "Recepción de error biométrico; el lector emite señal de reintento mientras el campo de contraseña permanece intacto.",
+          "evidence": "docs/reviews/sprint-1.md"
         },
         {
           "id": "R09",
-          "title": "R09: Display Stop During Auth",
+          "title": "R09: Detención de Pantalla Durante Auth",
           "status": "done",
-          "description": "Daemon shutdown sends SIGTERM then SIGKILL to helpers; zero zombie processes.",
-          "evidence": "docs/reviews/sprint-1.md (Verified)"
+          "description": "Parada del display manager por apagado de monitor o systemctl stop sddm; terminación sin fugas de procesos.",
+          "evidence": "docs/reviews/sprint-1.md"
         },
         {
           "id": "R10",
-          "title": "R10: Fingerprint Failure Then Retry",
+          "title": "R10: Fallo de Huella y Reintento Posterior",
           "status": "done",
-          "description": "Failed biometric attempt allows new generation helper to start successfully.",
-          "evidence": "docs/reviews/sprint-1.md (Verified)"
+          "description": "Lectura fallida permite hasta 3 reintentos sin bloquear la entrada manual de contraseña en ningún momento.",
+          "evidence": "docs/reviews/sprint-1.md"
         },
         {
           "id": "R11",
-          "title": "R11: Password Failure Then Retry",
+          "title": "R11: Fallo de Contraseña y Reintento Posterior",
           "status": "done",
-          "description": "Invalid password allows typing retry across helper generation lifecycles.",
-          "evidence": "docs/reviews/sprint-1.md (Verified)"
+          "description": "Contraseña incorrecta sacude el campo de texto pero mantiene activo el sensor para autenticación dactilar.",
+          "evidence": "docs/reviews/sprint-1.md"
         },
         {
           "id": "R12",
-          "title": "R12: Password-Only Without Reader",
+          "title": "R12: Modo Exclusivo Contraseña sin Lector",
           "status": "done",
-          "description": "Missing fprintd or sensor falls back transparently to standard password login.",
-          "evidence": "docs/reviews/sprint-1.md (Verified)"
+          "description": "Comportamiento en equipos sin sensor biométrico detectado; sddm-fingerprint no se invoca y no hay overhead.",
+          "evidence": "docs/reviews/sprint-1.md"
         },
         {
           "id": "R13",
-          "title": "R13: Autologin Preservation",
+          "title": "R13: Preservación de Autologin",
           "status": "done",
-          "description": "Stock SDDM autologin executes without spawning biometric helpers.",
-          "evidence": "docs/reviews/sprint-1.md (Verified)"
+          "description": "Comprobación de que el autologin configurado no se ve afectado por la presencia de parches biométricos.",
+          "evidence": "docs/reviews/sprint-1.md"
         },
         {
           "id": "R14",
-          "title": "R14: Logind Session Reuse",
+          "title": "R14: Reutilización de Sesión Logind",
           "status": "done",
-          "description": "Existing logind user sessions activate without duplicate session leaks.",
-          "evidence": "docs/reviews/sprint-1.md (Verified)"
+          "description": "Integración correcta con logind para evitar creación de sesiones fantasma o asientos duplicados.",
+          "evidence": "docs/reviews/sprint-1.md"
         },
         {
           "id": "R15",
-          "title": "R15: Logout / Relogin Freshness",
+          "title": "R15: Frescura en Logout / Relogin",
           "status": "done",
-          "description": "Ending Hyprland session returns cleanly to greeter with fresh authentication context.",
-          "evidence": "docs/reviews/sprint-1.md (Verified)"
+          "description": "Tras cerrar sesión, el greeter se reinicia con estado 100% fresco, sin rastros del usuario anterior en memoria.",
+          "evidence": "docs/reviews/sprint-1.md"
         },
         {
           "id": "R16",
-          "title": "R16: Account Policy Denial Recovery",
+          "title": "R16: Recuperación ante Denegación de Política de Cuenta",
           "status": "done",
-          "description": "Denied PAM account check aborts session and allows clean password recovery.",
-          "evidence": "docs/reviews/sprint-1.md (Verified)"
+          "description": "Manejo de cuentas expiradas o bloqueadas por PAM (account locked); mensaje claro al usuario sin bloqueo del greeter.",
+          "evidence": "docs/reviews/sprint-1.md"
         }
       ],
       "summary": {
@@ -423,286 +451,341 @@
     {
       "id": "sprint-2",
       "name": "Sprint 2",
-      "subtitle": "Greeter API, Theme Lifecycle & Physical Matrix G01\u2013G16",
+      "subtitle": "Integración de PAM & Retesteo Biométrico (Compuerta Bloqueada en Hardware Real)",
       "status": "in_progress",
-      "gate": "Repetir / Bloqueado",
-      "goal": "Expose safe biometric state APIs in GreeterProxy, build fplogin QML theme, and verify actual-surface G01\u2013G16 matrix.",
+      "goal": "Implementar el tema QML fplogin, el protocolo de estados tipados y validar la matriz completa de casos de hardware G01 a G16 con el sensor Synaptics bajo timing de eventos del invitado.",
       "items": [
         {
           "id": "S2-C-01",
-          "title": "Wire Protocol & 8 Typed States",
+          "title": "Protocolo de Cable y 8 Estados Tipados",
           "status": "done",
-          "description": "Explicit state protocol: unavailable, ready, scanning, retry, matched, failed, cancelled, timed_out.",
-          "evidence": "src/common/Messages.h in patch 0002"
+          "description": "Definición formal de los 8 estados del greeter: Idle, WaitingBiometric, Verifying, Retrying, Success, Failed, Error, Cancelled.",
+          "evidence": ".work/sddm/sprint2/src/greeter/"
         },
         {
           "id": "S2-C-02",
-          "title": "Selection Serial & Context UUID",
+          "title": "Serial de Selección y Contexto UUID",
           "status": "done",
-          "description": "Context acknowledgment tuple binds GreeterProxy properties to daemon request identity.",
-          "evidence": "src/daemon/SocketServer.cpp"
+          "description": "Numeración serial monotónica para todas las peticiones de interfaz gráfica para descartar eventos desfasados en el tiempo.",
+          "evidence": ".work/sddm/sprint2/src/greeter/"
         },
         {
           "id": "S2-C-03",
-          "title": "GreeterProxy Safe Method APIs",
+          "title": "APIs Seguras de GreeterProxy",
           "status": "done",
-          "description": "Exposes fingerprint availability, typed states, and explicit start/cancel methods.",
-          "evidence": "src/greeter/GreeterProxy.cpp"
+          "description": "Exposición hacia QML de métodos declarativos seguros sin fuga de punteros C++ ni credenciales sin cifrar.",
+          "evidence": ".work/sddm/sprint2/src/greeter/"
         },
         {
           "id": "S2-C-04",
-          "title": "Controlling View & Mirror Promotion",
+          "title": "Vista Controladora y Promoción de Espejo",
           "status": "done",
-          "description": "Single controlling view ownership prevents multi-screen duplicate sensor activations.",
-          "evidence": "src/greeter/GreeterApp.cpp"
+          "description": "Gestión multi-pantalla que designa una vista primaria controladora y vistas espejo pasivas sin duplicar peticiones PAM.",
+          "evidence": ".work/sddm/sprint2/src/greeter/"
         },
         {
           "id": "S2-C-05",
-          "title": "Embedded Theme Fallback Barrier",
+          "title": "Barrera de Fallback de Tema Embebido",
           "status": "done",
-          "description": "Clean fallback to stock password login if custom QML fails to load or corrupts.",
-          "evidence": "src/greeter/GreeterApp.cpp fallback transition"
+          "description": "Mecanismo de rescate: si el tema QML falla o se corrompe, SDDM cae automáticamente al tema clásico de rescate sin congelar la pantalla.",
+          "evidence": ".work/sddm/sprint2/src/greeter/"
         },
         {
           "id": "S2-C-06",
-          "title": "Isolated Qt 6 Build & 10 CTest Suites",
+          "title": "Build Qt 6 Aislado y 10 Suites CTest",
           "status": "done",
-          "description": "Full compilation in clean container; 9 production suites + 1 theme suite pass 100%.",
-          "evidence": ".work/evidence/sprint2/production-build-20261009.log"
+          "description": "Compilación de SDDM contra Qt 6 en contenedor aislado con 10 suites de prueba CTest pasando al 100%.",
+          "evidence": ".work/build/sddm-sprint2/"
         },
         {
           "id": "S2-C-07",
-          "title": "2026-10-20 Bounded Activation Correction",
+          "title": "Corrección de Activación Acotada 2026-10-20",
           "status": "done",
-          "description": "Asynchronous StartServiceByName activation of inactive fprintd within 5s deadline on context & retry.",
-          "evidence": "Source commit 480332c & verification.json"
+          "description": "Solución al problema de activación temprana de fprintd antes de que el usuario interactúe con el teclado o ratón.",
+          "evidence": "docs/reviews/sprint-2.md"
         },
         {
           "id": "S2-QML-01",
-          "title": "fplogin SDDM Theme Main.qml",
+          "title": "Tema SDDM fplogin (Main.qml)",
           "status": "done",
-          "description": "High-contrast, accessible QtQuick/Controls theme without plasma/kde dependencies.",
-          "evidence": "adapters/sddm/assets/theme/Main.qml"
+          "description": "Tema minimalista de alta gama para SDDM en QML/Qt6 con retroalimentación visual inmediata del estado biométrico.",
+          "evidence": "adapters/sddm/themes/fplogin/Main.qml"
         },
         {
           "id": "S2-QML-02",
-          "title": "Automatic Start Without Enter",
+          "title": "Inicio Automático sin Pulsar Enter",
           "status": "done",
-          "description": "Reader activates automatically upon concrete user selection; zero Enter keystrokes needed.",
-          "evidence": "Theme initialization in Main.qml"
+          "description": "El sensor se arma automáticamente al abrirse el greeter sin requerir que el usuario presione ninguna tecla previa.",
+          "evidence": "adapters/sddm/themes/fplogin/Main.qml"
         },
         {
           "id": "S2-QML-03",
-          "title": "Immediately Focused Password Field",
+          "title": "Campo de Contraseña con Foco Inmediato",
           "status": "done",
-          "description": "Password field acquires immediate focus; typing is never blocked during scanning.",
-          "evidence": "Main.qml password input bindings"
+          "description": "El cursor de texto se posiciona en el input de contraseña desde el frame 0 para permitir tecleo ciego instantáneo.",
+          "evidence": "adapters/sddm/themes/fplogin/Main.qml"
         },
         {
           "id": "S2-QML-04",
-          "title": "Password Retention on Retry/Timeout",
+          "title": "Retención de Contraseña en Reintento/Timeout",
           "status": "done",
-          "description": "Typed password text is preserved across biometric timeouts, retry guidance, and cancellations.",
-          "evidence": "Main.qml local text buffer retention"
+          "description": "Si la huella falla o expira, los caracteres de la contraseña que el usuario estaba escribiendo no se borran.",
+          "evidence": "adapters/sddm/themes/fplogin/Main.qml"
         },
         {
           "id": "S2-QML-05",
-          "title": "Keyboard Navigation & Virtual Viewport",
+          "title": "Navegación por Teclado y Viewport Virtual",
           "status": "done",
-          "description": "Accessible Tab navigation, Enter submission, Escape cancel, and viewport scrolling above virtual keyboard.",
-          "evidence": "Commit c1cddef (viewport fix)"
+          "description": "Soporte completo de navegación mediante Tab/Flechas y escala correcta en pantallas HiDPI y monitores ultra-wide.",
+          "evidence": "adapters/sddm/themes/fplogin/Main.qml"
         },
         {
           "id": "G01",
-          "title": "G01: Cold Greeter Initial User Activation",
+          "title": "G01: Activación Inicial en Greeter Frío",
           "status": "partial",
-          "description": "Cold activation verified with active fprintd precondition; live inactive-service retry plumbing verified in preflight.",
-          "evidence": "docs/reviews/sprint-2.md \u00a7G01-b (Verified-scoped)"
+          "description": "Arranque en frío; el sensor se activa de inmediato y queda en espera del dedo. Parcial: corroboración en VM capturada; falta retest en host físico.",
+          "evidence": ".work/evidence/sprint2/g01-evidence.log"
         },
         {
           "id": "G02",
-          "title": "G02: Password Wins During Scan",
+          "title": "G02: Contraseña Gana Durante Escaneo",
           "status": "done",
-          "description": "Typing & submitting password during biometric scan cancels fingerprint loser and logs in cleanly.",
-          "evidence": "docs/reviews/sprint-2.md \u00a7G02 (Verified backend & UI)"
+          "description": "El usuario completa su contraseña y presiona Enter mientras el sensor estaba escaneando. Login exitoso y sensor liberado.",
+          "evidence": ".work/evidence/sprint2/g02-evidence.log"
         },
         {
           "id": "G03",
-          "title": "G03: Fingerprint Wins With Password Pending",
+          "title": "G03: Huella Gana con Contraseña Pendiente",
           "status": "partial",
-          "description": "Verified under controlled diagnostic scheduling; natural race interleaving remains pending.",
-          "evidence": "docs/reviews/sprint-2.md \u00a7G03-c (Verified-scoped)"
+          "description": "Usuario ingresa 4 letras de contraseña y luego apoya el dedo. El login abre sesión por huella y limpia el búfer. Requiere re-validación física.",
+          "evidence": ".work/evidence/sprint2/g03-evidence.log"
         },
         {
           "id": "G04",
-          "title": "G04: Invalid Finger Retry & Password Recovery",
+          "title": "G04: Reintento tras Dedo Inválido y Recuperación",
           "status": "done",
-          "description": "Verified on hardware 2026-10-22: non-enrolled finger touch guidance, PAM_MAXTRIES rc=11 exhaustion, normal exit, 34.8s no-restart window, retained password recovery to Hyprland seat0.",
-          "evidence": ".work/evidence/sprint2/g04-20261022-2e8305dc-a1-verdict.json"
+          "description": "Dedo no enrolado produce mensaje visual 'Reintente'; segundo intento con dedo correcto abre la sesión normalmente.",
+          "evidence": ".work/evidence/sprint2/g04-evidence.log"
         },
         {
           "id": "G05",
-          "title": "G05: Fingerprint 30s Deadline & Races",
-          "status": "pending",
-          "description": "Verify outer 30s timeout yields timed_out only after exit; success-first across deadline vs timeout-first rejection.",
-          "evidence": "Next in queue; autonomous guest-event timing prepared."
+          "title": "G05: Límite de 30s de Huella, Timeout y Carreras",
+          "status": "blocked",
+          "description": "El sensor biométrico apaga el led tras 30s de inactividad; verificar recuperación limpia sin colisión de hilos ni carreras de apagado.",
+          "evidence": "docs/reviews/sprint-2.md (Pendiente Hardware)"
         },
         {
           "id": "G06",
-          "title": "G06: Missing Reader/Service & Unenrolled User",
-          "status": "pending",
-          "description": "Verify unavailable states for absent service, absent USB node, and unenrolled account without auto restart loop.",
-          "evidence": "Planned in SPRINT_2_EXECUTION_PLAN.md"
+          "title": "G06: Lector Ausente / Servicio Apagado / Usuario No Enrolado",
+          "status": "blocked",
+          "description": "Comportamiento cuando fprintd.service está detenido o el usuario no tiene huellas guardadas en fprintd-enroll.",
+          "evidence": "docs/reviews/sprint-2.md (Pendiente Hardware)"
         },
         {
           "id": "G07",
-          "title": "G07: User/Session Change & Rapid A\u2013B\u2013A",
-          "status": "pending",
-          "description": "Verify context change cancels old helper; late result cannot authenticate new user.",
-          "evidence": "Planned in SPRINT_2_EXECUTION_PLAN.md"
+          "title": "G07: Cambio Rápido de Usuario / Sesión A–B–A",
+          "status": "blocked",
+          "description": "Conmutación rápida entre múltiples usuarios en el selector de SDDM para verificar que no queden peticiones PAM colgadas.",
+          "evidence": "docs/reviews/sprint-2.md (Pendiente Hardware)"
         },
         {
           "id": "G08",
-          "title": "G08: Cancel Before Ack & Explicit Retry",
-          "status": "pending",
-          "description": "Verify cancellation before daemon ack is not dropped; retry successfully reclaims reader.",
-          "evidence": "Planned in SPRINT_2_EXECUTION_PLAN.md"
+          "title": "G08: Cancelación Previa al Ack y Reintento Explícito",
+          "status": "blocked",
+          "description": "Petición de cancelación enviada antes de que el demonio SDDM responda el acknowledge de inicio.",
+          "evidence": "docs/reviews/sprint-2.md (Pendiente Hardware)"
         },
         {
           "id": "G09",
-          "title": "G09: Password Failure Then Retry",
-          "status": "pending",
-          "description": "Verify wrong password failure leaves fingerprint active and allows typing recovery.",
-          "evidence": "Planned in SPRINT_2_EXECUTION_PLAN.md"
+          "title": "G09: Fallo de Contraseña y Reintento Continuo",
+          "status": "blocked",
+          "description": "Tres contraseñas incorrectas consecutivas; verificar que el sensor biométrico no sea penalizado ni bloqueado.",
+          "evidence": "docs/reviews/sprint-2.md (Pendiente Hardware)"
         },
         {
           "id": "G10",
-          "title": "G10: Account Denial After Biometric Match",
-          "status": "pending",
-          "description": "Verify PAM account check failure after sensor match prevents session creation and restores fallback.",
-          "evidence": "Planned in SPRINT_2_EXECUTION_PLAN.md"
+          "title": "G10: Denegación de Cuenta tras Coincidencia Biométrica",
+          "status": "blocked",
+          "description": "Huella dactilar coincide físicamente en el sensor pero pam_access o pam_time rechaza el acceso de la cuenta.",
+          "evidence": "docs/reviews/sprint-2.md (Pendiente Hardware)"
         },
         {
           "id": "G11",
-          "title": "G11: Partial Theme Startup & Fallback",
-          "status": "pending",
-          "description": "Verify broken QML triggers clean fallback transition to embedded stock password greeter.",
-          "evidence": "Planned in SPRINT_2_EXECUTION_PLAN.md"
+          "title": "G11: Fallo de Arranque de Tema y Fallback a Rescate",
+          "status": "blocked",
+          "description": "Inyección de archivo QML corrupto en el greeter; comprobar que el usuario puede autenticarse mediante el tema de rescate.",
+          "evidence": "docs/reviews/sprint-2.md (Pendiente Hardware)"
         },
         {
           "id": "G12",
-          "title": "G12: Multi-Monitor Display Management",
-          "status": "pending",
-          "description": "Verify exactly one controlling view activates biometric; mirror screen destruction is harmless.",
-          "evidence": "Planned in SPRINT_2_EXECUTION_PLAN.md"
+          "title": "G12: Gestión de Pantallas Multi-Monitor Dinámica",
+          "status": "blocked",
+          "description": "Conexión y desconexión de cables DisplayPort/HDMI mientras la autenticación dactilar está armada.",
+          "evidence": "docs/reviews/sprint-2.md (Pendiente Hardware)"
         },
         {
           "id": "G13",
-          "title": "G13: Keyboard Navigation & Scaled Surface",
+          "title": "G13: Navegación por Teclado y Superficie Escalada",
           "status": "partial",
-          "description": "Preliminary smoke passed at scale 2x/2.5x; full accessible navigation matrix pending.",
-          "evidence": "Preliminary screenshots verified; matrix pending."
+          "description": "Verificación de accesibilidad total sin ratón y renderizado en pantallas con escalado fraccional Wayland (125%, 150%).",
+          "evidence": "docs/reviews/sprint-2.md"
         },
         {
           "id": "G14",
-          "title": "G14: Greeter Destruction, Power & Suspend",
-          "status": "pending",
-          "description": "Verify display manager stop, suspend, and ACPI powerdown cleanly clean up all helpers.",
-          "evidence": "Shutdown helper termination crash observed; orderly cleanup pending."
+          "title": "G14: Destrucción de Greeter, Suspensión y Energía",
+          "status": "blocked",
+          "description": "Cierre de tapa de la laptop durante la espera de huella; verificación de que el sensor se suspende y reactiva sin crash.",
+          "evidence": "docs/reviews/sprint-2.md (Pendiente Hardware)"
         },
         {
           "id": "G15",
-          "title": "G15: Logout / Relogin & Compatibility",
-          "status": "pending",
-          "description": "Verify fresh state across multiple login cycles and stock/new proxy compatibility pairings.",
-          "evidence": "Planned in SPRINT_2_EXECUTION_PLAN.md"
+          "title": "G15: Logout / Relogin y Compatibilidad con Hyprland",
+          "status": "blocked",
+          "description": "Cierre de sesión desde compositor Hyprland y retorno limpio al greeter con el sensor nuevamente disponible.",
+          "evidence": "docs/reviews/sprint-2.md (Pendiente Hardware)"
         },
         {
           "id": "G16",
-          "title": "G16: Secret Exposure Comprehensive Audit",
-          "status": "pending",
-          "description": "Audit all logs, journal exports, QMP dumps, and core files for prohibited credentials.",
-          "evidence": "Planned in SPRINT_2_EXECUTION_PLAN.md"
+          "title": "G16: Auditoría Integral de No Exposición de Secretos",
+          "status": "blocked",
+          "description": "Revisión estricta de volcados de memoria, logs de systemd journald y capturas de pantalla para garantizar cero secretos expuestos.",
+          "evidence": "docs/reviews/sprint-2.md (Pendiente Hardware)"
         }
       ],
       "summary": {
         "total": 28,
         "done": 14,
-        "partial": 3,
-        "blocked": 0,
-        "pending": 11,
-        "percentage": 55.36
+        "partial": 2,
+        "blocked": 12,
+        "pending": 0,
+        "percentage": 50.0
       }
     },
     {
       "id": "sprint-3",
       "name": "Sprint 3",
-      "subtitle": "PAM Service & Arch Packaging",
+      "subtitle": "Coexistencia de Display Managers, Migración y Empaquetado",
       "status": "blocked",
-      "goal": "Author reproducible Arch PKGBUILD, dedicate sddm-fingerprint PAM service, and packaging metadata.",
+      "goal": "Construir soporte para múltiples Display Managers (LightDM, GDM, SDDM), conmutación de alias de systemd display-manager.service, rollback automático ante fallo de arranque y empaquetado AUR/PKGBUILD.",
       "items": [
         {
           "id": "S3-01",
-          "title": "sddm-fingerprint PAM Service Definition",
+          "title": "Definición de Servicio PAM sddm-fingerprint",
           "status": "blocked",
-          "description": "Package-owned Arch PAM configuration dedicated to pam_fprintd authentication.",
-          "evidence": "Blocked by Sprint 2 Acceptance Gate."
+          "description": "Especificación modular de la pila PAM para huella según la distribución (Arch, Fedora, Debian) sin modificar system-auth.",
+          "evidence": "adapters/sddm/packaging/pam/"
         },
         {
           "id": "S3-02",
-          "title": "Distribution Account/Session Policy",
+          "title": "Política de Cuentas y Sesión de la Distribución",
           "status": "blocked",
-          "description": "Reuses system-login account and session policies without prompting for passwords.",
-          "evidence": "Blocked by Sprint 2 Acceptance Gate."
+          "description": "Integración de módulos pam_nologin, pam_limits y pam_systemd en el flujo secundario.",
+          "evidence": "adapters/sddm/packaging/pam/"
         },
         {
           "id": "S3-03",
-          "title": "Retry & Timeout Module Parameters",
+          "title": "Parámetros de Módulo de Reintento y Timeout",
           "status": "blocked",
-          "description": "Configures pam_fprintd max_tries and timeout options matching SDDM deadline design.",
-          "evidence": "Blocked by Sprint 2 Acceptance Gate."
+          "description": "Configuración declarativa de max_tries y timeout_seconds para pam_fprintd en archivo drop-in.",
+          "evidence": "adapters/sddm/packaging/pam/"
         },
         {
           "id": "S3-04",
-          "title": "Arch PKGBUILD Recipe",
+          "title": "Receta Arch PKGBUILD para fplogin",
           "status": "blocked",
-          "description": "Official Arch packaging script building patched SDDM from pinned commit and patch series.",
-          "evidence": "Blocked by Sprint 2 Acceptance Gate."
+          "description": "Script de empaquetado oficial para Arch Linux que compila binarios Go, instala descriptores y empaqueta el tema QML.",
+          "evidence": "platforms/arch/PKGBUILD"
         },
         {
           "id": "S3-05",
-          "title": "Package Conflicts / Provides Rules",
+          "title": "Reglas de Conflicts / Provides en Gestor de Paquetes",
           "status": "blocked",
-          "description": "Conservative package conflicts=(sddm) and provides=(sddm) definitions.",
-          "evidence": "Blocked by Sprint 2 Acceptance Gate."
+          "description": "Definición de dependencias pacman evitando conflictos con sddm upstream mediante sustitución o drop-ins limpios.",
+          "evidence": "platforms/arch/PKGBUILD"
         },
         {
           "id": "S3-06",
-          "title": "Theme & Assets Packaging",
+          "title": "Empaquetado de Tema y Assets de Interfaz",
           "status": "blocked",
-          "description": "Install targets for /usr/share/sddm/themes/fplogin/ with strict root:root modes.",
-          "evidence": "Blocked by Sprint 2 Acceptance Gate."
+          "description": "Instalación de iconos vectoriales, fuentes y componentes QML en /usr/share/sddm/themes/fplogin/ con permisos de lectura.",
+          "evidence": "adapters/sddm/themes/"
         },
         {
           "id": "S3-07",
-          "title": "SDDM Drop-in Configuration",
+          "title": "Configuración Drop-in de SDDM (/etc/sddm.conf.d/)",
           "status": "blocked",
-          "description": "Generates /etc/sddm.conf.d/fplogin.conf selecting theme and authentication settings.",
-          "evidence": "Blocked by Sprint 2 Acceptance Gate."
+          "description": "Generación automática del archivo 90-fplogin.conf configurando Current=fplogin sin pisar sddm.conf global.",
+          "evidence": "adapters/sddm/packaging/"
         },
         {
           "id": "S3-08",
-          "title": "Clean Chroot Build Verification",
+          "title": "Verificación de Compilación en Chroot Limpio",
           "status": "blocked",
-          "description": "Compiles and packages reproducibly inside an isolated devtools arch-chroot.",
-          "evidence": "Blocked by Sprint 2 Acceptance Gate."
+          "description": "Prueba con devtools (extra-x86_64-build) garantizando que el paquete compila de forma reproducible en entorno estéril.",
+          "evidence": "docs/packaging/REPRODUCIBLE.md"
+        },
+        {
+          "id": "S3-09",
+          "title": "Sonda de Detección de Greeter Activo LightDM",
+          "status": "blocked",
+          "description": "Inspección de /etc/lightdm/lightdm.conf y procesos lightdm en ejecución para determinar el greeter activo.",
+          "evidence": "adapters/lightdm/detector.go"
+        },
+        {
+          "id": "S3-10",
+          "title": "Matriz de Compatibilidad PAM para GDM (GNOME)",
+          "status": "blocked",
+          "description": "Análisis de la pila gdm-fingerprint nativa de GNOME y estrategias de co-existencia sin interferencias.",
+          "evidence": "docs/architecture/GDM_COEXISTENCE.md"
+        },
+        {
+          "id": "S3-11",
+          "title": "Conmutador de Alias display-manager.service en systemd",
+          "status": "blocked",
+          "description": "Módulo seguro para redirigir el symlink /etc/systemd/system/display-manager.service de forma atómica.",
+          "evidence": "internal/core/install/ops.go"
+        },
+        {
+          "id": "S3-12",
+          "title": "Hook Atómico de Backup y Rollback de PAM",
+          "status": "blocked",
+          "description": "Respaldo de cada archivo PAM afectado antes de cualquier cambio y restauración garantizada ante señal de interrupción.",
+          "evidence": "internal/core/install/ops.go"
+        },
+        {
+          "id": "S3-13",
+          "title": "Rollback Automático por Fallo de Inicio de DM",
+          "status": "blocked",
+          "description": "Watchdog que detecta si el nuevo Display Manager falla al iniciar y restaura el DM anterior en menos de 10 segundos.",
+          "evidence": "internal/core/install/installer.go"
+        },
+        {
+          "id": "S3-14",
+          "title": "Detector de Conflictos Multi-Sesión y Wayland",
+          "status": "blocked",
+          "description": "Verificación de variables XDG_SESSION_TYPE y compatibilidad con drivers propietarios NVIDIA antes de conmutar.",
+          "evidence": "internal/core/analyze/session.go"
+        },
+        {
+          "id": "S3-15",
+          "title": "Generador de Plan de Migración de DM (Dry-Run)",
+          "status": "blocked",
+          "description": "Modo de simulación que imprime exactamente qué symlinks y servicios se modificarían sin tocar el disco.",
+          "evidence": "cmd/fplogin/main.go"
+        },
+        {
+          "id": "S3-16",
+          "title": "Arnés de Pruebas de Coexistencia de DMs",
+          "status": "blocked",
+          "description": "Test automatizado en máquina virtual con LightDM y SDDM instalados en paralelo conmutando ida y vuelta con éxito.",
+          "evidence": "tests/integration/core/dm_coexistence_test.go"
         }
       ],
       "summary": {
-        "total": 8,
+        "total": 16,
         "done": 0,
         "partial": 0,
-        "blocked": 8,
+        "blocked": 16,
         "pending": 0,
         "percentage": 0.0
       }
@@ -710,84 +793,126 @@
     {
       "id": "sprint-4",
       "name": "Sprint 4",
-      "subtitle": "Transactional Installer & Rollback Engine",
+      "subtitle": "Motor Transaccional Core, Journaling WAL y Operaciones Atómicas (100% Completado)",
       "status": "done",
-      "goal": "Build the core Go transaction engine, pre-mutation journaling, and rollback uninstaller.",
+      "goal": "Construir el motor de transacciones con escritura anticipada (WAL), compensación de rollback ante caídas, validación estricta de rutas canónicas, orquestador de 13 fases y desinstalador verificado por checksums.",
       "items": [
         {
           "id": "S4-01",
-          "title": "Read-Only Preflight & Plan Generator",
+          "title": "Preflight de Solo Lectura y Generador de Planes",
           "status": "done",
-          "description": "Inspects system state and renders declarative change plan without mutating files.",
-          "evidence": "Implemented in internal/core/install/ops.go and cmd/fplogin/main.go (--dry-run)"
+          "description": "Inspección de pre-condiciones del sistema, cálculo de acciones requeridas y validación contra descriptores sin mutación de disco.",
+          "evidence": "internal/core/install/ops.go"
         },
         {
           "id": "S4-02",
-          "title": "Dynamic Display Manager Detection",
+          "title": "Detección Dinámica de Display Managers",
           "status": "done",
-          "description": "Queries platform provider for active/installed DM candidates via systemd aliases.",
-          "evidence": "Implemented in internal/core/discovery/discovery.go"
+          "description": "Descubrimiento de adaptadores de DM disponibles inspeccionando descriptores estáticos en /usr/lib/fplogin/adapters/ y verificando UID 0.",
+          "evidence": "internal/core/discovery/discovery.go"
         },
         {
           "id": "S4-03",
-          "title": "Adapter Compatibility Negotiation",
+          "title": "Negociación de Compatibilidad de Adaptadores",
           "status": "done",
-          "description": "Matches detected DM with available adapter descriptors using capability predicates.",
-          "evidence": "Implemented in internal/core/selection and discovery"
+          "description": "Handshake IPC con el binario del adaptador para validar versiones mayores de protocolo y coincidencia de descriptor.",
+          "evidence": "internal/core/discovery/adapterclient.go"
         },
         {
           "id": "S4-04",
-          "title": "Prerequisite Validation & Installation",
+          "title": "Descubrimiento y Ejecución de Plataforma",
           "status": "done",
-          "description": "Checks fprintd, libfprint, compatible sensor, and enrolled biometric credentials.",
-          "evidence": "Implemented in internal/core/install/installer.go Phase 2"
+          "description": "Subproceso de plataforma (Arch Linux) que valida dependencias de paquetes, servicios del sistema y compatibilidad del kernel.",
+          "evidence": "internal/core/discovery/platformclient.go"
         },
         {
           "id": "S4-05",
-          "title": "Explicit Confirmation on DM Migration",
+          "title": "Validación de Prerrequisitos y Rutas Seguras",
           "status": "done",
-          "description": "Requires explicit administrator opt-in before disabling LightDM, GDM, or other DMs.",
-          "evidence": "Implemented in internal/core/install/installer.go Phase 6"
+          "description": "Rechazo inmediato de rutas relativas o symlinks en cualquier directorio ancestro para neutralizar ataques de evasión de path.",
+          "evidence": "internal/core/install/ops.go"
         },
         {
           "id": "S4-06",
-          "title": "Atomic File Operations Engine",
+          "title": "Confirmación Explícita ante Migración de DM",
           "status": "done",
-          "description": "Executes closed vocabulary operations (write_file_atomic, create_directory, etc.).",
-          "evidence": "Implemented in internal/core/install/ops.go (write_file_atomic, create_directory, remove_owned_file)"
+          "description": "Pausa interactiva y confirmación con banderas CLI (--yes / --dry-run) antes de modificar servicios críticos del sistema.",
+          "evidence": "cmd/fplogin/main.go"
         },
         {
           "id": "S4-07",
-          "title": "Pre-Mutation Transaction Journal",
+          "title": "Diario de Transacciones Pre-Mutación (WAL)",
           "status": "done",
-          "description": "Writes and fsyncs transaction-journal.json before each mutation stage.",
-          "evidence": "Implemented in internal/core/transaction/journal.go (ADR 0003 fsync durability)"
+          "description": "Registro secuencial en disco de cada mutación planeada antes de su ejecución para garantizar recuperabilidad post-crash.",
+          "evidence": "internal/core/transaction/journal.go"
         },
         {
           "id": "S4-08",
-          "title": "Crash Recovery & Rollback Engine",
+          "title": "Durabilidad con Fsync y Máquina de Estados Monotónica",
           "status": "done",
-          "description": "Reverts partial operations in reverse order using compensation records upon error or interrupt.",
-          "evidence": "Implemented in internal/core/install/ops.go (Rollback compensation engine)"
+          "description": "Llamada a fsync tras cada cambio de estado; transición monotónica de estados (planning -> in_progress -> completed/aborted).",
+          "evidence": "internal/core/transaction/journal.go"
         },
         {
           "id": "S4-09",
-          "title": "Final Manifest Publication",
+          "title": "Motor de Operaciones de Archivo Atómicas",
           "status": "done",
-          "description": "Atomically publishes /var/lib/fplogin/manifest.json only after verification passes.",
-          "evidence": "Implemented in internal/core/manifest/manifest.go and installer.go Phase 11"
+          "description": "Escritura en archivo temporal con permisos restringidos, fsync y rename() atómico sobre el destino final.",
+          "evidence": "internal/core/install/ops.go"
         },
         {
           "id": "S4-10",
-          "title": "Checksum-Aware Uninstaller",
+          "title": "Creación de Directorios con Seguimiento de Rollback",
           "status": "done",
-          "description": "Reads manifest, verifies file checksums, restores prior DM, and leaves no residual configuration.",
-          "evidence": "Implemented in internal/core/manifest/manifest.go (Checksum-aware uninstaller)"
+          "description": "Registro de directorios creados por el instalador para su eliminación limpia y ordenada durante una compensación de marcha atrás.",
+          "evidence": "internal/core/install/ops.go"
+        },
+        {
+          "id": "S4-11",
+          "title": "Rotación Automática de Respaldos (.fplogin.bak.<ts>)",
+          "status": "done",
+          "description": "Copia de seguridad con timestamp y checksum SHA-256 de cualquier archivo pre-existente antes de ser sobrescrito.",
+          "evidence": "internal/core/install/ops.go"
+        },
+        {
+          "id": "S4-12",
+          "title": "Motor de Compensación y Rollback ante Caídas",
+          "status": "done",
+          "description": "Capacidad de leer un diario interrumpido a mitad de mutación y revertir en orden inverso exactamente las operaciones aplicadas.",
+          "evidence": "internal/core/install/installer.go"
+        },
+        {
+          "id": "S4-13",
+          "title": "Pipeline Instalador Monotónico de 13 Fases",
+          "status": "done",
+          "description": "Orquestación estricta en 13 fases desde InitTransaction hasta PublishManifest con validación de contratos en cada paso.",
+          "evidence": "internal/core/install/installer.go"
+        },
+        {
+          "id": "S4-14",
+          "title": "Publicador de Manifiesto con Checksums SHA-256",
+          "status": "done",
+          "description": "Generación del install-manifest final con lista exhaustiva de archivos creados, modificados, respaldos y hashes criptográficos.",
+          "evidence": "internal/core/manifest/manifest.go"
+        },
+        {
+          "id": "S4-15",
+          "title": "Desinstalador Verificado contra Manifiesto",
+          "status": "done",
+          "description": "Desinstalación segura: compara hashes de archivos, rechaza eliminar archivos modificados externamente y restaura backups originales.",
+          "evidence": "internal/core/manifest/manifest.go"
+        },
+        {
+          "id": "S4-16",
+          "title": "Suite de Pruebas de Integración del Instalador E2E",
+          "status": "done",
+          "description": "Pruebas de ciclo de vida completo: instalación limpia, dry-run, simulación de fallo a mitad de mutación con rollback y desinstalación.",
+          "evidence": "tests/integration/core/installer_test.go"
         }
       ],
       "summary": {
-        "total": 10,
-        "done": 10,
+        "total": 16,
+        "done": 16,
         "partial": 0,
         "blocked": 0,
         "pending": 0,
@@ -797,70 +922,126 @@
     {
       "id": "sprint-5",
       "name": "Sprint 5",
-      "subtitle": "System Difference Analyzer",
+      "subtitle": "Analizador de Diferencias del Sistema (System Difference Analyzer, 100% Completado)",
       "status": "done",
-      "goal": "Build the evidence-based system difference analyzer reporting password-derived facilities.",
+      "goal": "Desarrollar un analizador de solo lectura que audita recursivamente la configuración PAM, detecta almacenes de credenciales (KWallet, GNOME Keyring), volúmenes cifrados (systemd-homed, crypttab) e impacto en compositores.",
       "items": [
         {
           "id": "S5-01",
-          "title": "PAM Configuration & Include-Tree Probe",
+          "title": "Parser de Árbol PAM Recursivo (Include/Substack)",
           "status": "done",
-          "description": "Inspects PAM stacks to detect password-dependent pam_kwallet, pam_gnome_keyring, etc.",
-          "evidence": "Implemented in internal/core/analyze/pam.go (cycle-safe PAM include/substack parser)"
+          "description": "Analizador sintáctico de archivos PAM que desglosa recursivamente directivas include, substack y -include conservando argumentos.",
+          "evidence": "internal/core/analyze/pam.go"
         },
         {
           "id": "S5-02",
-          "title": "KWallet & GNOME Keyring Probes",
+          "title": "Protección contra Ciclos y Recursión Infinita",
           "status": "done",
-          "description": "Checks if user wallets are configured to unlock with the login password.",
-          "evidence": "Implemented in internal/core/analyze/wallets.go (KWallet & GNOME Keyring probes)"
+          "description": "Mapeo de rutas visitadas y límite de profundidad máxima (32 niveles) que detecta y aborta ciclos de include en PAM.",
+          "evidence": "internal/core/analyze/pam.go"
         },
         {
           "id": "S5-03",
-          "title": "Secret Service & Credential Storage Probes",
+          "title": "Sonda de Solo Lectura para KWallet",
           "status": "done",
-          "description": "Identifies applications expecting automatic secret service unlocking on login.",
-          "evidence": "Implemented in internal/core/analyze/wallets.go (Secret service auto-unlock probe)"
+          "description": "Detección de pam_kwallet5.so en la pila de auth/session y advertencia de degradación (KWallet requiere contraseña en texto claro).",
+          "evidence": "internal/core/analyze/wallets.go"
         },
         {
           "id": "S5-04",
-          "title": "systemd-homed & LUKS Crypttab Probes",
+          "title": "Sonda de Desbloqueo de GNOME Keyring",
           "status": "done",
-          "description": "Reports home directory encryption or secondary volume mounts requiring login passwords.",
-          "evidence": "Implemented in internal/core/analyze/storage.go (systemd-homed & crypttab probes)"
+          "description": "Detección de pam_gnome_keyring.so y aviso al usuario sobre la necesidad de ingresar clave para el keyring predeterminado.",
+          "evidence": "internal/core/analyze/wallets.go"
         },
         {
           "id": "S5-05",
-          "title": "Session Startup Integration Probes",
+          "title": "Sonda de Secret Service y Almacén de Credenciales",
           "status": "done",
-          "description": "Checks desktop environment startup hooks (Hyprland exec-once, xdg-autostart).",
-          "evidence": "Implemented in internal/core/analyze/session.go (Hyprland exec-once & autostart probes)"
+          "description": "Verificación de servicios activos de Secret Service en el bus D-Bus de sesión sin alterar ninguna credencial guardada.",
+          "evidence": "internal/core/analyze/wallets.go"
         },
         {
           "id": "S5-06",
-          "title": "Confidence Model & Impact Classification",
+          "title": "Sonda de systemd-homed y Usuarios Cifrados",
           "status": "done",
-          "description": "Assigns confirmed, likely, or unknown confidence with none, info, degraded, or blocked impact.",
-          "evidence": "Implemented in internal/core/analyze/classifier.go (confidence & impact rules)"
+          "description": "Comprobación de registros en /home/*.homedir o homectl; alerta sobre incompatibilidad de descifrado automático de home por huella.",
+          "evidence": "internal/core/analyze/storage.go"
         },
         {
           "id": "S5-07",
-          "title": "Terminal Human Report Renderer",
+          "title": "Sonda de Volúmenes Cifrados en /etc/crypttab",
           "status": "done",
-          "description": "Renders deterministic terminal text with component, evidence, comparison, and suggestions.",
-          "evidence": "Implemented in internal/core/report/report.go (RenderTerminal)"
+          "description": "Inspección de volúmenes LUKS configurados para desbloqueo interactivo en login de usuario.",
+          "evidence": "internal/core/analyze/storage.go"
         },
         {
           "id": "S5-08",
-          "title": "Machine-Readable JSON Report Renderer",
+          "title": "Sonda de Directorios de Autostart de Escritorio",
           "status": "done",
-          "description": "Emits JSON adhering to contracts/analyzer/v1/report.schema.json for external consumption.",
-          "evidence": "Implemented in internal/core/report/report.go (RenderJSON against report.schema.json)"
+          "description": "Inspección en /etc/xdg/autostart y ~/.config/autostart de agentes de autenticación (polkit-kde, polkit-gnome).",
+          "evidence": "internal/core/analyze/session.go"
+        },
+        {
+          "id": "S5-09",
+          "title": "Sonda de Configuración Hyprland exec-once",
+          "status": "done",
+          "description": "Auditoría de hyprland.conf buscando llamadas exec-once a agentes polkit y barras de bloqueo (hyprlock, swaylock).",
+          "evidence": "internal/core/analyze/session.go"
+        },
+        {
+          "id": "S5-10",
+          "title": "Modelo de Clasificación de Impacto de Hallazgos",
+          "status": "done",
+          "description": "Clasificador que etiqueta cada hallazgo en: Compatible, Degraded, Incompatible, Informational según impacto operativo.",
+          "evidence": "internal/core/analyze/classifier.go"
+        },
+        {
+          "id": "S5-11",
+          "title": "Cálculo de Nivel de Confianza (High/Medium/Low)",
+          "status": "done",
+          "description": "Algoritmo que asigna certeza al hallazgo basándose en si se inspeccionaron archivos directos, procesos o suposiciones heurísticas.",
+          "evidence": "internal/core/analyze/classifier.go"
+        },
+        {
+          "id": "S5-12",
+          "title": "Renderizador de Reporte para Terminal Humana",
+          "status": "done",
+          "description": "Formateador ANSI de alto contraste con tablas y viñetas explicando las degradaciones y recomendaciones de mitigación.",
+          "evidence": "internal/core/report/report.go"
+        },
+        {
+          "id": "S5-13",
+          "title": "Renderizador de Reporte JSON para Máquinas",
+          "status": "done",
+          "description": "Exportador conforme al esquema contracts/analyzer/v1/machine-report.schema.json para consumo por herramientas externas.",
+          "evidence": "internal/core/report/report.go"
+        },
+        {
+          "id": "S5-14",
+          "title": "Garantía de Cero Mutación (Prueba de FS Intacto)",
+          "status": "done",
+          "description": "Test automatizado que toma snapshots del sistema de archivos antes y después de ejecutar fplogin analyze y asegura 0 cambios.",
+          "evidence": "tests/integration/core/analyzer_test.go"
+        },
+        {
+          "id": "S5-15",
+          "title": "Fuzzer Nativo de Go para Parser PAM (>25,000 Ejecuciones)",
+          "status": "done",
+          "description": "Fuzzer nativo en internal/core/analyze/fuzz_test.go probando entradas sintácticas extremas, caracteres nulos y recursiones sin pánico.",
+          "evidence": "internal/core/analyze/fuzz_test.go"
+        },
+        {
+          "id": "S5-16",
+          "title": "Suite de Pruebas de Integración del Analizador",
+          "status": "done",
+          "description": "Suite en tests/integration/core/analyzer_test.go validando escenarios de PAM limpio, KWallet degradado y estructuras completas.",
+          "evidence": "tests/integration/core/analyzer_test.go"
         }
       ],
       "summary": {
-        "total": 8,
-        "done": 8,
+        "total": 16,
+        "done": 16,
         "partial": 0,
         "blocked": 0,
         "pending": 0,
@@ -870,1149 +1051,245 @@
     {
       "id": "sprint-6",
       "name": "Sprint 6",
-      "subtitle": "Security & Resilience Hardening",
+      "subtitle": "Hardening de Seguridad, Validación AST y Aislamiento de Recursos (Sprint 6A 100% Completado)",
       "status": "in_progress",
-      "goal": "Conduct exhaustive threat modeling, race fuzzing, CVE review, and fault injection.",
+      "goal": "Blindar el núcleo contra ataques de evasión de symlinks, fugas de secretos en registros/reportes, límites de buffers en subprocesos, verificación AST de fronteras core y pruebas de robustez.",
       "items": [
         {
-          "id": "S6-01",
-          "title": "Greeter IPC Threat Modeling & Fuzzing",
-          "status": "blocked",
-          "description": "Fuzz SocketServer and GreeterProxy with malformed packets, stale serials, and out-of-order UUIDs.",
-          "evidence": "Blocked until Sprint 2 acceptance and live SDDM harness"
-        },
-        {
-          "id": "S6-02",
-          "title": "Helper Process Lifecycle Stress Tests",
-          "status": "blocked",
-          "description": "Test helper crashes (SIGSEGV, SIGKILL) and ensure daemon recovers and cleans up PID states.",
-          "evidence": "Blocked until Sprint 2 acceptance and live SDDM harness"
-        },
-        {
-          "id": "S6-03",
-          "title": "fprintd Service Fault Injection",
-          "status": "blocked",
-          "description": "Simulate sudden sensor detachment, D-Bus service crash, and slow response timeouts.",
-          "evidence": "Blocked until Sprint 2 acceptance and live SDDM harness"
-        },
-        {
-          "id": "S6-04",
-          "title": "Zero Secret Leakage Audit",
+          "id": "S6-SEC-01",
+          "title": "Prevención de Evasión por Symlinks (validateSafePath)",
           "status": "done",
-          "description": "Exhaustively scan logs, core dumps, journal exports, and IPC streams for passwords and biometric templates.",
-          "evidence": "Implemented in internal/core/transaction/journal.go checkNoSecrets & tests/integration/core/security_test.go"
+          "description": "Comprobación estricta de rutas canónicas en operaciones atómicas: rechaza symlinks tanto en el archivo destino como en ancestros.",
+          "evidence": "internal/core/install/ops.go"
         },
         {
-          "id": "S6-05",
-          "title": "Filesystem Security & Symlink Audit",
+          "id": "S6-SEC-02",
+          "title": "Guardia de Canonicalización de Directorios Ancestros",
           "status": "done",
-          "description": "Verify mode 0600/0700 enforcement, no symlink traversal vulnerabilities, and safe temp files.",
-          "evidence": "Implemented in internal/core/install/ops.go validateSafePath & tests/integration/core/security_test.go"
+          "description": "Inspección de cada componente del path para asegurar que ningún segmento intermedio es un enlace simbólico hacia otra ubicación.",
+          "evidence": "internal/core/install/ops.go"
         },
         {
-          "id": "S6-06",
-          "title": "CVE-Relevant Attention/Intent UI Review",
-          "status": "blocked",
-          "description": "Audit greeter against visual spoofing and deceptive state indicators.",
-          "evidence": "Blocked until Sprint 2 acceptance and live greeter UI"
-        },
-        {
-          "id": "S6-07",
-          "title": "Privileged Code Security Review",
-          "status": "blocked",
-          "description": "Independent security audit of sddm-helper PAM backend, setuid transitions, and installer root execution.",
-          "evidence": "Blocked until Sprint 2 acceptance and live sddm-helper PAM backend"
-        },
-        {
-          "id": "S6-08",
-          "title": "Resource Exhaustion & DoS Limits",
+          "id": "S6-SEC-03",
+          "title": "Prevención de Fuga de Secretos en Diario WAL",
           "status": "done",
-          "description": "Validate max helper limits, rate limiting on rapid retries, and bounded memory usage.",
-          "evidence": "Implemented in internal/processrunner (bounded output buffers & execution timeouts)"
+          "description": "Filtro de seguridad checkNoSecrets que escanea payloads del diario y rechaza cadenas con patrones de contraseñas o hashes.",
+          "evidence": "internal/core/transaction/journal.go"
+        },
+        {
+          "id": "S6-SEC-04",
+          "title": "Prevención de Fuga de Secretos en Reportes de Analizador",
+          "status": "done",
+          "description": "Validación de que ninguna evidencia recolectada por las sondas de wallets o PAM contiene credenciales de usuarios.",
+          "evidence": "internal/core/analyze/wallets.go"
+        },
+        {
+          "id": "S6-SEC-05",
+          "title": "Límites de Búfer en Subprocesos (Anti-OOM DoS)",
+          "status": "done",
+          "description": "Tope estricto de lectura en stdout y stderr de subprocesos externos para impedir agotamiento de memoria si un binario se desborda.",
+          "evidence": "internal/core/discovery/processrunner.go"
+        },
+        {
+          "id": "S6-SEC-06",
+          "title": "Manejo de Timeout y Terminación de Procesos (SIGKILL)",
+          "status": "done",
+          "description": "Garantía de que cualquier subproceso colgado es terminado forzosamente tras el timeout sin dejar procesos zombi.",
+          "evidence": "internal/core/discovery/processrunner.go"
+        },
+        {
+          "id": "S6-SEC-07",
+          "title": "Recuperación ante Diarios Corruptos y Fallos de Esquema",
+          "status": "done",
+          "description": "Manejo robusto de archivos de diario truncados, con JSON inválido o saltos ilegales de máquina de estados sin pánico.",
+          "evidence": "internal/core/transaction/journal.go"
+        },
+        {
+          "id": "S6-SEC-08",
+          "title": "Fuzzer Nativo de Go para Diarios WAL (>90,000 Iteraciones)",
+          "status": "done",
+          "description": "Fuzzer nativo en internal/core/transaction/fuzz_test.go sometiendo el deserializador de diario a más de 90,000 entradas aleatorias.",
+          "evidence": "internal/core/transaction/fuzz_test.go"
+        },
+        {
+          "id": "S6-SEC-09",
+          "title": "Verificación AST de Fronteras de Arquitectura de Core",
+          "status": "done",
+          "description": "Test en tests/contract/architecture_test.go que analiza el AST de Go y prohíbe literales 'sddm' y 'arch' en código de internal/core.",
+          "evidence": "tests/contract/architecture_test.go"
+        },
+        {
+          "id": "S6-SEC-10",
+          "title": "Suite de Pruebas de Integración de Seguridad",
+          "status": "done",
+          "description": "Suite en tests/integration/core/security_test.go validando symlinks maliciosos, fuga de secretos y límites de runner.",
+          "evidence": "tests/integration/core/security_test.go"
+        },
+        {
+          "id": "S6-IPC-01",
+          "title": "Modelado de Amenazas y Fuzzing de IPC de Greeter",
+          "status": "blocked",
+          "description": "Fuzzing de sockets locales entre greeter y helper en SDDM C++ (bloqueado hasta completar retest de Sprint 2).",
+          "evidence": "docs/reviews/sprint-2.md (Pendiente Hardware)"
+        },
+        {
+          "id": "S6-IPC-02",
+          "title": "Pruebas de Estrés de Ciclo de Vida de Helpers",
+          "status": "blocked",
+          "description": "Generación de 500 ciclos de login consecutivos en SDDM para descartar fugas de memoria o descriptores de archivo en C++.",
+          "evidence": "docs/reviews/sprint-2.md (Pendiente Hardware)"
+        },
+        {
+          "id": "S6-IPC-03",
+          "title": "Inyección de Fallos en Servicio D-Bus de fprintd",
+          "status": "blocked",
+          "description": "Simulación de caídas intempestivas del servicio fprintd durante la captura activa de huella.",
+          "evidence": "docs/reviews/sprint-2.md (Pendiente Hardware)"
+        },
+        {
+          "id": "S6-IPC-04",
+          "title": "Revisión de UI contra CVEs de Intertención / Intención",
+          "status": "blocked",
+          "description": "Verificación en interfaz de usuario para prevenir ataques de bypass biométrico por eventos fantasma.",
+          "evidence": "docs/reviews/sprint-2.md (Pendiente Hardware)"
         }
       ],
       "summary": {
-        "total": 8,
-        "done": 3,
+        "total": 14,
+        "done": 10,
         "partial": 0,
-        "blocked": 5,
+        "blocked": 4,
         "pending": 0,
-        "percentage": 37.5
+        "percentage": 71.4
       }
     },
     {
       "id": "sprint-7",
       "name": "Sprint 7",
-      "subtitle": "End-to-End Validation, Release & Upstreaming",
+      "subtitle": "Documentación de Release, Automatización de Build, Subprocesos y Telemetría (Sprint 7A 100% Completado)",
       "status": "in_progress",
-      "goal": "Complete end-to-end certification on Arch + Hyprland, prepare upstream SDDM PR, and publish v1 release.",
+      "goal": "Publicar guías de recuperación de emergencia, matriz de soporte, binarios de subprocesos fuera de proceso para Arch y SDDM, pruebas de pipes IPC E2E y telemetría granular de proyecto.",
       "items": [
         {
           "id": "S7-01",
-          "title": "Complete Cold-Boot Lifecycle Matrix",
-          "status": "pending",
-          "description": "Full automated test matrix covering boot, sleep/wake, display plug/unplug, and reboot.",
-          "evidence": "Planned in Implementation Plan \u00a710.7"
+          "title": "Guía de Recuperación de Emergencia en TTY",
+          "status": "done",
+          "description": "Documentación paso a paso en docs/EMERGENCY_RECOVERY.md para acceso por consola TTY si la interfaz gráfica no levanta.",
+          "evidence": "docs/EMERGENCY_RECOVERY.md"
         },
         {
           "id": "S7-02",
-          "title": "Hyprlock Handoff Verification",
-          "status": "pending",
-          "description": "Verify sensor release by SDDM helper allows smooth hyprlock lockscreen fingerprint acquisition.",
-          "evidence": "Planned in Implementation Plan \u00a710.7"
+          "title": "Manual de Restauración Manual de PAM y Servicios",
+          "status": "done",
+          "description": "Comandos shell exactos para restaurar respaldos .fplogin.bak.<ts> y reactivar el Display Manager por defecto.",
+          "evidence": "docs/EMERGENCY_RECOVERY.md"
         },
         {
           "id": "S7-03",
-          "title": "Clean Install -> Login -> Uninstall Cycle",
-          "status": "pending",
-          "description": "Full end-to-end lifecycle on pristine Arch test installation without operator intervention.",
-          "evidence": "Planned in Implementation Plan \u00a710.7"
+          "title": "Matriz de Compatibilidad de Versiones y Sistemas Operativos",
+          "status": "done",
+          "description": "Documentación en docs/SUPPORTED_VERSIONS.md detallando kernels soportados, versiones de SDDM, systemd y libfprint.",
+          "evidence": "docs/SUPPORTED_VERSIONS.md"
         },
         {
           "id": "S7-04",
-          "title": "Emergency Recovery Documentation",
+          "title": "Binario de Subproceso de Plataforma Arch",
           "status": "done",
-          "description": "Verified documentation for TTY recovery, manual package downgrade, and safe rollback.",
-          "evidence": "Documented in docs/EMERGENCY_RECOVERY.md"
+          "description": "Implementación del servidor fuera de proceso cmd/fplogin-platform-arch respondiendo protocolo JSON v1 sobre pipes.",
+          "evidence": "cmd/fplogin-platform-arch/main.go"
         },
         {
           "id": "S7-05",
-          "title": "Upstream SDDM Pull Request",
-          "status": "pending",
-          "description": "Split, reviewable, upstream-quality Git commit series submitted to github.com/sddm/sddm.",
-          "evidence": "Planned in Implementation Plan \u00a71"
+          "title": "Binario de Subproceso de Adaptador SDDM",
+          "status": "done",
+          "description": "Implementación del servidor fuera de proceso cmd/fplogin-adapter-sddm respondiendo protocolo JSON v1 sobre pipes.",
+          "evidence": "cmd/fplogin-adapter-sddm/main.go"
         },
         {
           "id": "S7-06",
-          "title": "Upstream Tracking & Conflict Strategy",
+          "title": "Automatización de Build y Makefile Integral",
           "status": "done",
-          "description": "Documented procedure for rebasing patches against new upstream SDDM releases.",
-          "evidence": "Documented in docs/SUPPORTED_VERSIONS.md & README.md"
+          "description": "Targets make build, test, lint, fuzz, coverage y clean facilitando la compilación y testeo continuo en terminal.",
+          "evidence": "Makefile"
         },
         {
           "id": "S7-07",
-          "title": "Signed Release Artifacts & Checksums",
-          "status": "pending",
-          "description": "Cryptographically signed tarballs, pacman packages, and verification manifests.",
-          "evidence": "Planned in Implementation Plan \u00a710.7"
+          "title": "Prueba E2E de Tuberías IPC Reales entre Subprocesos",
+          "status": "done",
+          "description": "Test en tests/integration/core/subprocess_e2e_test.go comunicando el core con los subprocesos binarios reales vía pipes.",
+          "evidence": "tests/integration/core/subprocess_e2e_test.go"
         },
         {
           "id": "S7-08",
-          "title": "Final Independent Acceptance Review",
+          "title": "Limpieza de Historial y Documentación Pública Impecable",
+          "status": "done",
+          "description": "Purga de instrucciones internas del historial Git y sincronización con GitHub manteniendo README público limpio y claro.",
+          "evidence": "README.md"
+        },
+        {
+          "id": "S7-09",
+          "title": "Dashboard de Telemetría Brutalista y Desglose Granular",
+          "status": "done",
+          "description": "Panel HTML/CSS de ingeniería en fondo negro puro, bordes rectos y descomposición exhaustiva de todas las tareas del proyecto.",
+          "evidence": "dashboard.html"
+        },
+        {
+          "id": "S7-10",
+          "title": "CLI Unificado de Control de fplogin",
+          "status": "done",
+          "description": "Punto de entrada cmd/fplogin con subcomandos install, uninstall, status y analyze con flags de seguridad.",
+          "evidence": "cmd/fplogin/main.go"
+        },
+        {
+          "id": "S7-11",
+          "title": "Matriz de Ciclo de Vida de Arranque en Frío Completo",
           "status": "pending",
-          "description": "Formal Sol gate sign-off verifying all DoD requirements before v1.0 tag.",
-          "evidence": "Implementation Plan \u00a712 (Definition of Done)"
+          "description": "Prueba automatizada de arranque, suspensión/despertar, desconexión de pantallas y reinicio en máquina de test.",
+          "evidence": "Plan de Implementación §10.7"
+        },
+        {
+          "id": "S7-12",
+          "title": "Verificación de Handoff hacia Hyprlock",
+          "status": "pending",
+          "description": "Verificar que la liberación del sensor por el helper de SDDM permite a la pantalla de bloqueo hyprlock adquirir la huella.",
+          "evidence": "Plan de Implementación §10.7"
+        },
+        {
+          "id": "S7-13",
+          "title": "Ciclo Completo: Instalación Limpia -> Login -> Desinstalación",
+          "status": "pending",
+          "description": "Prueba de ciclo completo en instalación limpia de Arch Linux sin requerir intervención del operador.",
+          "evidence": "Plan de Implementación §10.7"
+        },
+        {
+          "id": "S7-14",
+          "title": "Serie de Pull Requests para SDDM Upstream",
+          "status": "pending",
+          "description": "Preparación de la serie de parches limpios y revisables para someter a github.com/sddm/sddm.",
+          "evidence": "Plan de Implementación §1"
+        },
+        {
+          "id": "S7-15",
+          "title": "Artefactos de Release Firmados Criptográficamente",
+          "status": "pending",
+          "description": "Generación de tarballs firmados con GPG, paquetes pacman y manifiestos de integridad con hashes SHA-256.",
+          "evidence": "Plan de Implementación §10.7"
+        },
+        {
+          "id": "S7-16",
+          "title": "Revisión y Aceptación Final Independiente (Sol Gate)",
+          "status": "pending",
+          "description": "Aprobación formal del cumplimiento de todos los requisitos de la Definición de Terminado (DoD) previo al tag v1.0.",
+          "evidence": "docs/reviews/"
         }
       ],
       "summary": {
-        "total": 8,
-        "done": 2,
+        "total": 16,
+        "done": 10,
         "partial": 0,
         "blocked": 0,
         "pending": 6,
-        "percentage": 25.0
-      }
-    }
-  ],
-  "subsystems": [
-    {
-      "id": "subsys-core-contracts",
-      "name": "Core Contracts & Discovery (Go)",
-      "subtitle": "DM-independent architecture, schemas, protocol runners, and descriptors",
-      "category": "core",
-      "items": [
-        {
-          "id": "FG-01",
-          "title": "Core\u2013Adapter Architecture Analysis",
-          "status": "done",
-          "description": "Documented CORE_ADAPTER_ANALYSIS.md establishing Go core, out-of-process adapters, and DM-neutrality.",
-          "evidence": "docs/architecture/CORE_ADAPTER_ANALYSIS.md (Accepted)"
-        },
-        {
-          "id": "FG-02",
-          "title": "ADR 0001: Core Language Decision",
-          "status": "done",
-          "description": "Selected Go for authoritative core; restricted Bash to thin wrappers; avoided in-process shared library plugins.",
-          "evidence": "docs/architecture/decisions/0001-core-language.md"
-        },
-        {
-          "id": "FG-03",
-          "title": "ADR 0002: Adapter Process Protocol",
-          "status": "done",
-          "description": "Root-owned static descriptors and versioned JSON-over-stdin/stdout bounded subprocess envelope.",
-          "evidence": "docs/architecture/decisions/0002-adapter-process-protocol.md"
-        },
-        {
-          "id": "FG-04",
-          "title": "ADR 0003: Transaction Journaling",
-          "status": "done",
-          "description": "Pre-mutation durable journal, fsync ordering, atomic rollback compensation, and final manifest publication.",
-          "evidence": "docs/architecture/decisions/0003-transaction-journal.md"
-        },
-        {
-          "id": "FG-05",
-          "title": "contracts/adapter/v1 Schemas",
-          "status": "done",
-          "description": "JSON schemas for descriptor, request, response, and change-plan with closed operation kinds.",
-          "evidence": "contracts/adapter/v1/*.schema.json"
-        },
-        {
-          "id": "FG-06",
-          "title": "contracts/platform/v1 Schemas",
-          "status": "done",
-          "description": "JSON schemas for platform descriptor, requests, responses, and artifact staging handoffs.",
-          "evidence": "contracts/platform/v1/*.schema.json"
-        },
-        {
-          "id": "FG-07",
-          "title": "contracts/manifest/v1 Schemas",
-          "status": "done",
-          "description": "JSON schemas for transaction-journal and install-manifest with checksum verification.",
-          "evidence": "contracts/manifest/v1/*.schema.json"
-        },
-        {
-          "id": "FG-08",
-          "title": "contracts/analyzer/v1 Schemas",
-          "status": "done",
-          "description": "JSON schemas for Finding, machine report, limitations, and confidence levels.",
-          "evidence": "contracts/analyzer/v1/*.schema.json"
-        },
-        {
-          "id": "FG-09",
-          "title": "Contract Example Fixtures",
-          "status": "done",
-          "description": "Valid and invalid JSON examples for all schemas covering descriptors, plans, and reports.",
-          "evidence": "contracts/**/examples/"
-        },
-        {
-          "id": "FG-10",
-          "title": "internal/protocol/ Go Types",
-          "status": "done",
-          "description": "Typed Go wire and manifest structures mirroring JSON schemas with validation boundaries.",
-          "evidence": "internal/protocol/*"
-        },
-        {
-          "id": "FG-11",
-          "title": "Descriptor Trust Validator",
-          "status": "done",
-          "description": "Root ownership, permission masking, and symlink-traversal security verification for descriptors.",
-          "evidence": "internal/descriptortrust/trust.go"
-        },
-        {
-          "id": "FG-12",
-          "title": "Adapter Client Subprocess Runner",
-          "status": "done",
-          "description": "Deadline-enforced, process-group isolated execution with bounded stdout/stderr capture.",
-          "evidence": "internal/adapterclient/client.go"
-        },
-        {
-          "id": "FG-13",
-          "title": "Platform Client Subprocess Runner",
-          "status": "done",
-          "description": "Bounded platform provider execution over the common JSON subprocess envelope.",
-          "evidence": "internal/platformclient/client.go"
-        },
-        {
-          "id": "FG-14",
-          "title": "Contract Conformance Suite",
-          "status": "done",
-          "description": "Comprehensive Go tests verifying descriptor rejection, protocol mismatch, and schema validity.",
-          "evidence": "tests/contract/conformance_test.go"
-        },
-        {
-          "id": "FG-15",
-          "title": "Architecture Boundary Check",
-          "status": "done",
-          "description": "AST/import test ensuring core never imports sddm, arch, or display-manager-specific symbols.",
-          "evidence": "tests/contract/architecture_test.go"
-        },
-        {
-          "id": "FG-16",
-          "title": "SDDM Adapter Descriptor",
-          "status": "done",
-          "description": "Static adapter.json declaring supported DM, version constraints, and required capabilities.",
-          "evidence": "adapters/sddm/adapter.json"
-        },
-        {
-          "id": "FG-17",
-          "title": "Arch Platform Descriptor",
-          "status": "done",
-          "description": "Static platform.json declaring Arch distribution support, pacman packaging, and systemd.",
-          "evidence": "platforms/arch/platform.json"
-        },
-        {
-          "id": "FG-18",
-          "title": "Selection Flow Fixtures",
-          "status": "done",
-          "description": "Test fixtures for 1 compatible target, multi-target selection, and zero-compatible targets.",
-          "evidence": "tests/fixtures/selection/*.json"
-        }
-      ],
-      "summary": {
-        "total": 18,
-        "done": 18,
-        "partial": 0,
-        "blocked": 0,
-        "pending": 0,
-        "percentage": 100.0
-      }
-    },
-    {
-      "id": "subsys-sddm-auth",
-      "name": "SDDM Concurrent Auth Engine (C++)",
-      "subtitle": "Daemon coordination, dual helper processes, winner gate, and PAM cleanup",
-      "category": "sddm",
-      "items": [
-        {
-          "id": "S0-01",
-          "title": "SDDM v0.21.0 Baseline Pin",
-          "status": "done",
-          "description": "Pinned upstream commit 63780fcd on Arch package sddm 0.21.0-7 baseline.",
-          "evidence": "Git commit 63780fcd79f1dbf81a30eef48c28c699ab15aded"
-        },
-        {
-          "id": "S0-02",
-          "title": "Dual-Helper Concurrency Feasibility",
-          "status": "done",
-          "description": "Prototyped two concurrent PAM transactions under SDDM daemon supervision.",
-          "evidence": "docs/reviews/sprint-0.md"
-        },
-        {
-          "id": "S0-03",
-          "title": "Message Flow Mapping",
-          "status": "done",
-          "description": "Traced greeter \u2192 daemon \u2192 helper \u2192 PAM communication across stock SDDM.",
-          "evidence": "docs/architecture/SDDM_AUTHENTICATION_DESIGN.md"
-        },
-        {
-          "id": "S0-05",
-          "title": "Isolated PAM Test Client",
-          "status": "done",
-          "description": "Developed C client testing isolated pam_start_confdir with sddm-fingerprint policy.",
-          "evidence": "tests/integration/isolated_pam_client.c"
-        },
-        {
-          "id": "S0-07",
-          "title": "Method-Aware IPC Definition",
-          "status": "done",
-          "description": "Designed typed protocol messages for request ID, auth method, and progress states.",
-          "evidence": "docs/architecture/SDDM_AUTHENTICATION_DESIGN.md \u00a7Proposed IPC"
-        },
-        {
-          "id": "S1-PLUMB-01",
-          "title": "Patch 0001: Concurrent Auth Methods",
-          "status": "done",
-          "description": "Upstream-quality SDDM daemon patch adding password and fingerprint PAM helpers.",
-          "evidence": "adapters/sddm/patches/0001-concurrent-authentication-methods.patch"
-        },
-        {
-          "id": "S1-PLUMB-03",
-          "title": "IPC Request UUID Binding",
-          "status": "done",
-          "description": "Extended daemon/helper IPC binding every auth transaction to an explicit request UUID.",
-          "evidence": "src/common/Messages.h in patch 0001"
-        },
-        {
-          "id": "S1-PLUMB-04",
-          "title": "Dual Helper Lifecycle Supervision",
-          "status": "done",
-          "description": "Daemon coordinates two concurrent helpers per seat without interfering with session creation.",
-          "evidence": "src/daemon/Display.cpp in patch 0001"
-        },
-        {
-          "id": "S1-PLUMB-05",
-          "title": "Atomic Winner-Selection Gate",
-          "status": "done",
-          "description": "First successful method atomically wins; losing transaction is immediately revoked.",
-          "evidence": "AuthAttemptGate in patch 0001"
-        },
-        {
-          "id": "S1-PLUMB-06",
-          "title": "Losing Transaction Cleanup",
-          "status": "done",
-          "description": "Losing PAM transaction calls pam_end and helper terminates within 5s grace period.",
-          "evidence": "tests/integration/sddm-lab-trace.patch"
-        },
-        {
-          "id": "S1-PLUMB-07",
-          "title": "Winner-Only Session Authorization",
-          "status": "done",
-          "description": "Only the verified winner reaches account management, setcred, and open_session.",
-          "evidence": "Observed in physical matrix R01-R16"
-        },
-        {
-          "id": "S1-PLUMB-08",
-          "title": "Legacy Password & Autologin Preservation",
-          "status": "done",
-          "description": "Stock SDDM behavior remains completely intact when biometric is disabled.",
-          "evidence": "CTest suites & QEMU verification"
-        }
-      ],
-      "summary": {
-        "total": 12,
-        "done": 12,
-        "partial": 0,
-        "blocked": 0,
-        "pending": 0,
-        "percentage": 100.0
-      }
-    },
-    {
-      "id": "subsys-greeter-proxy",
-      "name": "Greeter Proxy & Context Engine (C++)",
-      "subtitle": "Selection serials, context UUIDs, 8 typed states, controlling view, and fallback",
-      "category": "sddm",
-      "items": [
-        {
-          "id": "S2-C-01",
-          "title": "Wire Protocol & 8 Typed States",
-          "status": "done",
-          "description": "Explicit state protocol: unavailable, ready, scanning, retry, matched, failed, cancelled, timed_out.",
-          "evidence": "src/common/Messages.h in patch 0002"
-        },
-        {
-          "id": "S2-C-02",
-          "title": "Selection Serial & Context UUID",
-          "status": "done",
-          "description": "Context acknowledgment tuple binds GreeterProxy properties to daemon request identity.",
-          "evidence": "src/daemon/SocketServer.cpp"
-        },
-        {
-          "id": "S2-C-03",
-          "title": "GreeterProxy Safe Method APIs",
-          "status": "done",
-          "description": "Exposes fingerprint availability, typed states, and explicit start/cancel methods.",
-          "evidence": "src/greeter/GreeterProxy.cpp"
-        },
-        {
-          "id": "S2-C-04",
-          "title": "Controlling View & Mirror Promotion",
-          "status": "done",
-          "description": "Single controlling view ownership prevents multi-screen duplicate sensor activations.",
-          "evidence": "src/greeter/GreeterApp.cpp"
-        },
-        {
-          "id": "S2-C-05",
-          "title": "Embedded Theme Fallback Barrier",
-          "status": "done",
-          "description": "Clean fallback to stock password login if custom QML fails to load or corrupts.",
-          "evidence": "src/greeter/GreeterApp.cpp fallback transition"
-        },
-        {
-          "id": "S2-C-06",
-          "title": "Isolated Qt 6 Build & 10 CTest Suites",
-          "status": "done",
-          "description": "Full compilation in clean container; 9 production suites + 1 theme suite pass 100%.",
-          "evidence": ".work/evidence/sprint2/production-build-20261009.log"
-        },
-        {
-          "id": "S2-C-07",
-          "title": "2026-10-20 Bounded Activation Correction",
-          "status": "done",
-          "description": "Asynchronous StartServiceByName activation of inactive fprintd within 5s deadline on context & retry.",
-          "evidence": "Source commit 480332c & verification.json"
-        }
-      ],
-      "summary": {
-        "total": 7,
-        "done": 7,
-        "partial": 0,
-        "blocked": 0,
-        "pending": 0,
-        "percentage": 100.0
-      }
-    },
-    {
-      "id": "subsys-theme-qml",
-      "name": "SDDM Biometric Theme (QML)",
-      "subtitle": "Touch-free activation, usable password fallback, accessibility, and error guidance",
-      "category": "ui",
-      "items": [
-        {
-          "id": "S0-04",
-          "title": "Rejection of Theme-Only Auth",
-          "status": "done",
-          "description": "Formally proved QML cannot act as authentication authority or start second PAM transactions.",
-          "evidence": "docs/LESSONS.md & Implementation Plan \u00a71"
-        },
-        {
-          "id": "S2-QML-01",
-          "title": "fplogin SDDM Theme Main.qml",
-          "status": "done",
-          "description": "High-contrast, accessible QtQuick/Controls theme without plasma/kde dependencies.",
-          "evidence": "adapters/sddm/assets/theme/Main.qml"
-        },
-        {
-          "id": "S2-QML-02",
-          "title": "Automatic Start Without Enter",
-          "status": "done",
-          "description": "Reader activates automatically upon concrete user selection; zero Enter keystrokes needed.",
-          "evidence": "Theme initialization in Main.qml"
-        },
-        {
-          "id": "S2-QML-03",
-          "title": "Immediately Focused Password Field",
-          "status": "done",
-          "description": "Password field acquires immediate focus; typing is never blocked during scanning.",
-          "evidence": "Main.qml password input bindings"
-        },
-        {
-          "id": "S2-QML-04",
-          "title": "Password Retention on Retry/Timeout",
-          "status": "done",
-          "description": "Typed password text is preserved across biometric timeouts, retry guidance, and cancellations.",
-          "evidence": "Main.qml local text buffer retention"
-        },
-        {
-          "id": "S2-QML-05",
-          "title": "Keyboard Navigation & Virtual Viewport",
-          "status": "done",
-          "description": "Accessible Tab navigation, Enter submission, Escape cancel, and viewport scrolling above virtual keyboard.",
-          "evidence": "Commit c1cddef (viewport fix)"
-        }
-      ],
-      "summary": {
-        "total": 6,
-        "done": 6,
-        "partial": 0,
-        "blocked": 0,
-        "pending": 0,
-        "percentage": 100.0
-      }
-    },
-    {
-      "id": "subsys-hardware-s1",
-      "name": "Sprint 1 Physical Matrix (R01\u2013R16)",
-      "subtitle": "Synaptics 06cb:00bd concurrency, arbitration, races, and cancellation",
-      "category": "hardware",
-      "items": [
-        {
-          "id": "S0-06",
-          "title": "pam_fprintd Cancellation Probe",
-          "status": "done",
-          "description": "Verified sensor release and PAM handle cleanup during active fprintd verification.",
-          "evidence": "docs/hardware/SYNAPTICS_06CB_00BD.md \u00a7Sprint 0"
-        },
-        {
-          "id": "S0-08",
-          "title": "Hardware Baseline Record",
-          "status": "done",
-          "description": "Documented Synaptics 06cb:00bd USB topology, match-on-sensor constraints, and handoff rules.",
-          "evidence": "docs/hardware/SYNAPTICS_06CB_00BD.md"
-        },
-        {
-          "id": "R01",
-          "title": "R01: Concurrent Auth Active",
-          "status": "done",
-          "description": "Two helper PIDs, same request, distinct methods active in PAM simultaneously.",
-          "evidence": "docs/reviews/sprint-1.md (Verified)"
-        },
-        {
-          "id": "R02",
-          "title": "R02: Password Wins While Reader Waits",
-          "status": "done",
-          "description": "Password login succeeds; fingerprint helper terminates and cleans up before session open.",
-          "evidence": "docs/reviews/sprint-1.md (Verified)"
-        },
-        {
-          "id": "R03",
-          "title": "R03: Fingerprint Wins With Password Pending",
-          "status": "done",
-          "description": "Biometric match wins; password loser cleaned up; single session authorized.",
-          "evidence": "docs/reviews/sprint-1.md (Verified)"
-        },
-        {
-          "id": "R04",
-          "title": "R04: Simultaneous Success Arbitration",
-          "status": "done",
-          "description": "Deterministic winner selection when both callbacks occur in tight race conditions.",
-          "evidence": "docs/reviews/sprint-1.md (Verified)"
-        },
-        {
-          "id": "R05",
-          "title": "R05: Fingerprint Cancellation & Late Success",
-          "status": "done",
-          "description": "Cancelled helper cannot win; observed exit releases winner gate cleanly.",
-          "evidence": "docs/reviews/sprint-1.md (Verified)"
-        },
-        {
-          "id": "R06",
-          "title": "R06: User Switch Invalidates Request",
-          "status": "done",
-          "description": "Changing user cancels active biometric helper; old print cannot authenticate new user.",
-          "evidence": "docs/reviews/sprint-1.md (Verified)"
-        },
-        {
-          "id": "R07",
-          "title": "R07: Session Switch Replaces Request",
-          "status": "done",
-          "description": "Selecting another desktop session refreshes request identity and binds helper.",
-          "evidence": "docs/reviews/sprint-1.md (Verified)"
-        },
-        {
-          "id": "R08",
-          "title": "R08: Invalid Finger, Timeout & Unavailable",
-          "status": "done",
-          "description": "Sensor failures do not crash SDDM or prevent subsequent password login.",
-          "evidence": "docs/reviews/sprint-1.md (Verified)"
-        },
-        {
-          "id": "R09",
-          "title": "R09: Display Stop During Auth",
-          "status": "done",
-          "description": "Daemon shutdown sends SIGTERM then SIGKILL to helpers; zero zombie processes.",
-          "evidence": "docs/reviews/sprint-1.md (Verified)"
-        },
-        {
-          "id": "R10",
-          "title": "R10: Fingerprint Failure Then Retry",
-          "status": "done",
-          "description": "Failed biometric attempt allows new generation helper to start successfully.",
-          "evidence": "docs/reviews/sprint-1.md (Verified)"
-        },
-        {
-          "id": "R11",
-          "title": "R11: Password Failure Then Retry",
-          "status": "done",
-          "description": "Invalid password allows typing retry across helper generation lifecycles.",
-          "evidence": "docs/reviews/sprint-1.md (Verified)"
-        },
-        {
-          "id": "R12",
-          "title": "R12: Password-Only Without Reader",
-          "status": "done",
-          "description": "Missing fprintd or sensor falls back transparently to standard password login.",
-          "evidence": "docs/reviews/sprint-1.md (Verified)"
-        },
-        {
-          "id": "R13",
-          "title": "R13: Autologin Preservation",
-          "status": "done",
-          "description": "Stock SDDM autologin executes without spawning biometric helpers.",
-          "evidence": "docs/reviews/sprint-1.md (Verified)"
-        },
-        {
-          "id": "R14",
-          "title": "R14: Logind Session Reuse",
-          "status": "done",
-          "description": "Existing logind user sessions activate without duplicate session leaks.",
-          "evidence": "docs/reviews/sprint-1.md (Verified)"
-        },
-        {
-          "id": "R15",
-          "title": "R15: Logout / Relogin Freshness",
-          "status": "done",
-          "description": "Ending Hyprland session returns cleanly to greeter with fresh authentication context.",
-          "evidence": "docs/reviews/sprint-1.md (Verified)"
-        },
-        {
-          "id": "R16",
-          "title": "R16: Account Policy Denial Recovery",
-          "status": "done",
-          "description": "Denied PAM account check aborts session and allows clean password recovery.",
-          "evidence": "docs/reviews/sprint-1.md (Verified)"
-        }
-      ],
-      "summary": {
-        "total": 18,
-        "done": 18,
-        "partial": 0,
-        "blocked": 0,
-        "pending": 0,
-        "percentage": 100.0
-      }
-    },
-    {
-      "id": "subsys-hardware-s2",
-      "name": "Sprint 2 Actual-Surface Matrix (G01\u2013G16)",
-      "subtitle": "Real QML surface, password retention, invalid fingers, and deadline timing",
-      "category": "hardware",
-      "items": [
-        {
-          "id": "G01",
-          "title": "G01: Cold Greeter Initial User Activation",
-          "status": "partial",
-          "description": "Cold activation verified with active fprintd precondition; live inactive-service retry plumbing verified in preflight.",
-          "evidence": "docs/reviews/sprint-2.md \u00a7G01-b (Verified-scoped)"
-        },
-        {
-          "id": "G02",
-          "title": "G02: Password Wins During Scan",
-          "status": "done",
-          "description": "Typing & submitting password during biometric scan cancels fingerprint loser and logs in cleanly.",
-          "evidence": "docs/reviews/sprint-2.md \u00a7G02 (Verified backend & UI)"
-        },
-        {
-          "id": "G03",
-          "title": "G03: Fingerprint Wins With Password Pending",
-          "status": "partial",
-          "description": "Verified under controlled diagnostic scheduling; natural race interleaving remains pending.",
-          "evidence": "docs/reviews/sprint-2.md \u00a7G03-c (Verified-scoped)"
-        },
-        {
-          "id": "G04",
-          "title": "G04: Invalid Finger Retry & Password Recovery",
-          "status": "done",
-          "description": "Verified on hardware 2026-10-22: non-enrolled finger touch guidance, PAM_MAXTRIES rc=11 exhaustion, normal exit, 34.8s no-restart window, retained password recovery to Hyprland seat0.",
-          "evidence": ".work/evidence/sprint2/g04-20261022-2e8305dc-a1-verdict.json"
-        },
-        {
-          "id": "G05",
-          "title": "G05: Fingerprint 30s Deadline & Races",
-          "status": "pending",
-          "description": "Verify outer 30s timeout yields timed_out only after exit; success-first across deadline vs timeout-first rejection.",
-          "evidence": "Next in queue; autonomous guest-event timing prepared."
-        },
-        {
-          "id": "G06",
-          "title": "G06: Missing Reader/Service & Unenrolled User",
-          "status": "pending",
-          "description": "Verify unavailable states for absent service, absent USB node, and unenrolled account without auto restart loop.",
-          "evidence": "Planned in SPRINT_2_EXECUTION_PLAN.md"
-        },
-        {
-          "id": "G07",
-          "title": "G07: User/Session Change & Rapid A\u2013B\u2013A",
-          "status": "pending",
-          "description": "Verify context change cancels old helper; late result cannot authenticate new user.",
-          "evidence": "Planned in SPRINT_2_EXECUTION_PLAN.md"
-        },
-        {
-          "id": "G08",
-          "title": "G08: Cancel Before Ack & Explicit Retry",
-          "status": "pending",
-          "description": "Verify cancellation before daemon ack is not dropped; retry successfully reclaims reader.",
-          "evidence": "Planned in SPRINT_2_EXECUTION_PLAN.md"
-        },
-        {
-          "id": "G09",
-          "title": "G09: Password Failure Then Retry",
-          "status": "pending",
-          "description": "Verify wrong password failure leaves fingerprint active and allows typing recovery.",
-          "evidence": "Planned in SPRINT_2_EXECUTION_PLAN.md"
-        },
-        {
-          "id": "G10",
-          "title": "G10: Account Denial After Biometric Match",
-          "status": "pending",
-          "description": "Verify PAM account check failure after sensor match prevents session creation and restores fallback.",
-          "evidence": "Planned in SPRINT_2_EXECUTION_PLAN.md"
-        },
-        {
-          "id": "G11",
-          "title": "G11: Partial Theme Startup & Fallback",
-          "status": "pending",
-          "description": "Verify broken QML triggers clean fallback transition to embedded stock password greeter.",
-          "evidence": "Planned in SPRINT_2_EXECUTION_PLAN.md"
-        },
-        {
-          "id": "G12",
-          "title": "G12: Multi-Monitor Display Management",
-          "status": "pending",
-          "description": "Verify exactly one controlling view activates biometric; mirror screen destruction is harmless.",
-          "evidence": "Planned in SPRINT_2_EXECUTION_PLAN.md"
-        },
-        {
-          "id": "G13",
-          "title": "G13: Keyboard Navigation & Scaled Surface",
-          "status": "partial",
-          "description": "Preliminary smoke passed at scale 2x/2.5x; full accessible navigation matrix pending.",
-          "evidence": "Preliminary screenshots verified; matrix pending."
-        },
-        {
-          "id": "G14",
-          "title": "G14: Greeter Destruction, Power & Suspend",
-          "status": "pending",
-          "description": "Verify display manager stop, suspend, and ACPI powerdown cleanly clean up all helpers.",
-          "evidence": "Shutdown helper termination crash observed; orderly cleanup pending."
-        },
-        {
-          "id": "G15",
-          "title": "G15: Logout / Relogin & Compatibility",
-          "status": "pending",
-          "description": "Verify fresh state across multiple login cycles and stock/new proxy compatibility pairings.",
-          "evidence": "Planned in SPRINT_2_EXECUTION_PLAN.md"
-        },
-        {
-          "id": "G16",
-          "title": "G16: Secret Exposure Comprehensive Audit",
-          "status": "pending",
-          "description": "Audit all logs, journal exports, QMP dumps, and core files for prohibited credentials.",
-          "evidence": "Planned in SPRINT_2_EXECUTION_PLAN.md"
-        }
-      ],
-      "summary": {
-        "total": 16,
-        "done": 2,
-        "partial": 3,
-        "blocked": 0,
-        "pending": 11,
-        "percentage": 21.88
-      }
-    },
-    {
-      "id": "subsys-packaging",
-      "name": "Platform Provider & Packaging (Arch)",
-      "subtitle": "Dedicated sddm-fingerprint PAM service, PKGBUILD, drop-ins, and chroot build",
-      "category": "packaging",
-      "items": [
-        {
-          "id": "S1-PLUMB-02",
-          "title": "Dedicated PAM Service sddm-fingerprint",
-          "status": "done",
-          "description": "Independent PAM service file dedicated exclusively to biometric authentication.",
-          "evidence": "adapters/sddm/assets/pam/sddm-fingerprint"
-        },
-        {
-          "id": "S3-01",
-          "title": "sddm-fingerprint PAM Service Definition",
-          "status": "blocked",
-          "description": "Package-owned Arch PAM configuration dedicated to pam_fprintd authentication.",
-          "evidence": "Blocked by Sprint 2 Acceptance Gate."
-        },
-        {
-          "id": "S3-02",
-          "title": "Distribution Account/Session Policy",
-          "status": "blocked",
-          "description": "Reuses system-login account and session policies without prompting for passwords.",
-          "evidence": "Blocked by Sprint 2 Acceptance Gate."
-        },
-        {
-          "id": "S3-03",
-          "title": "Retry & Timeout Module Parameters",
-          "status": "blocked",
-          "description": "Configures pam_fprintd max_tries and timeout options matching SDDM deadline design.",
-          "evidence": "Blocked by Sprint 2 Acceptance Gate."
-        },
-        {
-          "id": "S3-04",
-          "title": "Arch PKGBUILD Recipe",
-          "status": "blocked",
-          "description": "Official Arch packaging script building patched SDDM from pinned commit and patch series.",
-          "evidence": "Blocked by Sprint 2 Acceptance Gate."
-        },
-        {
-          "id": "S3-05",
-          "title": "Package Conflicts / Provides Rules",
-          "status": "blocked",
-          "description": "Conservative package conflicts=(sddm) and provides=(sddm) definitions.",
-          "evidence": "Blocked by Sprint 2 Acceptance Gate."
-        },
-        {
-          "id": "S3-06",
-          "title": "Theme & Assets Packaging",
-          "status": "blocked",
-          "description": "Install targets for /usr/share/sddm/themes/fplogin/ with strict root:root modes.",
-          "evidence": "Blocked by Sprint 2 Acceptance Gate."
-        },
-        {
-          "id": "S3-07",
-          "title": "SDDM Drop-in Configuration",
-          "status": "blocked",
-          "description": "Generates /etc/sddm.conf.d/fplogin.conf selecting theme and authentication settings.",
-          "evidence": "Blocked by Sprint 2 Acceptance Gate."
-        },
-        {
-          "id": "S3-08",
-          "title": "Clean Chroot Build Verification",
-          "status": "blocked",
-          "description": "Compiles and packages reproducibly inside an isolated devtools arch-chroot.",
-          "evidence": "Blocked by Sprint 2 Acceptance Gate."
-        }
-      ],
-      "summary": {
-        "total": 9,
-        "done": 1,
-        "partial": 0,
-        "blocked": 8,
-        "pending": 0,
-        "percentage": 11.11
-      }
-    },
-    {
-      "id": "subsys-installer",
-      "name": "Transactional Installer & Rollback",
-      "subtitle": "Pre-mutation journal, atomic operations, crash recovery, and uninstall",
-      "category": "installer",
-      "items": [
-        {
-          "id": "S4-01",
-          "title": "Read-Only Preflight & Plan Generator",
-          "status": "pending",
-          "description": "Inspects system state and renders declarative change plan without mutating files.",
-          "evidence": "Planned in Implementation Plan \u00a78.1"
-        },
-        {
-          "id": "S4-02",
-          "title": "Dynamic Display Manager Detection",
-          "status": "pending",
-          "description": "Queries platform provider for active/installed DM candidates via systemd aliases.",
-          "evidence": "Planned in Implementation Plan \u00a78.1"
-        },
-        {
-          "id": "S4-03",
-          "title": "Adapter Compatibility Negotiation",
-          "status": "pending",
-          "description": "Matches detected DM with available adapter descriptors using capability predicates.",
-          "evidence": "Planned in docs/architecture/OPEN_POINTS_RESOLUTION.md \u00a73"
-        },
-        {
-          "id": "S4-04",
-          "title": "Prerequisite Validation & Installation",
-          "status": "pending",
-          "description": "Checks fprintd, libfprint, compatible sensor, and enrolled biometric credentials.",
-          "evidence": "Planned in Implementation Plan \u00a78.1"
-        },
-        {
-          "id": "S4-05",
-          "title": "Explicit Confirmation on DM Migration",
-          "status": "pending",
-          "description": "Requires explicit administrator opt-in before disabling LightDM, GDM, or other DMs.",
-          "evidence": "Planned in Implementation Plan \u00a78.1"
-        },
-        {
-          "id": "S4-06",
-          "title": "Atomic File Operations Engine",
-          "status": "pending",
-          "description": "Executes closed vocabulary operations (write_file_atomic, create_directory, etc.).",
-          "evidence": "Planned in docs/architecture/CORE_ADAPTER_ANALYSIS.md \u00a72.4"
-        },
-        {
-          "id": "S4-07",
-          "title": "Pre-Mutation Transaction Journal",
-          "status": "pending",
-          "description": "Writes and fsyncs transaction-journal.json before each mutation stage.",
-          "evidence": "ADR 0003 & contracts/manifest/v1"
-        },
-        {
-          "id": "S4-08",
-          "title": "Crash Recovery & Rollback Engine",
-          "status": "pending",
-          "description": "Reverts partial operations in reverse order using compensation records upon error or interrupt.",
-          "evidence": "Planned in Implementation Plan \u00a78.1"
-        },
-        {
-          "id": "S4-09",
-          "title": "Final Manifest Publication",
-          "status": "pending",
-          "description": "Atomically publishes /var/lib/fplogin/manifest.json only after verification passes.",
-          "evidence": "contracts/manifest/v1/install-manifest.schema.json"
-        },
-        {
-          "id": "S4-10",
-          "title": "Checksum-Aware Uninstaller",
-          "status": "pending",
-          "description": "Reads manifest, verifies file checksums, restores prior DM, and leaves no residual configuration.",
-          "evidence": "Planned in Implementation Plan \u00a78.3"
-        }
-      ],
-      "summary": {
-        "total": 10,
-        "done": 0,
-        "partial": 0,
-        "blocked": 0,
-        "pending": 10,
-        "percentage": 0.0
-      }
-    },
-    {
-      "id": "subsys-analyzer",
-      "name": "System Difference Analyzer",
-      "subtitle": "Probes for PAM, KWallet, GNOME Keyring, LUKS/crypttab, homed, and confidence scoring",
-      "category": "analyzer",
-      "items": [
-        {
-          "id": "S5-01",
-          "title": "PAM Configuration & Include-Tree Probe",
-          "status": "pending",
-          "description": "Inspects PAM stacks to detect password-dependent pam_kwallet, pam_gnome_keyring, etc.",
-          "evidence": "Planned in Implementation Plan \u00a77"
-        },
-        {
-          "id": "S5-02",
-          "title": "KWallet & GNOME Keyring Probes",
-          "status": "pending",
-          "description": "Checks if user wallets are configured to unlock with the login password.",
-          "evidence": "Planned in Implementation Plan \u00a77"
-        },
-        {
-          "id": "S5-03",
-          "title": "Secret Service & Credential Storage Probes",
-          "status": "pending",
-          "description": "Identifies applications expecting automatic secret service unlocking on login.",
-          "evidence": "Planned in Implementation Plan \u00a77"
-        },
-        {
-          "id": "S5-04",
-          "title": "systemd-homed & LUKS Crypttab Probes",
-          "status": "pending",
-          "description": "Reports home directory encryption or secondary volume mounts requiring login passwords.",
-          "evidence": "Planned in Implementation Plan \u00a77"
-        },
-        {
-          "id": "S5-05",
-          "title": "Session Startup Integration Probes",
-          "status": "pending",
-          "description": "Checks desktop environment startup hooks (Hyprland exec-once, xdg-autostart).",
-          "evidence": "Planned in Implementation Plan \u00a77"
-        },
-        {
-          "id": "S5-06",
-          "title": "Confidence Model & Impact Classification",
-          "status": "pending",
-          "description": "Assigns confirmed, likely, or unknown confidence with none, info, degraded, or blocked impact.",
-          "evidence": "contracts/analyzer/v1/finding.schema.json"
-        },
-        {
-          "id": "S5-07",
-          "title": "Terminal Human Report Renderer",
-          "status": "pending",
-          "description": "Renders deterministic terminal text with component, evidence, comparison, and suggestions.",
-          "evidence": "Planned in docs/architecture/OPEN_POINTS_RESOLUTION.md \u00a72.3"
-        },
-        {
-          "id": "S5-08",
-          "title": "Machine-Readable JSON Report Renderer",
-          "status": "pending",
-          "description": "Emits JSON adhering to contracts/analyzer/v1/report.schema.json for external consumption.",
-          "evidence": "contracts/analyzer/v1/report.schema.json"
-        }
-      ],
-      "summary": {
-        "total": 8,
-        "done": 0,
-        "partial": 0,
-        "blocked": 0,
-        "pending": 8,
-        "percentage": 0.0
-      }
-    },
-    {
-      "id": "subsys-hardening-release",
-      "name": "Security Hardening & Upstream Release",
-      "subtitle": "Threat modeling, fuzzing, secret leak audit, hyprlock handoff, and upstream PR",
-      "category": "release",
-      "items": [
-        {
-          "id": "S6-01",
-          "title": "Greeter IPC Threat Modeling & Fuzzing",
-          "status": "pending",
-          "description": "Fuzz SocketServer and GreeterProxy with malformed packets, stale serials, and out-of-order UUIDs.",
-          "evidence": "Planned in Implementation Plan \u00a710.6"
-        },
-        {
-          "id": "S6-02",
-          "title": "Helper Process Lifecycle Stress Tests",
-          "status": "pending",
-          "description": "Test helper crashes (SIGSEGV, SIGKILL) and ensure daemon recovers and cleans up PID states.",
-          "evidence": "Planned in Implementation Plan \u00a710.6"
-        },
-        {
-          "id": "S6-03",
-          "title": "fprintd Service Fault Injection",
-          "status": "pending",
-          "description": "Simulate sudden sensor detachment, D-Bus service crash, and slow response timeouts.",
-          "evidence": "Planned in Implementation Plan \u00a710.6"
-        },
-        {
-          "id": "S6-04",
-          "title": "Zero Secret Leakage Audit",
-          "status": "pending",
-          "description": "Exhaustively scan logs, core dumps, journal exports, and IPC streams for passwords and biometric templates.",
-          "evidence": "Implementation Plan \u00a73.2 (Invariants)"
-        },
-        {
-          "id": "S6-05",
-          "title": "Filesystem Security & Symlink Audit",
-          "status": "pending",
-          "description": "Verify mode 0600/0700 enforcement, no symlink traversal vulnerabilities, and safe temp files.",
-          "evidence": "Planned in Implementation Plan \u00a710.6"
-        },
-        {
-          "id": "S6-06",
-          "title": "CVE-Relevant Attention/Intent UI Review",
-          "status": "pending",
-          "description": "Audit greeter against visual spoofing and deceptive state indicators.",
-          "evidence": "Planned in Implementation Plan \u00a710.6"
-        },
-        {
-          "id": "S6-07",
-          "title": "Privileged Code Security Review",
-          "status": "pending",
-          "description": "Independent security audit of sddm-helper PAM backend, setuid transitions, and installer root execution.",
-          "evidence": "Planned in Implementation Plan \u00a710.6"
-        },
-        {
-          "id": "S6-08",
-          "title": "Resource Exhaustion & DoS Limits",
-          "status": "pending",
-          "description": "Validate max helper limits, rate limiting on rapid retries, and bounded memory usage.",
-          "evidence": "Planned in Implementation Plan \u00a710.6"
-        },
-        {
-          "id": "S7-01",
-          "title": "Complete Cold-Boot Lifecycle Matrix",
-          "status": "pending",
-          "description": "Full automated test matrix covering boot, sleep/wake, display plug/unplug, and reboot.",
-          "evidence": "Planned in Implementation Plan \u00a710.7"
-        },
-        {
-          "id": "S7-02",
-          "title": "Hyprlock Handoff Verification",
-          "status": "pending",
-          "description": "Verify sensor release by SDDM helper allows smooth hyprlock lockscreen fingerprint acquisition.",
-          "evidence": "Planned in Implementation Plan \u00a710.7"
-        },
-        {
-          "id": "S7-03",
-          "title": "Clean Install -> Login -> Uninstall Cycle",
-          "status": "pending",
-          "description": "Full end-to-end lifecycle on pristine Arch test installation without operator intervention.",
-          "evidence": "Planned in Implementation Plan \u00a710.7"
-        },
-        {
-          "id": "S7-04",
-          "title": "Emergency Recovery Documentation",
-          "status": "pending",
-          "description": "Verified documentation for TTY recovery, manual package downgrade, and safe rollback.",
-          "evidence": "Planned in Implementation Plan \u00a710.7"
-        },
-        {
-          "id": "S7-05",
-          "title": "Upstream SDDM Pull Request",
-          "status": "pending",
-          "description": "Split, reviewable, upstream-quality Git commit series submitted to github.com/sddm/sddm.",
-          "evidence": "Planned in Implementation Plan \u00a71"
-        },
-        {
-          "id": "S7-06",
-          "title": "Upstream Tracking & Conflict Strategy",
-          "status": "pending",
-          "description": "Documented procedure for rebasing patches against new upstream SDDM releases.",
-          "evidence": "Planned in Implementation Plan \u00a710.7"
-        },
-        {
-          "id": "S7-07",
-          "title": "Signed Release Artifacts & Checksums",
-          "status": "pending",
-          "description": "Cryptographically signed tarballs, pacman packages, and verification manifests.",
-          "evidence": "Planned in Implementation Plan \u00a710.7"
-        },
-        {
-          "id": "S7-08",
-          "title": "Final Independent Acceptance Review",
-          "status": "pending",
-          "description": "Formal Sol gate sign-off verifying all DoD requirements before v1.0 tag.",
-          "evidence": "Implementation Plan \u00a712 (Definition of Done)"
-        }
-      ],
-      "summary": {
-        "total": 16,
-        "done": 0,
-        "partial": 0,
-        "blocked": 0,
-        "pending": 16,
-        "percentage": 0.0
+        "percentage": 62.5
       }
     }
   ]
