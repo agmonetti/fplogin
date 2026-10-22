@@ -9,6 +9,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -404,3 +405,158 @@ func TestExecute_PlatformDelegation(t *testing.T) {
 		t.Errorf("expected 1 platform call, got %d", len(fakePlat.calledOps))
 	}
 }
+
+func TestExecute_SymlinkRejection(t *testing.T) {
+	newExec := func(t *testing.T, id string, opIDs []string) *Executor {
+		tmpDir := t.TempDir()
+		j := validTestJournal(t, tmpDir, id, opIDs)
+		exec, err := NewExecutor(j, nil, filepath.Join(tmpDir, "backups"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return exec
+	}
+
+	t.Run("relative_path_rejected", func(t *testing.T) {
+		exec := newExec(t, "tx-rel", []string{"op-rel"})
+		relOp := protocol.Operation{
+			OperationID:    "op-rel",
+			Kind:           protocol.WriteFileAtomic,
+			Dependencies:   []string{},
+			Preconditions:  []json.RawMessage{},
+			ExpectedBefore: protocol.Object{"existed": json.RawMessage(`false`)},
+			ExpectedAfter:  protocol.Object{"existed": json.RawMessage(`true`)},
+			Parameters: json.RawMessage(`{
+				"destination_path": "relative/file.txt",
+				"content_base64": "` + base64.StdEncoding.EncodeToString([]byte("hello")) + `",
+				"sha256": "` + testSHA256([]byte("hello")) + `",
+				"mode": "0644",
+				"owner": "root",
+				"group": "root"
+			}`),
+			Compensation: json.RawMessage(`{"kind":"remove_file","path":"relative/file.txt"}`),
+		}
+		_, err := exec.Execute(context.Background(), relOp)
+		if err == nil || (!errors.Is(err, ErrInvalidPath) && !strings.Contains(err.Error(), "path must be canonical and absolute")) {
+			t.Fatalf("expected ErrInvalidPath or canonical/absolute error, got %v", err)
+		}
+	})
+
+	t.Run("direct_symlink_rejected", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		j := validTestJournal(t, tmpDir, "tx-sym", []string{"op-sym"})
+		exec, err := NewExecutor(j, nil, filepath.Join(tmpDir, "backups"))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		realFile := filepath.Join(tmpDir, "real_target.txt")
+		if err := os.WriteFile(realFile, []byte("target"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		symlinkPath := filepath.Join(tmpDir, "symlink_file.txt")
+		if err := os.Symlink(realFile, symlinkPath); err != nil {
+			t.Fatal(err)
+		}
+
+		symOp := protocol.Operation{
+			OperationID:    "op-sym",
+			Kind:           protocol.WriteFileAtomic,
+			Dependencies:   []string{},
+			Preconditions:  []json.RawMessage{},
+			ExpectedBefore: protocol.Object{"existed": json.RawMessage(`false`)},
+			ExpectedAfter:  protocol.Object{"existed": json.RawMessage(`true`)},
+			Parameters: json.RawMessage(`{
+				"destination_path": "` + symlinkPath + `",
+				"content_base64": "` + base64.StdEncoding.EncodeToString([]byte("hello")) + `",
+				"sha256": "` + testSHA256([]byte("hello")) + `",
+				"mode": "0644",
+				"owner": "root",
+				"group": "root"
+			}`),
+			Compensation: json.RawMessage(`{"kind":"remove_file","path":"` + symlinkPath + `"}`),
+		}
+		_, err = exec.Execute(context.Background(), symOp)
+		if !errors.Is(err, ErrSymlinkRejected) {
+			t.Fatalf("expected ErrSymlinkRejected when writing through symlink, got %v", err)
+		}
+	})
+
+	t.Run("ancestor_symlink_rejected", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		j := validTestJournal(t, tmpDir, "tx-anc", []string{"op-anc"})
+		exec, err := NewExecutor(j, nil, filepath.Join(tmpDir, "backups"))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		subRealDir := filepath.Join(tmpDir, "real_sub")
+		if err := os.MkdirAll(subRealDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		symlinkDir := filepath.Join(tmpDir, "sym_dir")
+		if err := os.Symlink(subRealDir, symlinkDir); err != nil {
+			t.Fatal(err)
+		}
+		escapedFile := filepath.Join(symlinkDir, "file_in_symlink.txt")
+
+		symAncestorOp := protocol.Operation{
+			OperationID:    "op-anc",
+			Kind:           protocol.WriteFileAtomic,
+			Dependencies:   []string{},
+			Preconditions:  []json.RawMessage{},
+			ExpectedBefore: protocol.Object{"existed": json.RawMessage(`false`)},
+			ExpectedAfter:  protocol.Object{"existed": json.RawMessage(`true`)},
+			Parameters: json.RawMessage(`{
+				"destination_path": "` + escapedFile + `",
+				"content_base64": "` + base64.StdEncoding.EncodeToString([]byte("hello")) + `",
+				"sha256": "` + testSHA256([]byte("hello")) + `",
+				"mode": "0644",
+				"owner": "root",
+				"group": "root"
+			}`),
+			Compensation: json.RawMessage(`{"kind":"remove_file","path":"` + escapedFile + `"}`),
+		}
+		_, err = exec.Execute(context.Background(), symAncestorOp)
+		if !errors.Is(err, ErrSymlinkRejected) {
+			t.Fatalf("expected ErrSymlinkRejected for ancestor symlink, got %v", err)
+		}
+	})
+
+	t.Run("remove_symlink_rejected", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		j := validTestJournal(t, tmpDir, "tx-rem", []string{"op-rem"})
+		exec, err := NewExecutor(j, nil, filepath.Join(tmpDir, "backups"))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		realFile := filepath.Join(tmpDir, "real_target.txt")
+		if err := os.WriteFile(realFile, []byte("target"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		symlinkPath := filepath.Join(tmpDir, "symlink_file.txt")
+		if err := os.Symlink(realFile, symlinkPath); err != nil {
+			t.Fatal(err)
+		}
+
+		symRemoveOp := protocol.Operation{
+			OperationID:    "op-rem",
+			Kind:           protocol.RemoveOwnedFile,
+			Dependencies:   []string{},
+			Preconditions:  []json.RawMessage{},
+			ExpectedBefore: protocol.Object{"existed": json.RawMessage(`true`)},
+			ExpectedAfter:  protocol.Object{"existed": json.RawMessage(`false`)},
+			Parameters: json.RawMessage(`{
+				"path": "` + symlinkPath + `",
+				"expected_sha256": "` + testSHA256([]byte("target")) + `"
+			}`),
+			Compensation: json.RawMessage(`{"kind":"restore_file","path":"` + symlinkPath + `"}`),
+		}
+		_, err = exec.Execute(context.Background(), symRemoveOp)
+		if !errors.Is(err, ErrSymlinkRejected) {
+			t.Fatalf("expected ErrSymlinkRejected when removing symlink, got %v", err)
+		}
+	})
+}
+

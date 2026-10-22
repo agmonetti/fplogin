@@ -26,6 +26,8 @@ var (
 	ErrPrecondition    = errors.New("operation precondition violated")
 	ErrRollbackFailed  = errors.New("rollback compensation failed")
 	ErrUnsupportedKind = errors.New("unsupported operation kind")
+	ErrSymlinkRejected = errors.New("destination path or target cannot be a symlink")
+	ErrInvalidPath     = errors.New("path must be canonical and absolute")
 )
 
 // PlatformApplier abstracts the execution of platform-specific operations
@@ -186,6 +188,37 @@ func (e *Executor) Rollback(ctx context.Context) ([]manifestv1.OperationReceipt,
 	return rollbackReceipts, nil
 }
 
+// validateSafePath verifies that a target path is absolute, clean, and not a symlink.
+func validateSafePath(p string) error {
+	if p == "" || !filepath.IsAbs(p) || filepath.Clean(p) != p {
+		return fmt.Errorf("%w: path %q must be absolute and clean", ErrInvalidPath, p)
+	}
+
+	// Check if the path itself is a symlink
+	if fi, err := os.Lstat(p); err == nil {
+		if fi.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("%w: path %q is a symlink", ErrSymlinkRejected, p)
+		}
+	}
+
+	// Check if any existing ancestor directory is a symlink
+	curr := filepath.Dir(p)
+	for curr != "/" && curr != "." && curr != "" {
+		if fi, err := os.Lstat(curr); err == nil {
+			if fi.Mode()&os.ModeSymlink != 0 {
+				return fmt.Errorf("%w: ancestor directory %q is a symlink", ErrSymlinkRejected, curr)
+			}
+		}
+		parent := filepath.Dir(curr)
+		if parent == curr {
+			break
+		}
+		curr = parent
+	}
+
+	return nil
+}
+
 // ---------------------------------------------------------------------------
 // Local atomic operations
 // ---------------------------------------------------------------------------
@@ -198,6 +231,10 @@ func (e *Executor) execCreateDirectory(op protocol.Operation, startedAt string) 
 		Group string `json:"group"`
 	}
 	if err := json.Unmarshal(op.Parameters, &params); err != nil {
+		return manifestv1.OperationReceipt{}, err
+	}
+
+	if err := validateSafePath(params.Path); err != nil {
 		return manifestv1.OperationReceipt{}, err
 	}
 
@@ -246,6 +283,10 @@ func (e *Executor) execWriteFileAtomic(op protocol.Operation, startedAt string) 
 		Group           string `json:"group"`
 	}
 	if err := json.Unmarshal(op.Parameters, &params); err != nil {
+		return manifestv1.OperationReceipt{}, err
+	}
+
+	if err := validateSafePath(params.DestinationPath); err != nil {
 		return manifestv1.OperationReceipt{}, err
 	}
 
@@ -352,6 +393,10 @@ func (e *Executor) execRemoveOwnedFile(op protocol.Operation, startedAt string) 
 		ExpectedSHA256 string `json:"expected_sha256"`
 	}
 	if err := json.Unmarshal(op.Parameters, &params); err != nil {
+		return manifestv1.OperationReceipt{}, err
+	}
+
+	if err := validateSafePath(params.Path); err != nil {
 		return manifestv1.OperationReceipt{}, err
 	}
 
