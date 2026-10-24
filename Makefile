@@ -1,4 +1,4 @@
-.PHONY: all build clean test fuzz coverage lint verify-architecture package ci
+.PHONY: all build clean test fuzz coverage lint verify-architecture package ci dashboard-screenshot
 
 # Output directories and binary targets
 BIN_DIR := bin
@@ -58,4 +58,10 @@ package: build
 # Clean build artifacts
 clean:
 	rm -rf $(BIN_DIR) target/
+
+# Generate dashboard screenshot for documentation and README
+dashboard-screenshot:
+	@mkdir -p docs/assets
+	@google-chrome-stable --headless --disable-gpu --no-sandbox --window-size=1440,1100 --screenshot=docs/assets/dashboard.png file://$(CURDIR)/dashboard.html
+	@echo "Dashboard screenshot saved to docs/assets/dashboard.png"
 

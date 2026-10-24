@@ -2,6 +2,8 @@
 
 Biometric login for Linux, under active development. The v1 target is fingerprint login from SDDM with no Enter key, no in-place edits to existing system configuration, and no password storage.
 
+[![fplogin Project Telemetry & Milestone Matrix](docs/assets/dashboard.png)](dashboard.html)
+
 ## The problem
 
 SDDM does not natively support fingerprint authentication. Users must type their password or, with manual PAM tweaks, press Enter and then place their finger. There is no built-in experience where the reader activates automatically and works in parallel with the password field.
