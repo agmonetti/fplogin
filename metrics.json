@@ -4,10 +4,10 @@
     "tagline": "Biometric Fingerprint Authentication for Linux Display Managers",
     "target_v1": "Arch Linux · systemd · SDDM 0.21.0 · fprintd / libfprint · Hyprland",
     "reference_hardware": "Synaptics 06cb:00bd (match-on-sensor USB)",
-    "last_updated": "2026-10-22",
+    "last_updated": "2026-10-24",
     "current_gate": "Sprint 2 (Repetir / Bloqueado en Hardware Real)",
     "current_gate_status": "in_progress",
-    "latest_achievement": "CI automatizado (.github/workflows), PKGBUILD Arch verificado y target make ci integrado",
+    "latest_achievement": "Arneses de orquestación de G05 preparados y cobertura de tests del Core reforzada (selection, descriptortrust, processrunner)",
     "next_step": "G05 a G16: Retesteo físico en hardware con sensor Synaptics bajo temporización de eventos de invitado (sin reloj de chat)",
     "summary": {
       "total_items": 160,
