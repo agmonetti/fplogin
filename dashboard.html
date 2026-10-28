@@ -905,24 +905,24 @@
     <!-- Global Metrics Grid -->
     <div class="metrics-summary-grid mono">
       <div class="metric-card accent">
-        <div class="metric-label">Progreso Global</div>
-        <div class="metric-val" id="val-pct">75.0%</div>
-        <div class="metric-sub" id="val-fraction">120 / 160 tareas</div>
+        <div class="metric-label">Ítems registrados (no aceptación)</div>
+        <div class="metric-val" id="val-pct">79.0%</div>
+        <div class="metric-sub" id="val-fraction">120 / 152 tareas</div>
       </div>
       <div class="metric-card done">
         <div class="metric-label">Completadas (Done)</div>
         <div class="metric-val" id="val-done" style="color: var(--status-done-text);">120</div>
-        <div class="metric-sub">S4, S5, S6A, S7A cerrados</div>
+        <div class="metric-sub">Conteo de ítems; sprints posteriores no aceptados</div>
       </div>
       <div class="metric-card partial">
         <div class="metric-label">Parciales (In Progress)</div>
-        <div class="metric-val" id="val-partial" style="color: var(--status-partial-text);">2</div>
-        <div class="metric-sub">G01, G03 (retest pendiente)</div>
+        <div class="metric-val" id="val-partial" style="color: var(--status-partial-text);">5</div>
+        <div class="metric-sub">Evidencia parcial y scaffolding; no cierre de gate</div>
       </div>
       <div class="metric-card blocked">
-        <div class="metric-label">Bloqueadas (Hardware Gate)</div>
-        <div class="metric-val" id="val-blocked" style="color: var(--status-blocked-text);">32</div>
-        <div class="metric-sub">G05-G16, S3 multi-DM, S6 IPC</div>
+        <div class="metric-label">Bloqueadas (gates pendientes)</div>
+        <div class="metric-val" id="val-blocked" style="color: var(--status-blocked-text);">21</div>
+        <div class="metric-sub">G05-G16, S3 PAM/paquetes, S6 IPC</div>
       </div>
       <div class="metric-card pending">
         <div class="metric-label">Pendientes (Planned)</div>
@@ -965,7 +965,7 @@
     <div class="filters-group mono">
       <button class="filter-btn active" data-filter="all">TODAS (<span id="cnt-filter-all">160</span>)</button>
       <button class="filter-btn done" data-filter="done">COMPLETADAS (<span id="cnt-filter-done">120</span>)</button>
-      <button class="filter-btn blocked" data-filter="blocked">BLOQUEADAS EN HARDWARE (<span id="cnt-filter-blocked">32</span>)</button>
+      <button class="filter-btn blocked" data-filter="blocked">BLOQUEADAS POR GATES (<span id="cnt-filter-blocked">21</span>)</button>
       <button class="filter-btn partial" data-filter="partial">PARCIALES (<span id="cnt-filter-partial">2</span>)</button>
       <button class="filter-btn pending" data-filter="pending">PENDIENTES (<span id="cnt-filter-pending">6</span>)</button>
     </div>
@@ -1026,7 +1026,7 @@
     <div class="modal-field">
       <div class="modal-label">CRITERIOS DE CONFORMIDAD Y TESTS</div>
       <div class="modal-value" id="modal-criteria">
-        Suite de pruebas unitarias y fuzzer nativo de Go (>90,000 ejecuciones aleatorias) verificando tolerancia a fallos, truncamiento y validación estricta de esquemas.
+        Suite de pruebas unitarias y fuzzer nativo de Go (&gt;90,000 ejecuciones aleatorias) verificando tolerancia a fallos, truncamiento y validación estricta de esquemas.
       </div>
     </div>
   </div>
@@ -1040,18 +1040,18 @@
     "tagline": "Biometric Fingerprint Authentication for Linux Display Managers",
     "target_v1": "Arch Linux · systemd · SDDM 0.21.0 · fprintd / libfprint · Hyprland",
     "reference_hardware": "Synaptics 06cb:00bd (match-on-sensor USB)",
-    "last_updated": "2026-10-22",
+    "last_updated": "2026-10-28",
     "current_gate": "Sprint 2 (Repetir / Bloqueado en Hardware Real)",
     "current_gate_status": "in_progress",
-    "latest_achievement": "CI automatizado (.github/workflows), PKGBUILD Arch verificado y target make ci integrado",
-    "next_step": "G05 a G16: Retesteo físico en hardware con sensor Synaptics bajo temporización de eventos de invitado (sin reloj de chat)",
+    "latest_achievement": "G04 documentado; checkpoint diagnóstico G05 preservado. Receta Go existente, no aceptación del paquete SDDM parcheado.",
+    "next_step": "Completar y revisar preparación offline G05. Despliegue y retesteo físico requieren autorización nueva; Sprint 3 sigue bloqueado.",
     "summary": {
-      "total_items": 160,
-      "done": 122,
-      "partial": 2,
-      "blocked": 30,
+      "total_items": 152,
+      "done": 120,
+      "partial": 5,
+      "blocked": 21,
       "pending": 6,
-      "percentage": 76.25
+      "percentage": 78.95
     }
   },
   "sprints": [
@@ -1691,8 +1691,8 @@
       "summary": {
         "total": 28,
         "done": 14,
-        "partial": 2,
-        "blocked": 12,
+        "partial": 3,
+        "blocked": 11,
         "pending": 0,
         "percentage": 50.0
       }
@@ -1700,137 +1700,81 @@
     {
       "id": "sprint-3",
       "name": "Sprint 3",
-      "subtitle": "Coexistencia de Display Managers, Migración y Empaquetado",
+      "subtitle": "Servicio PAM y Empaquetado Arch/SDDM — pendiente de aceptación de Sprint 2",
       "status": "blocked",
-      "goal": "Construir soporte para múltiples Display Managers (LightDM, GDM, SDDM), conmutación de alias de systemd display-manager.service, rollback automático ante fallo de arranque y empaquetado AUR/PKGBUILD.",
+      "goal": "Empaquetar reproduciblemente SDDM parcheado, servicio PAM dedicado y tema para Arch, con recuperación TTY y retorno a SDDM stock. Alcance: docs/IMPLEMENTATION_PLAN.md, Sprint 3. Migración automatizada corresponde a Sprint 4; nuevos adapters y distribuciones quedan fuera de v1.",
       "items": [
         {
           "id": "S3-01",
           "title": "Definición de Servicio PAM sddm-fingerprint",
           "status": "blocked",
-          "description": "Especificación modular de la pila PAM para huella según la distribución (Arch, Fedora, Debian) sin modificar system-auth.",
-          "evidence": "adapters/sddm/packaging/pam/"
+          "description": "Servicio dedicado para Arch que no modifica PAM global ni el servicio sddm de contraseña. Entregable pendiente, no evidencia de implementación.",
+          "evidence": "docs/IMPLEMENTATION_PLAN.md"
         },
         {
           "id": "S3-02",
           "title": "Política de Cuentas y Sesión de la Distribución",
           "status": "blocked",
-          "description": "Integración de módulos pam_nologin, pam_limits y pam_systemd en el flujo secundario.",
-          "evidence": "adapters/sddm/packaging/pam/"
+          "description": "Reutilizar la política Arch de cuenta y sesión sin invocar autenticación por contraseña después del éxito biométrico; verificar restricciones de cuenta y apertura de sesión.",
+          "evidence": "docs/IMPLEMENTATION_PLAN.md"
         },
         {
           "id": "S3-03",
           "title": "Parámetros de Módulo de Reintento y Timeout",
           "status": "blocked",
-          "description": "Configuración declarativa de max_tries y timeout_seconds para pam_fprintd en archivo drop-in.",
-          "evidence": "adapters/sddm/packaging/pam/"
+          "description": "Definir y verificar reintentos y timeout del servicio PAM dedicado, diferenciándolos del deadline del daemon; no asumir parámetros de módulo sin validarlos.",
+          "evidence": "docs/IMPLEMENTATION_PLAN.md"
         },
         {
           "id": "S3-04",
-          "title": "Receta Arch PKGBUILD para fplogin",
-          "status": "done",
-          "description": "Script de empaquetado oficial para Arch Linux que compila binarios Go, instala descriptores y empaqueta el tema QML.",
+          "title": "Receta Arch para el Stack SDDM Parcheado",
+          "status": "partial",
+          "description": "Existe receta para herramientas Go y descriptores. No compila SDDM parcheado: faltan fuente y serie aceptada fijadas por checksum, sin overlays diagnósticos. Sprint 3 no iniciado ni aceptado.",
           "evidence": "platforms/arch/PKGBUILD"
         },
         {
           "id": "S3-05",
           "title": "Reglas de Conflicts / Provides en Gestor de Paquetes",
-          "status": "done",
-          "description": "Definición de dependencias pacman evitando conflictos con sddm upstream mediante sustitución o drop-ins limpios.",
+          "status": "partial",
+          "description": "La receta existente declara provides/conflicts de fplogin, no de SDDM. Falta definir conservadoramente propiedad, dependencias y reemplazo/retorno del paquete SDDM; sin sustitución automática aprobada.",
           "evidence": "platforms/arch/PKGBUILD"
         },
         {
           "id": "S3-06",
           "title": "Empaquetado de Tema y Assets de Interfaz",
           "status": "blocked",
-          "description": "Instalación de iconos vectoriales, fuentes y componentes QML en /usr/share/sddm/themes/fplogin/ con permisos de lectura.",
-          "evidence": "adapters/sddm/themes/"
+          "description": "Empaquetar los assets existentes y licencias con propiedad y modos correctos; comprobar que Main.qml quede en la raíz del tema, no bajo theme/. No añadir fuentes o iconos no requeridos.",
+          "evidence": "adapters/sddm/assets/theme/"
         },
         {
           "id": "S3-07",
-          "title": "Configuración Drop-in de SDDM (/etc/sddm.conf.d/)",
+          "title": "Recuperación TTY y Retorno a SDDM Stock",
           "status": "blocked",
-          "description": "Generación automática del archivo 90-fplogin.conf configurando Current=fplogin sin pisar sddm.conf global.",
-          "evidence": "adapters/sddm/packaging/"
+          "description": "Documentar y verificar retirada/reemplazo del paquete y retorno a contraseña con SDDM stock. Quitar el paquete no reinstala stock por sí solo. Automatización del instalador pertenece a Sprint 4.",
+          "evidence": "docs/IMPLEMENTATION_PLAN.md"
         },
         {
           "id": "S3-08",
           "title": "Verificación de Compilación en Chroot Limpio",
           "status": "blocked",
-          "description": "Prueba con devtools (extra-x86_64-build) garantizando que el paquete compila de forma reproducible en entorno estéril.",
-          "evidence": "docs/packaging/REPRODUCIBLE.md"
-        },
-        {
-          "id": "S3-09",
-          "title": "Sonda de Detección de Greeter Activo LightDM",
-          "status": "blocked",
-          "description": "Inspección de /etc/lightdm/lightdm.conf y procesos lightdm en ejecución para determinar el greeter activo.",
-          "evidence": "adapters/lightdm/detector.go"
-        },
-        {
-          "id": "S3-10",
-          "title": "Matriz de Compatibilidad PAM para GDM (GNOME)",
-          "status": "blocked",
-          "description": "Análisis de la pila gdm-fingerprint nativa de GNOME y estrategias de co-existencia sin interferencias.",
-          "evidence": "docs/architecture/GDM_COEXISTENCE.md"
-        },
-        {
-          "id": "S3-11",
-          "title": "Conmutador de Alias display-manager.service en systemd",
-          "status": "blocked",
-          "description": "Módulo seguro para redirigir el symlink /etc/systemd/system/display-manager.service de forma atómica.",
-          "evidence": "internal/core/install/ops.go"
-        },
-        {
-          "id": "S3-12",
-          "title": "Hook Atómico de Backup y Rollback de PAM",
-          "status": "blocked",
-          "description": "Respaldo de cada archivo PAM afectado antes de cualquier cambio y restauración garantizada ante señal de interrupción.",
-          "evidence": "internal/core/install/ops.go"
-        },
-        {
-          "id": "S3-13",
-          "title": "Rollback Automático por Fallo de Inicio de DM",
-          "status": "blocked",
-          "description": "Watchdog que detecta si el nuevo Display Manager falla al iniciar y restaura el DM anterior en menos de 10 segundos.",
-          "evidence": "internal/core/install/installer.go"
-        },
-        {
-          "id": "S3-14",
-          "title": "Detector de Conflictos Multi-Sesión y Wayland",
-          "status": "blocked",
-          "description": "Verificación de variables XDG_SESSION_TYPE y compatibilidad con drivers propietarios NVIDIA antes de conmutar.",
-          "evidence": "internal/core/analyze/session.go"
-        },
-        {
-          "id": "S3-15",
-          "title": "Generador de Plan de Migración de DM (Dry-Run)",
-          "status": "blocked",
-          "description": "Modo de simulación que imprime exactamente qué symlinks y servicios se modificarían sin tocar el disco.",
-          "evidence": "cmd/fplogin/main.go"
-        },
-        {
-          "id": "S3-16",
-          "title": "Arnés de Pruebas de Coexistencia de DMs",
-          "status": "blocked",
-          "description": "Test automatizado en máquina virtual con LightDM y SDDM instalados en paralelo conmutando ida y vuelta con éxito.",
-          "evidence": "tests/integration/core/dm_coexistence_test.go"
+          "description": "Construir en entorno Arch limpio, registrar herramientas/fuentes y comparar reconstrucciones. Verificar archivos package-owned, modos y hashes; después, ciclo de instalación, ambos métodos, restricciones de cuenta y rollback en invitado autorizado. Compilar no prueba reproducibilidad ni aceptación.",
+          "evidence": "docs/IMPLEMENTATION_PLAN.md"
         }
       ],
       "summary": {
-        "total": 16,
-        "done": 2,
-        "partial": 0,
-        "blocked": 14,
+        "total": 8,
+        "done": 0,
+        "partial": 2,
+        "blocked": 6,
         "pending": 0,
-        "percentage": 12.5
+        "percentage": 0.0
       }
     },
     {
       "id": "sprint-4",
       "name": "Sprint 4",
-      "subtitle": "Motor Transaccional Core, Journaling WAL y Operaciones Atómicas (100% Completado)",
-      "status": "done",
+      "subtitle": "Motor Transaccional — avances registrados, sprint no aceptado",
+      "status": "blocked",
       "goal": "Construir el motor de transacciones con escritura anticipada (WAL), compensación de rollback ante caídas, validación estricta de rutas canónicas, orquestador de 13 fases y desinstalador verificado por checksums.",
       "items": [
         {
@@ -1958,8 +1902,8 @@
     {
       "id": "sprint-5",
       "name": "Sprint 5",
-      "subtitle": "Analizador de Diferencias del Sistema (System Difference Analyzer, 100% Completado)",
-      "status": "done",
+      "subtitle": "Analizador — avances registrados, sprint no aceptado",
+      "status": "blocked",
       "goal": "Desarrollar un analizador de solo lectura que audita recursivamente la configuración PAM, detecta almacenes de credenciales (KWallet, GNOME Keyring), volúmenes cifrados (systemd-homed, crypttab) e impacto en compositores.",
       "items": [
         {
@@ -2087,8 +2031,8 @@
     {
       "id": "sprint-6",
       "name": "Sprint 6",
-      "subtitle": "Hardening de Seguridad, Validación AST y Aislamiento de Recursos (Sprint 6A 100% Completado)",
-      "status": "in_progress",
+      "subtitle": "Seguridad — avances registrados, aceptación pendiente de gates previos",
+      "status": "blocked",
       "goal": "Blindar el núcleo contra ataques de evasión de symlinks, fugas de secretos en registros/reportes, límites de buffers en subprocesos, verificación AST de fronteras core y pruebas de robustez.",
       "items": [
         {
@@ -2202,8 +2146,8 @@
     {
       "id": "sprint-7",
       "name": "Sprint 7",
-      "subtitle": "Documentación de Release, Automatización de Build, Subprocesos y Telemetría (Sprint 7A 100% Completado)",
-      "status": "in_progress",
+      "subtitle": "Release — avances registrados, aceptación pendiente de gates previos",
+      "status": "blocked",
       "goal": "Publicar guías de recuperación de emergencia, matriz de soporte, binarios de subprocesos fuera de proceso para Arch y SDDM, pruebas de pipes IPC E2E y telemetría granular de proyecto.",
       "items": [
         {
@@ -2619,9 +2563,9 @@
     document.getElementById('modal-evidence').textContent = item.evidence || 'N/A';
 
     const statusLabel = 
-      item.status === 'done' ? 'COMPLETADO (100% VERIFICADO)' :
+      item.status === 'done' ? 'REGISTRADO COMO COMPLETADO (NO ACEPTACIÓN DEL SPRINT)' :
       item.status === 'partial' ? 'EN PROGRESO / PARCIALMENTE OBSERVADO' :
-      item.status === 'blocked' ? 'BLOQUEADO EN COMPUERTA DE HARDWARE FÍSICO' : 'PENDIENTE / PLANIFICADO';
+      item.status === 'blocked' ? 'BLOQUEADO POR GATE PENDIENTE' : 'PENDIENTE / PLANIFICADO';
 
     document.getElementById('modal-badge-container').innerHTML = `
       <span class="badge-status ${item.status} mono" style="font-size: 11px; padding: 4px 10px;">${statusLabel}</span>
@@ -2629,9 +2573,9 @@
 
     document.getElementById('modal-criteria').textContent = 
       item.status === 'done' 
-        ? `Verificado exhaustivamente mediante contratos formales, suite Go 'make test', análisis de AST estático y pruebas de integración E2E.`
+        ? `Consultar la evidencia y las revisiones .md para comandos, resultados y límites. Este estado no acredita por sí solo pruebas E2E ni aceptación del sprint.`
         : item.status === 'blocked'
-        ? `Bloqueado hasta disponer del sensor Synaptics en el equipo físico. Requiere interacción del operador bajo temporización de eventos de invitado.`
+        ? `Consultar el plan y la revisión .md: puede requerir aceptación de sprints previos, implementación o evidencia física. Ningún estado autoriza despliegue ni uso del lector.`
         : `En proceso de ejecución conforme al plan de implementación de fplogin.`;
 
     modal.classList.add('active');
