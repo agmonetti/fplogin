@@ -2,31 +2,37 @@
   "status": "unverified-in-guest-no-deployment-authorized",
   "base_traced_source": "c9cf9b7f28eabd4d190059ce4e55815921c071e5",
   "diagnostic_source": ".work/labs/sprint2/g05-diagnostic-source/",
-  "source_commit": "3e8589a2821c79506e496803de5a4fd394f06ba1",
+  "source_commit": "e02e01862596ab081c257dfb757085b4295a5816",
   "diagnostic_build": ".work/build/sddm-sprint2/g05-diagnostic/",
   "overlay_patch": "tests/integration/sddm-lab-g05-diagnostic.patch",
-  "overlay_sha256": "1d4c99c6d4229051d8cdc671d6735a72d4723f1e85aa4847294432acaa40a42d",
+  "overlay_sha256": "e3657bea80847cd33252bc9de2754dc7259154a56c9857bc538b36d4e0f35992",
   "source_sha256": {
     "src/auth/Auth.cpp": "8c33d890e9dacfbddcea78e9bfec8f09dea216789bca8f9bd2e74603949afa85",
-    "src/daemon/Display.cpp": "41db3a14ed0f10c7a5343886b4b6bdfdabbb32275aa6d4009336a68fc4301712",
+    "src/daemon/Display.cpp": "4254fb37d848d87053cee5110fa8cdc66ef699da2b44351e72421a44c4420964",
     "src/helper/HelperApp.cpp": "304a38ba9bc925da0aa0d8a30a08812c20e2f0249c23d5d59d4014d65b5018c0",
     "test/AuthTransportTest.cpp": "927429359481edef4e734b87a42e4e26f0b6f5c5ff719ad235aed7dd92626c10",
+    "test/CMakeLists.txt": "300246f61c2ff67927106a06b6c1dc17653c2d671ddf6ef8995ba2776be88df5",
+    "test/DaemonContextTest.cpp": "2af8eeacaf9d9e0c4b8c084407b1385db9404c5e30c8e4d0ee76c7eb8041ee0e",
     "lab/collect_sddm_g05.py": "58a9ed7d3a91ed2bb9a7973b2a72d30c5d097586461226def61a45f411f301d9",
-    "lab/g05-offline-selfcheck.py": "97f2dd36fa41d6e7dc9c9aa91a39834e7878d4e761045807b0e854658fc8c2c7"
+    "lab/g05-offline-selfcheck.py": "f5a99660b6b69660770cf6e6a0d580c2220743e2346f21ec9b17d09fa943fa0a",
+    "lab/g05-success-first-controller.py": "8de58222704fd58aa8341d49186110e71651abb0cb051e6b613f55ed681bfeac",
+    "lab/test_success_first_controller.py": "42fd8cda7b5c253509ef5174487c203c52de0c67400c23813fd9378bfb2dd455"
   },
   "build_sha256": {
-    "usr/local/bin/sddm": "cb01787249dc886f5c02dab7540a9a9a3388863c189bc85098ab45e4dbc6887f",
+    "usr/local/bin/sddm": "c1b3398630625b33794965c5cd264cb64f3f2b6985a350a48e1bb210c81c4ab3",
     "usr/local/libexec/sddm-helper": "2c60ed1dcf330800bef73fa6c9b9ba5bf93000bc27b26b85e410e611b2355d8e"
   },
-  "bundle": ".work/checkpoints/sddm-g05-diagnostic-3e8589a.bundle",
-  "bundle_sha256": "284f1bd03692b05cf67518a5f4397847d61cd7163d5fd780585047475a48f783",
+  "bundle": ".work/checkpoints/sddm-g05-diagnostic-e02e018.bundle",
+  "bundle_sha256": "52287ac24e435ffdb15a9ffbe06b23877e0b06d17ef4ce830be8aacb029f0659",
   "verification": {
     "isolated_no_network_build": "passed",
-    "ctest": "one run 9/9 passed; later full run 8/9, two private-D-Bus activation cases failed; both cases passed on isolated targeted rerun",
-    "focused": "AuthTransport diagnostic late discard and DaemonContext success-first/timeout-first passed",
-    "real_mock_PAM": "rc=0 before SIGTERM; AUTHENTICATED emitted after SIGTERM before helper exit, observed by offline peer; no actual daemon deadline in that test",
-    "password_loser": "real helper held before PAM and killed; offline peer, no guest",
+    "ctest": "9/9 passed, 100% deterministic (D-Bus reload race resolved)",
+    "focused": "AuthTransport diagnostic late discard, DaemonContext success-first/timeout-first, and G05IntegratedTest passed",
+    "real_mock_PAM": "rc=0 before SIGTERM; AUTHENTICATED emitted after SIGTERM before helper exit, observed by offline peer",
+    "password_loser": "real helper held before PAM and reaped; offline peer, no guest",
     "stopped_process_cleanup": "disposable stopped process reaped on normal kill and controller-failure CONT path; no guest helper checked",
+    "integrated_daemon_deadline_discard": "real daemon + real helper + real mock PAM deadline-fired -> late-auth-discard -> helper-exit verified without session authorization",
+    "controller_watchdog_sigkill_recovery": "companion watchdog verified cleans up all gate files upon controller SIGKILL",
     "collector_allowlist": "four bounded diagnostic records accepted; prohibited token suppressed"
   },
   "rollback_scope_if_authorized_later": [
@@ -35,8 +41,9 @@
     "usr/local/libexec/fplogin-collect-sddm-lab.py"
   ],
   "limits": [
-    "Not deployed; no real fingerprint, guest PAM, deadline-to-late-frame end-to-end or G05 physical verdict",
+    "Not deployed; no real fingerprint, guest PAM, or G05 physical verdict",
     "Late AUTHENTICATED proves delivery of pre-deadline genuine PAM success, not a PAM return after deadline",
+    "Controlled delay of SIGTERM processing occurs while helper event loop is blocked on gate",
     "Do not deploy this overlay without a separate owner-approved install/rollback plan and exact guest backup verification",
     "Neither production checkpoint nor accepted 0001 nor patches/series was changed"
   ]
