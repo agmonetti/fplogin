@@ -6,6 +6,14 @@ The portable overlay and hashes are in `sddm-lab-g05-diagnostic.patch` and
 `sddm-lab-g05-diagnostic.json`. It applies on traced `c9cf9b7`; it does not
 enter the production series or modify production commit `480332c`.
 
+## Blocking review correction — 2026-10-28
+
+**Offline preparation is BLOCKED, not ready for deployment.** The independent
+review withdrew its initial readiness/deadlock-safety verdict. See the
+[complete closure review](../../docs/reviews/g05-offline-2026-10-28.md) for six
+controller defects and the required negative tests. The sequence below is the
+required protocol, not proof that the current controller implements it.
+
 ## Diagnostic behavior and scope
 
 - An owner-created root-only `/run/fplogin-g05/hold-password-<request>` gate
@@ -40,8 +48,9 @@ enter the production series or modify production commit `480332c`.
   The 40-second hold is a failure limit, not permission to keep a failed attempt alive.
   The autonomous controller (`lab/g05-success-first-controller.py`) forks a
   companion watchdog that monitors a pipe: if the controller process is terminated
-  or killed (including SIGKILL), the watchdog immediately unlinks both gate files,
-  guaranteeing no helper remains stuck. Controller failure requires owner-supervised
+  or killed (including SIGKILL), the watchdog attempts gate unlink. It swallows
+  unlink errors and neither cancels the attempt nor observes helper exit;
+  gate removal does not guarantee that a helper is no longer stuck. Controller failure requires owner-supervised
   verification of unlinked gate files, cancellation and observed helper exit; do not
   start another attempt while any helper remains.
 
@@ -52,9 +61,12 @@ integrated daemon test `G05IntegratedTest` demonstrated genuine mock-PAM
 deadline-fired -> late-auth-discard -> helper-exit without winner or session;
 existing daemon tests for both orderings and loser barrier passed. Real password
 helper was held before PAM and reaped; disposable SIGSTOP/kill and failure
-SIGCONT paths left no process. Controller watchdog SIGKILL recovery verified.
-All 9 CTest suites passed 100% (the intermittent D-Bus activation reload race was
-resolved by verifying fixture visibility via `ListActivatableNames`).
+SIGCONT paths left no process. The watchdog test observed file removal only.
+One full CTest run passed 9/9; the claim of deterministic resolution is withdrawn.
+Besides fixture visibility checks, diagnostic Display.cpp changes the D-Bus
+activation timeout from 5000 to 6000ms while retaining the 5000ms probe deadline.
+This behavioral change is not in production and needs further scope/repeatability
+review. The integrated test's SIGKILL exit is not normal PAM cleanup.
 No guest, reader or real fingerprint was checked.
 Logs are private at `.work/evidence/sprint2/g05-diagnostic-offline/`.
 
