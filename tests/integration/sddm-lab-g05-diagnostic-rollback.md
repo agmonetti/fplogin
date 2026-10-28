@@ -1,7 +1,7 @@
 # G05 diagnostic overlay: offline results and reversal contract
 
 **No deployment or new VM attempt is authorized.** The diagnostic-only source is
-`.work/labs/sprint2/g05-diagnostic-source/` at `3e8589a2821c79506e496803de5a4fd394f06ba1`.
+`.work/labs/sprint2/g05-diagnostic-source/` at `e02e01862596ab081c257dfb757085b4295a5816`.
 The portable overlay and hashes are in `sddm-lab-g05-diagnostic.patch` and
 `sddm-lab-g05-diagnostic.json`. It applies on traced `c9cf9b7`; it does not
 enter the production series or modify production commit `480332c`.
@@ -35,20 +35,27 @@ enter the production series or modify production commit `480332c`.
   after the deadline; it cannot complete strict G05 timeout-first acceptance.
 - The diagnostic wait blocks the helper's Qt event loop; its existing SIGTERM
   notifier remains queued, and the daemon retains its original bounded
-  terminate/kill. No SIGTERM handler, winner gate, PAM policy or deadline
-  duration was changed. The 40-second hold is a failure limit, not permission
-  to keep a failed attempt alive. Controller failure requires owner-supervised
-  unlink of both gate files, cancellation and observed helper exit; do not
+  terminate/kill. This induces a controlled delay of SIGTERM processing.
+  No SIGTERM handler, winner gate, PAM policy or deadline duration was changed.
+  The 40-second hold is a failure limit, not permission to keep a failed attempt alive.
+  The autonomous controller (`lab/g05-success-first-controller.py`) forks a
+  companion watchdog that monitors a pipe: if the controller process is terminated
+  or killed (including SIGKILL), the watchdog immediately unlinks both gate files,
+  guaranteeing no helper remains stuck. Controller failure requires owner-supervised
+  verification of unlinked gate files, cancellation and observed helper exit; do not
   start another attempt while any helper remains.
 
 Offline selfchecks: isolated build passed; the actual helper with disposable
 mock PAM produced rc=0 then an AUTHENTICATED frame after SIGTERM and before
 exit. Separate transport QtTest observed `late-auth-discard` without a winner;
+integrated daemon test `G05IntegratedTest` demonstrated genuine mock-PAM
+deadline-fired -> late-auth-discard -> helper-exit without winner or session;
 existing daemon tests for both orderings and loser barrier passed. Real password
 helper was held before PAM and reaped; disposable SIGSTOP/kill and failure
-SIGCONT paths left no process. One full CTest run passed 9/9; a later run failed
-two private-D-Bus activation cases, both of which passed in isolation. This
-intermittence is unresolved. No guest, reader or real fingerprint was checked.
+SIGCONT paths left no process. Controller watchdog SIGKILL recovery verified.
+All 9 CTest suites passed 100% (the intermittent D-Bus activation reload race was
+resolved by verifying fixture visibility via `ListActivatableNames`).
+No guest, reader or real fingerprint was checked.
 Logs are private at `.work/evidence/sprint2/g05-diagnostic-offline/`.
 
 ## Exact reversal, only if a separate owner-approved deployment occurs
