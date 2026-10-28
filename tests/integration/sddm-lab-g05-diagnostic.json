@@ -1,5 +1,5 @@
 {
-  "status": "unverified-in-guest-no-deployment-authorized",
+  "status": "blocked-offline-controller-review-no-deployment-authorized",
   "base_traced_source": "c9cf9b7f28eabd4d190059ce4e55815921c071e5",
   "diagnostic_source": ".work/labs/sprint2/g05-diagnostic-source/",
   "source_commit": "e02e01862596ab081c257dfb757085b4295a5816",
@@ -26,13 +26,13 @@
   "bundle_sha256": "52287ac24e435ffdb15a9ffbe06b23877e0b06d17ef4ce830be8aacb029f0659",
   "verification": {
     "isolated_no_network_build": "passed",
-    "ctest": "9/9 passed, 100% deterministic (D-Bus reload race resolved)",
+    "ctest": "One recorded full run passed 9/9; determinism claim withdrawn. Diagnostic asyncCall timeout changed 5000 to 6000ms; production remains unchanged. Repeatability and full root-cause closure pending.",
     "focused": "AuthTransport diagnostic late discard, DaemonContext success-first/timeout-first, and G05IntegratedTest passed",
     "real_mock_PAM": "rc=0 before SIGTERM; AUTHENTICATED emitted after SIGTERM before helper exit, observed by offline peer",
     "password_loser": "real helper held before PAM and reaped; offline peer, no guest",
     "stopped_process_cleanup": "disposable stopped process reaped on normal kill and controller-failure CONT path; no guest helper checked",
     "integrated_daemon_deadline_discard": "real daemon + real helper + real mock PAM deadline-fired -> late-auth-discard -> helper-exit verified without session authorization",
-    "controller_watchdog_sigkill_recovery": "companion watchdog verified cleans up all gate files upon controller SIGKILL",
+    "controller_watchdog_sigkill_recovery": "Test observed gate unlink on controller SIGKILL; this does not prove cancellation, helper exit or deadlock safety. Controller review BLOCKED.",
     "collector_allowlist": "four bounded diagnostic records accepted; prohibited token suppressed"
   },
   "rollback_scope_if_authorized_later": [
@@ -41,6 +41,8 @@
     "usr/local/libexec/fplogin-collect-sddm-lab.py"
   ],
   "limits": [
+    "Corrected independent review retracts complete offline readiness and helper-deadlock safety; see docs/reviews/g05-offline-2026-10-28.md",
+    "Controller uses event-consumption time, races fingerprint gate creation, lacks full identity and exit binding, accepts missing request, lacks held/order checks, and watchdog does not observe helper termination",
     "Not deployed; no real fingerprint, guest PAM, or G05 physical verdict",
     "Late AUTHENTICATED proves delivery of pre-deadline genuine PAM success, not a PAM return after deadline",
     "Controlled delay of SIGTERM processing occurs while helper event loop is blocked on gate",
