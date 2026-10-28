@@ -1,0 +1,635 @@
+diff --git a/lab/collect_sddm_g05.py b/lab/collect_sddm_g05.py
+new file mode 100755
+index 0000000..2d62be6
+--- /dev/null
++++ b/lab/collect_sddm_g05.py
+@@ -0,0 +1,259 @@
++#!/usr/bin/env python3
++"""Capture identifier-only SDDM lab events; never persist a raw journal.
++
++Live capture is restricted to the booted lab VM. --journal normalizes an existing
++journalctl JSON stream offline and does not claim the source was an isolated VM.
++PID associations are scoped to the journal boot ID and replaced at helper start.
++Missing associations remain null; timestamp proximity is not a request binding.
++"""
++
++import argparse
++import json
++import os
++from pathlib import Path
++import re
++import subprocess
++import sys
++
++TRACE_VALUES = {
++    "event": {
++        "helper-start", "helper-startup", "helper-launch", "helper-exit",
++        "helper-exit-result", "helper-process-error", "process-error",
++        "session-open-success", "session-open-failure", "session-result",
++        "authorization-permit", "authorization-deny", "authorization-received",
++        "kill-handshake-timeout", "terminate-intent", "kill-intent",
++        "cancel-fingerprint", "cancel-attempt", "winner-authorize",
++        "winner-selected", "loser-barrier-wait", "loser-barrier-release",
++        "fingerprint-start-sent", "fingerprint-start-accepted",
++        "deadline-armed", "deadline-fired", "late-auth-discard",
++        "pam-success-held", "pam-success-released", "password-held", "password-released",
++        "probe-start", "probe-activation-request", "probe-activation-return",
++        "probe-owner-pinned", "probe-owner-change", "probe-result", "probe-invalidate",
++    },
++    "role": {"greeter", "autologin", "password", "fingerprint"},
++    "exit_status": {"normal", "crash"},
++    "permit": {"true", "false"},
++    "success": {"true", "false"},
++    "phase": {"authenticate", "account", "setcred", "open-session", "close-session", "end"},
++    "edge": {"enter", "return"},
++    "reason": {
++        "available", "service_unavailable", "reader_unavailable",
++        "not_enrolled", "availability_unavailable",
++    },
++}
++NUMERIC_KEYS = {
++    "helper_pid", "auth_id", "generation", "method", "exit_code", "rc",
++    "flags", "winner_method", "loser_method", "loser_generation", "process_error",
++    "serial", "probe_generation", "duration_ms",
++}
++OWNER_KEYS = {"owner", "old_owner", "new_owner"}
++TRACE_KEYS = set(TRACE_VALUES) | NUMERIC_KEYS | OWNER_KEYS | {"request"}
++TOKEN = re.compile(r"([a-z_]+)=([A-Za-z0-9_.:+-]+)")
++SESSION_NEW = re.compile(r"New session '?([A-Za-z0-9_-]+)'? of user .+\.")
++SESSION_END = re.compile(r"(?:Removed session|Session) '?([A-Za-z0-9_-]+)'?(?:\.| logged out\..*)")
++DISPATCHER_WARNING = (
++    "QBasicTimer::start: current thread's event dispatcher has already been destroyed"
++)
++SERVICE_MESSAGES = {
++    "Starting Fingerprint Authentication Daemon...": "starting",
++    "Started Fingerprint Authentication Daemon.": "started",
++    "Stopping Fingerprint Authentication Daemon...": "stopping",
++    "Stopped Fingerprint Authentication Daemon.": "stopped",
++    "fprintd.service: Deactivated successfully.": "deactivated-successfully",
++    "No devices in use, exit": "idle-exit",
++}
++
++
++def require_guest():
++    marker = Path("/etc/fplogin-lab/host-machine-id")
++    if not marker.is_file():
++        raise RuntimeError("live capture requires the isolated lab VM marker")
++    host_id = marker.read_text().strip()
++    guest_id = Path("/etc/machine-id").read_text().strip()
++    if not re.fullmatch(r"[0-9a-f]{32}", host_id) or not re.fullmatch(r"[0-9a-f]{32}", guest_id) or host_id == guest_id:
++        raise RuntimeError("invalid or shared host/guest machine identity")
++    if os.geteuid() != 0 or Path("/proc/1/comm").read_text().strip() != "systemd":
++        raise RuntimeError("live capture requires root in a booted systemd guest")
++    result = subprocess.run(
++        ["systemd-detect-virt", "--vm"], capture_output=True, text=True, timeout=5,
++        check=False,
++    )
++    if result.returncode != 0 or result.stdout.strip() not in {"qemu", "kvm"}:
++        raise RuntimeError("live capture requires the QEMU lab VM")
++
++
++def fields(payload):
++    result = {}
++    for token in payload.split():
++        match = TOKEN.fullmatch(token)
++        if not match or match[1] not in TRACE_KEYS or match[1] in result:
++            return None
++        key, value = match[1], match[2]
++        if key in TRACE_VALUES and value not in TRACE_VALUES[key]:
++            return None
++        if key in NUMERIC_KEYS and not re.fullmatch(r"-?\d+", value):
++            return None
++        if key == "request" and not re.fullmatch(r"[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}", value):
++            return None
++        if key in OWNER_KEYS and value != "none" and not re.fullmatch(r":\d+\.\d+", value):
++            return None
++        result[key] = value
++    return result if "event" in result or {"phase", "edge"} <= result.keys() else None
++
++
++class Capture:
++    def __init__(self, guest_queries=False):
++        self.helpers = {}
++        self.sessions = {}
++        self.guest_queries = guest_queries
++
++    def normalize(self, record):
++        message = record.get("MESSAGE")
++        boot = record.get("_BOOT_ID")
++        pid = record.get("_PID")
++        monotonic = record.get("__MONOTONIC_TIMESTAMP")
++        if not isinstance(message, str) or not isinstance(boot, str) or not re.fullmatch(r"[0-9a-f]{32}", boot):
++            return None
++        if not isinstance(pid, str) or not pid.isdecimal() or not isinstance(monotonic, str) or not monotonic.isdecimal():
++            return None
++        event = {
++            "boot_id": boot, "monotonic_us": int(monotonic), "emitter_pid": int(pid),
++        }
++        for prefix in ("FPLOGIN_TRACE ", "FPLOGIN_PAM "):
++            # SDDM's message handler may prepend a timestamp/category.
++            position = message.find(prefix)
++            if position < 0:
++                continue
++            data = fields(message[position + len(prefix):])
++            if data is None:
++                return None
++            event.update(data)
++            event["source"] = "pam" if prefix == "FPLOGIN_PAM " else "sddm"
++            request = data.get("request")
++            helper_pid = data.get("helper_pid")
++            if data.get("event") in {"helper-start", "helper-startup"} and request and re.fullmatch(r"[0-9a-fA-F-]{36}", request) and helper_pid and helper_pid.isdecimal() and int(helper_pid) > 0:
++                previous = self.helpers.get((boot, helper_pid), {})
++                identity = previous.copy() if previous.get("request") == request else {}
++                identity["request"] = request
++                for key in ("role", "method", "generation"):
++                    if key in data:
++                        identity[key] = data[key]
++                self.helpers[(boot, helper_pid)] = identity
++            identity = self.helpers.get((boot, helper_pid or pid), {})
++            for key in ("request", "role", "method", "generation"):
++                event.setdefault(key, identity.get(key))
++            return event
++        if record.get("UNIT") == "fprintd.service" or record.get("_SYSTEMD_UNIT") == "fprintd.service":
++            event.update(source="fprintd", event=SERVICE_MESSAGES.get(message, "message-suppressed"))
++            for key in ("MESSAGE_ID", "INVOCATION_ID", "_SYSTEMD_INVOCATION_ID"):
++                value = record.get(key)
++                if isinstance(value, str) and re.fullmatch(r"[0-9a-f]{32}", value):
++                    event[key.lower().lstrip("_")] = value
++            # Do not copy manager messages, service prose or arbitrary metadata.
++            for key, allowed in (
++                ("RESULT", {"success", "exit-code", "signal", "core-dump", "timeout", "watchdog", "resources"}),
++                ("JOB_TYPE", {"start", "stop", "restart", "reload"}),
++                ("JOB_RESULT", {"done", "failed", "timeout", "canceled", "dependency", "skipped"}),
++                ("EXIT_CODE", {"exited", "killed", "dumped"}),
++            ):
++                value = record.get(key)
++                if isinstance(value, str) and value in allowed:
++                    event[key.lower()] = value
++            status = record.get("EXIT_STATUS")
++            if isinstance(status, str) and re.fullmatch(r"\d{1,3}", status):
++                event["exit_status"] = status
++            return event
++        if DISPATCHER_WARNING in message:
++            event.update(source="qt", event="dispatcher-destroyed", **self.helpers.get((boot, pid), {}))
++            return event
++        if record.get("_SYSTEMD_UNIT") == "systemd-logind.service":
++            new = SESSION_NEW.fullmatch(message)
++            ended = SESSION_END.fullmatch(message)
++            if new or ended:
++                session = (new or ended)[1]
++                event.update(source="logind", event="session-new" if new else "session-ended", session=session)
++                if new and self.guest_queries:
++                    try:
++                        result = subprocess.run(
++                            ["loginctl", "show-session", session, "--property=Leader", "--value"],
++                            capture_output=True, text=True, timeout=2, check=False,
++                        )
++                    except subprocess.TimeoutExpired:
++                        result = None
++                    leader = result.stdout.strip() if result is not None else ""
++                    if result is not None and result.returncode == 0 and leader.isdecimal():
++                        self.sessions[(boot, session)] = {
++                            "leader_pid": int(leader),
++                            **self.helpers.get((boot, leader), {}),
++                        }
++                event.update(self.sessions.get((boot, session), {}))
++                # Unobserved leader/request bindings remain explicitly unknown.
++                event.setdefault("request", None)
++                return event
++        return None
++
++
++def consume(stream, output, guest_queries=False):
++    capture = Capture(guest_queries=guest_queries)
++    for line in stream:
++        try:
++            record = json.loads(line)
++        except (ValueError, UnicodeDecodeError):
++            raise RuntimeError("invalid journal JSON (content suppressed)") from None
++        if not isinstance(record, dict):
++            raise RuntimeError("journal entry is not an object")
++        event = capture.normalize(record)
++        if event is not None:
++            output.write(json.dumps(event, sort_keys=True) + "\n")
++            output.flush()
++
++
++def main():
++    parser = argparse.ArgumentParser(description=__doc__)
++    parser.add_argument("--journal", type=Path, help="offline journalctl JSON input; '-' reads stdin")
++    parser.add_argument("--output", required=True, type=Path, help="new private JSONL evidence file (never overwritten)")
++    args = parser.parse_args()
++    process = None
++    try:
++        if args.journal is None:
++            require_guest()
++        fd = os.open(args.output, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
++        with os.fdopen(fd, "w") as output:
++            if args.journal is not None:
++                if str(args.journal) == "-":
++                    consume(sys.stdin, output)
++                else:
++                    with args.journal.open() as stream:
++                        consume(stream, output)
++            else:
++                process = subprocess.Popen(
++                    ["journalctl", "--boot", "--follow", "--output=json", "--no-pager",
++                     "_SYSTEMD_UNIT=sddm-lab.service", "+",
++                     "_EXE=/usr/local/libexec/sddm-helper", "+",
++                     "_EXE=/usr/local/bin/sddm-greeter-qt6", "+",
++                     "_SYSTEMD_UNIT=systemd-logind.service", "+",
++                     "_SYSTEMD_UNIT=fprintd.service", "+", "UNIT=fprintd.service"],
++                    stdout=subprocess.PIPE, text=True,
++                )
++                consume(process.stdout, output, guest_queries=True)
++                if process.wait() != 0:
++                    raise RuntimeError("journalctl failed")
++    except KeyboardInterrupt:
++        return 0
++    except (OSError, RuntimeError, subprocess.SubprocessError) as error:
++        print(f"capture failed: {error}", file=sys.stderr)
++        return 1
++    finally:
++        if process is not None:
++            process.terminate()
++            try:
++                process.wait(timeout=5)
++            except subprocess.TimeoutExpired:
++                process.kill()
++                process.wait()
++            process.stdout.close()
++    return 0
++
++
++if __name__ == "__main__":
++    sys.exit(main())
+diff --git a/lab/g05-offline-selfcheck.py b/lab/g05-offline-selfcheck.py
+new file mode 100644
+index 0000000..f0d3885
+--- /dev/null
++++ b/lab/g05-offline-selfcheck.py
+@@ -0,0 +1,182 @@
++#!/usr/bin/env python3
++"""Offline-only G05 check: real helper, real mock PAM rc=0, pending SIGTERM, late frame.
++
++Does not assert a guest deadline or a physical-reader match. Run in the isolated
++no-network container with /lab bound to persistent, disposable project storage.
++"""
++import json
++import os
++from pathlib import Path
++import signal
++import socket
++import struct
++import subprocess
++import sys
++import time
++import uuid
++
++assert Path('/.dockerenv').exists() and os.geteuid() == 0 and Path('/lab').is_dir()
++helper = Path(sys.argv[1])
++assert helper.is_file() and helper.name == 'sddm-helper'
++source = Path('/lab/g05-pam.c')
++module = Path('/lab/g05-pam.so')
++phases = Path('/lab/g05-pam-phases')
++sock = Path('/lab/g05.socket')
++gate_dir = Path('/run/fplogin-g05')
++request = str(uuid.uuid4())
++module_code = r'''
++#include <security/pam_modules.h>
++#include <stdio.h>
++#include <unistd.h>
++PAM_EXTERN int pam_sm_authenticate(pam_handle_t *p, int f, int n, const char **a) {
++    (void)p; (void)f; (void)n; (void)a;
++    sleep(2); /* allow the controller to create the PID-bound gate before rc=0 */
++    FILE *out = fopen("/lab/g05-pam-phases", "w");
++    if (out) { fputs("authenticate-rc0\n", out); fclose(out); }
++    return PAM_SUCCESS;
++}
++PAM_EXTERN int pam_sm_acct_mgmt(pam_handle_t *p, int f, int n, const char **a) {
++    (void)p; (void)f; (void)n; (void)a; return PAM_PERM_DENIED;
++}
++'''
++def frame(peer):
++    def exact(size):
++        data = b''
++        while len(data) < size:
++            chunk = peer.recv(size - len(data))
++            if not chunk: raise RuntimeError('helper exited before complete frame')
++            data += chunk
++        return data
++    size = struct.unpack('=q', exact(8))[0]
++    assert 0 < size < 4096
++    return exact(size)
++
++def text(data, pos):
++    size = struct.unpack_from('>I', data, pos)[0]
++    return data[pos+4:pos+4+size].decode('utf-16-be'), pos+4+size
++
++process = None
++try:
++    source.write_text(module_code)
++    subprocess.run(['cc', '-shared', '-fPIC', str(source), '-o', str(module)], check=True)
++    Path('/etc/pam.d/sddm-fingerprint').write_text(
++        'auth required /lab/g05-pam.so\naccount required /lab/g05-pam.so\n')
++    gate_dir.mkdir(mode=0o700, exist_ok=False)
++    sock.unlink(missing_ok=True)
++    phases.unlink(missing_ok=True)
++    with socket.socket(socket.AF_UNIX) as server:
++        server.bind(str(sock)); server.listen(1); server.settimeout(8)
++        process = subprocess.Popen([str(helper), '--socket', str(sock), '--id', '42',
++            '--user', 'root', '--request-id', request, '--method', '1', '--defer-auth'],
++            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
++        gate = gate_dir / f'hold-{request}-{process.pid}'
++        gate.touch(mode=0o600)
++        assert gate.stat().st_mode & 0o777 == 0o600
++        peer, _ = server.accept()
++        with peer:
++            peer.settimeout(5)
++            hello = frame(peer)
++            assert struct.unpack_from('>I', hello)[0] == 1
++            end = time.monotonic() + 6
++            while not phases.exists() and time.monotonic() < end:
++                time.sleep(.02)
++            assert phases.read_text() == 'authenticate-rc0\n'
++            # Ensure the helper has entered the post-PAM gate, not merely returned from PAM.
++            time.sleep(.15)
++            assert process.poll() is None
++            process.send_signal(signal.SIGTERM)
++            time.sleep(.1)
++            assert process.poll() is None, 'SIGTERM unexpectedly killed blocked helper'
++            gate.unlink()
++            late = None
++            while True:
++                data = frame(peer)
++                opcode = struct.unpack_from('>I', data)[0]
++                if opcode == 5:
++                    late = data
++                    break
++                assert opcode == 8, f'unexpected opcode {opcode}'
++            assert process.poll() is None, 'helper exited before sending AUTHENTICATED'
++            user, pos = text(late, 4)
++            method = struct.unpack_from('>I', late, pos)[0]
++            assert user == request and method == 1
++            user, pos = text(late, pos+4)
++            assert user == 'root' and pos == len(late)
++            print(json.dumps({'status': 'real-mock-PAM-rc0-emitted-after-SIGTERM-before-exit',
++                'request': request, 'pid': process.pid, 'no_session_authorization': True}))
++finally:
++    if process is not None:
++        if process.poll() is None:
++            process.kill()
++        process.wait(timeout=5)
++        assert not Path(f'/proc/{process.pid}').exists(), 'helper remains alive or stopped'
++        # Do not print helper stderr: an unexpected backend might include private prose.
++        process.stderr.close()
++    for path in (gate_dir / f'hold-{request}-{process.pid}' if process else gate_dir / 'missing',
++                 sock, phases):
++        path.unlink(missing_ok=True)
++    if gate_dir.exists(): gate_dir.rmdir()
++
++# A password helper must be held before PAM, with the gate created before launch.
++Path('/etc/pam.d/sddm').write_text('auth required /lab/g05-pam.so\naccount required /lab/g05-pam.so\n')
++request = str(uuid.uuid4())
++gate_dir.mkdir(mode=0o700)
++gate = gate_dir / f'hold-password-{request}'
++gate.touch(mode=0o600)
++sock = Path('/lab/g05-password.socket')
++sock.unlink(missing_ok=True)
++loser = None
++try:
++    with socket.socket(socket.AF_UNIX) as server:
++        server.bind(str(sock)); server.listen(1); server.settimeout(5)
++        loser = subprocess.Popen([str(helper), '--socket', str(sock), '--id', '43',
++            '--user', 'root', '--request-id', request, '--method', '0', '--defer-auth'],
++            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
++        peer, _ = server.accept()
++        with peer:
++            peer.settimeout(3)
++            assert struct.unpack_from('>I', frame(peer))[0] == 1
++            time.sleep(.3)
++            assert gate.exists() and loser.poll() is None and not phases.exists(), (
++                'password loser not held alive before PAM')
++            loser.send_signal(signal.SIGTERM)
++            time.sleep(.1)
++            assert loser.poll() is None
++            loser.kill()
++            loser.wait(timeout=3)
++            assert not Path(f'/proc/{loser.pid}').exists()
++            print(json.dumps({'status': 'real-password-loser-held-before-PAM-and-reaped', 'pid': loser.pid}))
++finally:
++    if loser is not None:
++        if loser.poll() is None:
++            loser.kill()
++        loser.wait(timeout=3)
++        loser.stderr.close()
++    gate.unlink(missing_ok=True)
++    sock.unlink(missing_ok=True)
++    gate_dir.rmdir()
++    module.unlink(missing_ok=True)
++    source.unlink(missing_ok=True)
++
++# Exercise both terminal paths for a stopped *disposable* loser, never a guest helper.
++for path in ('normal-kill', 'controller-failure'):
++    loser = subprocess.Popen(['/usr/bin/sleep', '60'])
++    try:
++        os.kill(loser.pid, signal.SIGSTOP)
++        end = time.monotonic() + 2
++        while Path(f'/proc/{loser.pid}/status').read_text().split('State:', 1)[1].lstrip()[0] != 'T':
++            assert time.monotonic() < end, 'loser did not stop'
++            time.sleep(.01)
++        if path == 'normal-kill':
++            loser.kill()  # production SIGKILL expiry must also terminate a stopped loser
++        else:
++            os.kill(loser.pid, signal.SIGCONT)  # controller failure release path
++            loser.terminate()
++        loser.wait(timeout=2)
++        assert not Path(f'/proc/{loser.pid}').exists(), 'stopped loser still present'
++    finally:
++        if loser.poll() is None:
++            os.kill(loser.pid, signal.SIGCONT)
++            loser.kill()
++            loser.wait(timeout=2)
++    print(json.dumps({'status': 'no-stopped-loser', 'path': path}))
+diff --git a/src/auth/Auth.cpp b/src/auth/Auth.cpp
+index d05eca7..d23e671 100644
+--- a/src/auth/Auth.cpp
++++ b/src/auth/Auth.cpp
+@@ -265,11 +265,11 @@ namespace SDDM {
+     }
+ 
+     void Auth::Private::dataPending() {
+-        if (!helloAccepted || stopping)
++        if (!helloAccepted)
+             return;
+         Auth *auth = qobject_cast<Auth*>(parent());
+         Msg m = MSG_UNKNOWN;
+-        while (socket && !stopping && socket->bytesAvailable() >= qint64(sizeof(qint64))) {
++        while (socket && socket->bytesAvailable() >= qint64(sizeof(qint64))) {
+             qint64 length = -1;
+             if (socket->peek(reinterpret_cast<char *>(&length), sizeof(length)) != sizeof(length)
+                 || length < 0 || length > 1024 * 1024) {
+@@ -289,6 +289,16 @@ namespace SDDM {
+                 auth->kill();
+                 return;
+             }
++            if (stopping) {
++                if (m == AUTHENTICATED) {
++                    QString authenticatedUser;
++                    str >> authenticatedUser;
++                    if (str.status() == QDataStream::Ok && str.atEnd() && !authenticatedUser.isEmpty()
++                        && !authenticationDecided && authenticatedUser == launchUser)
++                        trace("late-auth-discard");
++                }
++                continue; // Diagnostic receipt only: never emit authentication after cancellation.
++            }
+             switch (m) {
+                 case ERROR: {
+                     QString message;
+diff --git a/src/daemon/Display.cpp b/src/daemon/Display.cpp
+index f70a3c6..02b8421 100644
+--- a/src/daemon/Display.cpp
++++ b/src/daemon/Display.cpp
+@@ -1002,6 +1002,8 @@ namespace SDDM {
+                 || m_requestId != requestId || m_contextSerial != serial || m_contextSocket != socket
+                 || auth->launchGeneration() != generation || m_pendingContext || m_tearingDown)
+                 return;
++            qInfo().noquote().nospace() << "FPLOGIN_TRACE event=deadline-fired request=" << requestId
++                << " serial=" << serial << " generation=" << generation;
+             disarmFingerprintDeadline();
+             m_attemptGate.cancel(AuthMethod::Fingerprint);
+             m_fingerprintTerminal = true;
+@@ -1010,7 +1012,10 @@ namespace SDDM {
+             stopAuthenticationHelper(auth);
+         });
+         // Bound invalid/overflowing configuration without an unbounded deadline.
+-        deadline->start(qBound(1, mainConfig.FingerprintAuthTimeout.get(), 3600) * 1000);
++        const int durationMs = qBound(1, mainConfig.FingerprintAuthTimeout.get(), 3600) * 1000;
++        qInfo().noquote().nospace() << "FPLOGIN_TRACE event=deadline-armed request=" << requestId
++            << " serial=" << serial << " generation=" << generation << " duration_ms=" << durationMs;
++        deadline->start(durationMs);
+     }
+ 
+     void Display::retireSocket(QLocalSocket *socket) {
+diff --git a/src/helper/HelperApp.cpp b/src/helper/HelperApp.cpp
+index bdcb93f..c46547e 100644
+--- a/src/helper/HelperApp.cpp
++++ b/src/helper/HelperApp.cpp
+@@ -32,12 +32,15 @@
+ #include <QtCore/QUuid>
+ #include <QtCore/QFile>
+ #include <QtCore/QDebug>
++#include <QtCore/QElapsedTimer>
++#include <QtCore/QThread>
+ #include <QtNetwork/QLocalSocket>
+ 
+ #include <iostream>
+ #include <unistd.h>
+ #include <sys/socket.h>
+ #include <sys/time.h>
++#include <sys/stat.h>
+ 
+ #if defined(Q_OS_LINUX)
+ #include <utmp.h>
+@@ -47,6 +50,36 @@
+ #include <signal.h>
+ 
+ namespace SDDM {
++    static bool waitForG05Gate(const QString &request, AuthMethod method, bool beforePam) {
++        const QByteArray directory = "/run/fplogin-g05";
++        struct stat dirStat { }, gateStat { };
++        const QByteArray gate = directory + (beforePam ? "/hold-password-" : "/hold-")
++            + request.toLatin1() + (beforePam ? QByteArray() : "-" + QByteArray::number(QCoreApplication::applicationPid()));
++        if (lstat(directory.constData(), &dirStat) != 0)
++            return errno == ENOENT;
++        if (!S_ISDIR(dirStat.st_mode) || dirStat.st_uid != 0 || (dirStat.st_mode & 0777) != 0700)
++            return false;
++        const int found = lstat(gate.constData(), &gateStat);
++        if (found != 0)
++            return errno == ENOENT;
++        if (!S_ISREG(gateStat.st_mode) || gateStat.st_uid != 0 || (gateStat.st_mode & 0777) != 0600)
++            return false;
++        const char *held = beforePam ? "password-held" : "pam-success-held";
++        const char *released = beforePam ? "password-released" : "pam-success-released";
++        qInfo().noquote().nospace() << "FPLOGIN_TRACE event=" << held << " request=" << request
++            << " helper_pid=" << QCoreApplication::applicationPid() << " method=" << qint32(method);
++        QElapsedTimer wait;
++        wait.start();
++        int gateResult;
++        while ((gateResult = lstat(gate.constData(), &gateStat)) == 0 && wait.elapsed() < 40000)
++            QThread::msleep(20);
++        if (gateResult == 0 || errno != ENOENT)
++            return false;
++        qInfo().noquote().nospace() << "FPLOGIN_TRACE event=" << released << " request=" << request
++            << " helper_pid=" << QCoreApplication::applicationPid() << " method=" << qint32(method);
++        return true;
++    }
++
+     HelperApp::HelperApp(int& argc, char** argv)
+             : QCoreApplication(argc, argv)
+             , m_backend(Backend::get(this))
+@@ -186,6 +219,10 @@ namespace SDDM {
+         }
+ 
+         Q_ASSERT(getuid() == 0);
++        if (m_method == AuthMethod::Password && !waitForG05Gate(m_requestId, m_method, true)) {
++            exit(Auth::HELPER_AUTH_ERROR);
++            return;
++        }
+         if (!m_backend->authenticate()) {
+             QProcessEnvironment ignored;
+             authenticated(QString(), ignored);
+@@ -200,6 +237,11 @@ namespace SDDM {
+             return;
+         }
+ 
++        if (m_method == AuthMethod::Fingerprint && !waitForG05Gate(m_requestId, m_method, false)) {
++            exit(Auth::HELPER_AUTH_ERROR);
++            return;
++        }
++
+         m_user = m_backend->userName();
+         if (m_user.isEmpty() || (!m_requestedUser.isEmpty() && m_user != m_requestedUser)) {
+             error(QStringLiteral("Authentication user mismatch"), Auth::ERROR_AUTHENTICATION);
+diff --git a/test/AuthTransportTest.cpp b/test/AuthTransportTest.cpp
+index 7ef2de3..cc87e9b 100644
+--- a/test/AuthTransportTest.cpp
++++ b/test/AuthTransportTest.cpp
+@@ -206,6 +206,37 @@ private slots:
+         QTRY_COMPARE_WITH_TIMEOUT(finished.count(), 1, 2000);
+     }
+ 
++    void diagnosticDiscardDoesNotSelectLateFingerprint() {
++        static QStringList discarded;
++        discarded.clear();
++        const auto previous = qInstallMessageHandler([](QtMsgType type, const QMessageLogContext &, const QString &message) {
++            if (type == QtInfoMsg && message.contains(QStringLiteral("event=late-auth-discard")))
++                discarded << message;
++        });
++        struct Restore {
++            QtMessageHandler previous;
++            ~Restore() { qInstallMessageHandler(previous); }
++        } restore { previous };
++        Auth auth;
++        auth.setUser(QStringLiteral("stop-late-success"));
++        auth.setMethod(AuthMethod::Fingerprint);
++        auth.setDeferredAuthorization(true);
++        QSignalSpy authenticated(&auth, &Auth::authentication);
++        QSignalSpy finished(&auth, &Auth::finished);
++        auth.start();
++        QTest::qWait(100);
++        QVERIFY(auth.isActive());
++        auth.stop();
++        QTRY_COMPARE_WITH_TIMEOUT(discarded.size(), 1, 1000);
++        QCOMPARE(authenticated.count(), 0);
++        QCOMPARE(finished.count(), 0);
++        QVERIFY(discarded.at(0).contains(auth.requestId()));
++        QVERIFY(discarded.at(0).contains(QStringLiteral("generation=") + QString::number(auth.launchGeneration())));
++        auth.kill();
++        QTRY_COMPARE_WITH_TIMEOUT(finished.count(), 1, 2000);
++        QCOMPARE(authenticated.count(), 0);
++    }
++
+     void stopIsAsyncAndRejectsLateAuthentication() {
+         Auth auth;
+         auth.setUser(QStringLiteral("stop-late-success"));
