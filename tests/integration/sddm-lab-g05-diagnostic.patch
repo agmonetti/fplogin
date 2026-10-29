@@ -265,10 +265,10 @@ index 0000000..2d62be6
 +    sys.exit(main())
 diff --git a/lab/g05-offline-selfcheck.py b/lab/g05-offline-selfcheck.py
 new file mode 100644
-index 0000000..d279716
+index 0000000..0d8d384
 --- /dev/null
 +++ b/lab/g05-offline-selfcheck.py
-@@ -0,0 +1,199 @@
+@@ -0,0 +1,230 @@
 +#!/usr/bin/env python3
 +"""Offline-only G05 check: real helper, real mock PAM rc=0, pending SIGTERM, late frame.
 +
@@ -322,6 +322,14 @@ index 0000000..d279716
 +    assert 0 < size < 4096
 +    return exact(size)
 +
++def hello_ack(peer, request, auth_id, method):
++    def qstring(value):
++        encoded = value.encode('utf-16-be')
++        return struct.pack('>I', len(encoded)) + encoded
++    payload = (struct.pack('>Iq', 10, auth_id) + qstring(request)
++               + struct.pack('>IQB', method, 1, 0) + qstring(''))
++    peer.sendall(struct.pack('=q', len(payload)) + payload)
++
 +def text(data, pos):
 +    size = struct.unpack_from('>I', data, pos)[0]
 +    return data[pos+4:pos+4+size].decode('utf-16-be'), pos+4+size
@@ -335,10 +343,31 @@ index 0000000..d279716
 +    gate_dir.mkdir(mode=0o700, exist_ok=False)
 +    sock.unlink(missing_ok=True)
 +    phases.unlink(missing_ok=True)
++    # An exact-looking ACK for another generation must not start PAM.
++    with socket.socket(socket.AF_UNIX) as server:
++        server.bind(str(sock)); server.listen(1); server.settimeout(5)
++        rejected = subprocess.Popen([str(helper), '--socket', str(sock), '--id', '42',
++            '--user', 'root', '--request-id', request, '--method', '1', '--generation', '1', '--defer-auth'],
++            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
++        try:
++            peer, _ = server.accept()
++            with peer:
++                peer.settimeout(3)
++                assert struct.unpack_from('>I', frame(peer))[0] == 1
++                payload = (struct.pack('>Iq', 10, 42) + struct.pack('>I', 2 * len(request))
++                           + request.encode('utf-16-be') + struct.pack('>IQB', 1, 2, 0)
++                           + struct.pack('>I', 0))
++                peer.sendall(struct.pack('=q', len(payload)) + payload)
++                assert rejected.wait(timeout=4) != 0 and not phases.exists(), 'invalid ACK entered PAM'
++        finally:
++            if rejected.poll() is None:
++                rejected.kill()
++            rejected.wait(timeout=4)
++        sock.unlink()
 +    with socket.socket(socket.AF_UNIX) as server:
 +        server.bind(str(sock)); server.listen(1); server.settimeout(8)
 +        process = subprocess.Popen([str(helper), '--socket', str(sock), '--id', '42',
-+            '--user', 'root', '--request-id', request, '--method', '1', '--defer-auth'],
++            '--user', 'root', '--request-id', request, '--method', '1', '--generation', '1', '--defer-auth'],
 +            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
 +        gate = gate_dir / f'hold-{request}-{process.pid}'
 +        gate.touch(mode=0o600)
@@ -348,6 +377,7 @@ index 0000000..d279716
 +            peer.settimeout(5)
 +            hello = frame(peer)
 +            assert struct.unpack_from('>I', hello)[0] == 1
++            hello_ack(peer, request, 42, 1)
 +            end = time.monotonic() + 6
 +            while not phases.exists() and time.monotonic() < end:
 +                time.sleep(.02)
@@ -401,12 +431,13 @@ index 0000000..d279716
 +    with socket.socket(socket.AF_UNIX) as server:
 +        server.bind(str(sock)); server.listen(1); server.settimeout(5)
 +        loser = subprocess.Popen([str(helper), '--socket', str(sock), '--id', '43',
-+            '--user', 'root', '--request-id', request, '--method', '0', '--defer-auth'],
++            '--user', 'root', '--request-id', request, '--method', '0', '--generation', '1', '--defer-auth'],
 +            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
 +        peer, _ = server.accept()
 +        with peer:
 +            peer.settimeout(3)
 +            assert struct.unpack_from('>I', frame(peer))[0] == 1
++            hello_ack(peer, request, 43, 0)
 +            time.sleep(.3)
 +            assert gate.exists() and loser.poll() is None and not phases.exists(), (
 +                'password loser not held alive before PAM')
@@ -998,10 +1029,45 @@ index 0000000..f0a5aef
 +if __name__ == "__main__":
 +    unittest.main()
 diff --git a/src/auth/Auth.cpp b/src/auth/Auth.cpp
-index d05eca7..d23e671 100644
+index d05eca7..31f4152 100644
 --- a/src/auth/Auth.cpp
 +++ b/src/auth/Auth.cpp
-@@ -265,11 +265,11 @@ namespace SDDM {
+@@ -145,7 +145,8 @@ namespace SDDM {
+                 qint64 id = 0;
+                 QString requestId;
+                 AuthMethod method = AuthMethod::Password;
+-                str >> message >> id >> requestId >> method;
++                quint64 generation = 0;
++                str >> message >> id >> requestId >> method >> generation;
+                 if (str.status() != QDataStream::Ok || !str.atEnd() || message != Msg::HELLO || !id
+                     || !helpers.contains(id) || !helpers[id]->acceptHello(socket)) {
+                     socket->setProperty("sddm-auth-handshake-pending", false);
+@@ -155,7 +156,8 @@ namespace SDDM {
+                     return;
+                 }
+                 Auth::Private *helper = helpers[id];
+-                if (helper->helloAccepted || helper->requestId != requestId || helper->method != method) {
++                if (helper->helloAccepted || helper->requestId != requestId || helper->method != method
++                    || !generation || helper->launchGeneration != generation || helper->stopping) {
+                     socket->setProperty("sddm-auth-handshake-pending", false);
+                     --pendingHandshakes;
+                     socket->abort();
+@@ -168,6 +170,14 @@ namespace SDDM {
+                 --pendingHandshakes;
+                 QObject::disconnect(socket, &QLocalSocket::readyRead, this, nullptr);
+                 helper->setSocket(socket);
++                SafeDataStream ack(socket);
++                ack << Msg::HELLO_ACK << id << requestId << method << generation << false << QString();
++                ack.send();
++                if (socket->state() != QLocalSocket::ConnectedState) {
++                    helper->helloAccepted = false;
++                    helper->child->kill();
++                    return;
++                }
+                 helper->dataPending();
+             });
+             connect(socket, &QLocalSocket::disconnected, this, [this, socket] {
+@@ -265,11 +275,11 @@ namespace SDDM {
      }
  
      void Auth::Private::dataPending() {
@@ -1015,7 +1081,7 @@ index d05eca7..d23e671 100644
              qint64 length = -1;
              if (socket->peek(reinterpret_cast<char *>(&length), sizeof(length)) != sizeof(length)
                  || length < 0 || length > 1024 * 1024) {
-@@ -289,6 +289,16 @@ namespace SDDM {
+@@ -289,6 +299,16 @@ namespace SDDM {
                  auth->kill();
                  return;
              }
@@ -1032,6 +1098,26 @@ index d05eca7..d23e671 100644
              switch (m) {
                  case ERROR: {
                      QString message;
+@@ -651,6 +671,7 @@ namespace SDDM {
+         args << QStringLiteral("--id") << QString::number(d->id);
+         args << QStringLiteral("--request-id") << d->requestId;
+         args << QStringLiteral("--method") << QString::number(qint32(d->method));
++        args << QStringLiteral("--generation") << QString::number(generation);
+         if (d->deferredAuthorization)
+             args << QStringLiteral("--defer-auth");
+         if (!d->sessionPath.isEmpty())
+diff --git a/src/auth/AuthMessages.h b/src/auth/AuthMessages.h
+index 9651ba3..79907bb 100644
+--- a/src/auth/AuthMessages.h
++++ b/src/auth/AuthMessages.h
+@@ -100,6 +100,7 @@ namespace SDDM {
+         DISPLAY_SERVER_STARTED,
+         METHOD_STATE = 8,
+         SESSION_AUTHORIZATION,
++        HELLO_ACK,
+         MSG_LAST,
+     };
+ 
 diff --git a/src/daemon/Display.cpp b/src/daemon/Display.cpp
 index f70a3c6..64465fc 100644
 --- a/src/daemon/Display.cpp
@@ -1081,7 +1167,7 @@ index f70a3c6..64465fc 100644
  
      void Display::retireSocket(QLocalSocket *socket) {
 diff --git a/src/helper/HelperApp.cpp b/src/helper/HelperApp.cpp
-index bdcb93f..c46547e 100644
+index bdcb93f..afbc733 100644
 --- a/src/helper/HelperApp.cpp
 +++ b/src/helper/HelperApp.cpp
 @@ -32,12 +32,15 @@
@@ -1137,7 +1223,82 @@ index bdcb93f..c46547e 100644
      HelperApp::HelperApp(int& argc, char** argv)
              : QCoreApplication(argc, argv)
              , m_backend(Backend::get(this))
-@@ -186,6 +219,10 @@ namespace SDDM {
+@@ -86,6 +119,14 @@ namespace SDDM {
+ 
+         if ((pos = args.indexOf(QStringLiteral("--request-id"))) >= 0 && pos < args.length() - 1)
+             m_requestId = args[pos + 1];
++        if ((pos = args.indexOf(QStringLiteral("--generation"))) >= 0 && pos < args.length() - 1) {
++            bool ok = false;
++            m_generation = args[pos + 1].toULongLong(&ok);
++            if (!ok || !m_generation) {
++                exit(Auth::HELPER_OTHER_ERROR);
++                return;
++            }
++        }
+         if ((pos = args.indexOf(QStringLiteral("--method"))) >= 0 && pos < args.length() - 1) {
+             bool ok = false;
+             const int method = args[pos + 1].toInt(&ok);
+@@ -134,7 +175,7 @@ namespace SDDM {
+             m_backend->setGreeter(true);
+         }
+ 
+-        if (server.isEmpty() || m_id <= 0 || QUuid(m_requestId).isNull()
++        if (server.isEmpty() || m_id <= 0 || !m_generation || QUuid(m_requestId).isNull()
+             || (m_method == AuthMethod::Fingerprint && (m_user.isEmpty() || m_backend->isGreeter() || m_backend->isAutologin()))) {
+             qCritical() << "Invalid authentication helper request";
+             exit(Auth::HELPER_OTHER_ERROR);
+@@ -165,11 +206,46 @@ namespace SDDM {
+ 
+     void HelperApp::doAuth() {
+         SafeDataStream str(m_socket);
+-        str << Msg::HELLO << m_id << m_requestId << m_method;
++        str << Msg::HELLO << m_id << m_requestId << m_method << m_generation;
+         str.send();
+-        if (str.status() != QDataStream::Ok)
+-            qCritical() << "Couldn't write initial message:" << str.status();
+-
++        // The diagnostic helper never starts a backend on an absent, malformed or
++        // armed ACK until a daemon-owned reservation can validate armed mode.
++        QElapsedTimer clock;
++        clock.start();
++        qint64 length = -1;
++        while (m_socket->state() == QLocalSocket::ConnectedState && clock.elapsed() < 3000) {
++            if (m_socket->bytesAvailable() >= qint64(sizeof(length))) {
++                if (m_socket->peek(reinterpret_cast<char *>(&length), sizeof(length)) != sizeof(length)
++                    || length < 0 || length > 512)
++                    break;
++                if (m_socket->bytesAvailable() >= qint64(sizeof(length)) + length) {
++                    m_socket->read(reinterpret_cast<char *>(&length), sizeof(length));
++                    const QByteArray payload = m_socket->read(length);
++                    QDataStream reply(payload);
++                    Msg opcode = Msg::MSG_UNKNOWN;
++                    qint64 id = 0;
++                    QString request;
++                    AuthMethod method = AuthMethod::Password;
++                    quint64 generation = 0;
++                    bool armed = true;
++                    QString transaction;
++                    reply >> opcode >> id >> request >> method >> generation >> armed >> transaction;
++                    if (reply.status() == QDataStream::Ok && reply.atEnd() && opcode == Msg::HELLO_ACK
++                        && id == m_id && request == m_requestId && method == m_method
++                        && generation == m_generation && !armed && transaction.isEmpty())
++                        break;
++                    length = -1;
++                    break;
++                }
++            }
++            m_socket->waitForReadyRead(qMax(1, int(3000 - clock.elapsed())));
++        }
++        if (length < 0 || m_socket->state() != QLocalSocket::ConnectedState
++            || clock.elapsed() >= 3000) {
++            qCritical() << "Invalid or missing diagnostic HELLO_ACK";
++            exit(Auth::HELPER_AUTH_ERROR);
++            return;
++        }
+ 
+         if (!m_backend->start(m_user)) {
+             QProcessEnvironment ignored;
+@@ -186,6 +262,10 @@ namespace SDDM {
          }
  
          Q_ASSERT(getuid() == 0);
@@ -1148,7 +1309,7 @@ index bdcb93f..c46547e 100644
          if (!m_backend->authenticate()) {
              QProcessEnvironment ignored;
              authenticated(QString(), ignored);
-@@ -200,6 +237,11 @@ namespace SDDM {
+@@ -200,6 +280,11 @@ namespace SDDM {
              return;
          }
  
@@ -1160,6 +1321,65 @@ index bdcb93f..c46547e 100644
          m_user = m_backend->userName();
          if (m_user.isEmpty() || (!m_requestedUser.isEmpty() && m_user != m_requestedUser)) {
              error(QStringLiteral("Authentication user mismatch"), Auth::ERROR_AUTHENTICATION);
+diff --git a/src/helper/HelperApp.h b/src/helper/HelperApp.h
+index 9c5bcf5..85c268d 100644
+--- a/src/helper/HelperApp.h
++++ b/src/helper/HelperApp.h
+@@ -59,6 +59,7 @@ namespace SDDM {
+ 
+     private:
+         qint64 m_id { -1 };
++        quint64 m_generation { 0 };
+         Backend *m_backend { nullptr };
+         UserSession *m_session { nullptr };
+         QLocalSocket *m_socket { nullptr };
+diff --git a/test/AuthTransportHelper.cpp b/test/AuthTransportHelper.cpp
+index 9ffc410..bebb37a 100644
+--- a/test/AuthTransportHelper.cpp
++++ b/test/AuthTransportHelper.cpp
+@@ -35,7 +35,8 @@ int main(int argc, char **argv) {
+             return 4;
+         QByteArray hello;
+         QDataStream stream(&hello, QIODevice::WriteOnly);
+-        stream << HELLO << value(QStringLiteral("--id")).toLongLong() << id << method;
++        stream << HELLO << value(QStringLiteral("--id")).toLongLong() << id << method
++               << value(QStringLiteral("--generation")).toULongLong();
+         forged.write(frame(hello));
+         forged.flush();
+         return forged.waitForDisconnected(1000) ? 0 : 5;
+@@ -52,7 +53,8 @@ int main(int argc, char **argv) {
+                 return;
+             }
+         }
+-        first << HELLO << value(QStringLiteral("--id")).toLongLong() << id << method;
++        first << HELLO << value(QStringLiteral("--id")).toLongLong() << id << method
++              << value(QStringLiteral("--generation")).toULongLong();
+         if (user == QStringLiteral("stop-late-success")) {
+             std::signal(SIGTERM, SIG_IGN);
+             QByteArray info;
+@@ -201,7 +203,21 @@ int main(int argc, char **argv) {
+             QString requestId;
+             AuthMethod responseMethod = AuthMethod::Password;
+             bool proceed = false;
+-            response >> message >> requestId >> responseMethod >> proceed;
++            response >> message;
++            if (message == HELLO_ACK) {
++                qint64 authId = 0;
++                quint64 generation = 0;
++                QString transaction;
++                bool armed = true;
++                response >> authId >> requestId >> responseMethod >> generation >> armed >> transaction;
++                if (response.status() != QDataStream::Ok || !response.atEnd()
++                    || authId != value(QStringLiteral("--id")).toLongLong()
++                    || requestId != id || responseMethod != method
++                    || generation != value(QStringLiteral("--generation")).toULongLong()
++                    || armed || !transaction.isEmpty()) app.exit(7);
++                return;
++            }
++            response >> requestId >> responseMethod >> proceed;
+             if (response.status() != QDataStream::Ok || message != SESSION_AUTHORIZATION
+                 || requestId != id || responseMethod != method || !proceed) {
+                 app.exit(7);
 diff --git a/test/AuthTransportTest.cpp b/test/AuthTransportTest.cpp
 index 7ef2de3..cc87e9b 100644
 --- a/test/AuthTransportTest.cpp
@@ -1233,6 +1453,44 @@ index 8005098..70c87f5 100644
  if(QT_MAJOR_VERSION EQUAL "5")
      set(GREETER_TEST_TARGET sddm-greeter)
  else()
+diff --git a/test/DaemonContextHelper.cpp b/test/DaemonContextHelper.cpp
+index e61bbeb..7f62fab 100644
+--- a/test/DaemonContextHelper.cpp
++++ b/test/DaemonContextHelper.cpp
+@@ -47,7 +47,8 @@ int main(int argc, char **argv) {
+     QObject::connect(&auth, &QLocalSocket::connected, &app, [&] {
+         QByteArray hello;
+         QDataStream stream(&hello, QIODevice::WriteOnly);
+-        stream << HELLO << argument(QStringLiteral("--id")).toLongLong() << request << method;
++        stream << HELLO << argument(QStringLiteral("--id")).toLongLong() << request << method
++               << argument(QStringLiteral("--generation")).toULongLong();
+         auth.write(frame(hello));
+         if (method == AuthMethod::Fingerprint)
+             progress(FingerprintState::Scanning, QStringLiteral("scanning"));
+@@ -106,7 +107,22 @@ int main(int argc, char **argv) {
+             Msg message = MSG_UNKNOWN;
+             QString id;
+             AuthMethod responseMethod = AuthMethod::Password;
+-            stream >> message >> id >> responseMethod;
++            stream >> message;
++            if (message == HELLO_ACK) {
++                qint64 authId = 0;
++                quint64 generation = 0;
++                bool armed = true;
++                QString transaction;
++                stream >> authId >> id >> responseMethod >> generation >> armed >> transaction;
++                if (stream.status() != QDataStream::Ok || !stream.atEnd()
++                    || authId != argument(QStringLiteral("--id")).toLongLong()
++                    || id != request || responseMethod != method
++                    || generation != argument(QStringLiteral("--generation")).toULongLong()
++                    || armed || !transaction.isEmpty()) { app.exit(12); return; }
++                incoming.remove(0, sizeof(length) + length);
++                continue;
++            }
++            stream >> id >> responseMethod;
+             if (stream.status() != QDataStream::Ok || id != request || responseMethod != method) {
+                 app.exit(12);
+                 return;
 diff --git a/test/DaemonContextTest.cpp b/test/DaemonContextTest.cpp
 index b721e43..a061559 100644
 --- a/test/DaemonContextTest.cpp
