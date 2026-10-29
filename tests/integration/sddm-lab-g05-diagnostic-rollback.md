@@ -1,7 +1,7 @@
 # G05 diagnostic overlay: offline results and reversal contract
 
 **No deployment or new VM attempt is authorized.** The diagnostic-only source is
-`.work/labs/sprint2/g05-diagnostic-source/` at `e02e01862596ab081c257dfb757085b4295a5816`.
+`.work/labs/sprint2/g05-diagnostic-source/` at `212130b247a496bc0018c361a4837abe2a3df974` (test-only successor to `e02e018`).
 The portable overlay and hashes are in `sddm-lab-g05-diagnostic.patch` and
 `sddm-lab-g05-diagnostic.json`. It applies on traced `c9cf9b7`; it does not
 enter the production series or modify production commit `480332c`.
@@ -11,8 +11,14 @@ enter the production series or modify production commit `480332c`.
 **Offline preparation is BLOCKED, not ready for deployment.** The independent
 review withdrew its initial readiness/deadlock-safety verdict. See the
 [complete closure review](../../docs/reviews/g05-offline-2026-10-28.md) for six
-controller defects and the required negative tests. The sequence below is the
-required protocol, not proof that the current controller implements it.
+controller defects and the required negative tests. `lab/test_success_first_negative.py`
+now records eight synthetic offline checks: one baseline passes, seven intentionally
+fail against the unchanged controller. The gate-readiness check uses the current
+helper's request/PID gate pathname; if a new handshake changes the gate protocol,
+update the check and real-helper fixture together. Death recovery requires an
+explicit durable `recovery.json` failure verdict, not a silently swallowed unlink.
+These tests are specifications, not proof of PAM behavior or safe recovery.
+The sequence below is the required protocol, not proof that the current controller implements it.
 
 ## Diagnostic behavior and scope
 
