@@ -1638,7 +1638,7 @@ index e61bbeb..7f62fab 100644
                  app.exit(12);
                  return;
 diff --git a/test/DaemonContextTest.cpp b/test/DaemonContextTest.cpp
-index b721e43..a3137a1 100644
+index b721e43..9ae90c8 100644
 --- a/test/DaemonContextTest.cpp
 +++ b/test/DaemonContextTest.cpp
 @@ -17,6 +17,8 @@
@@ -1677,7 +1677,7 @@ index b721e43..a3137a1 100644
      }
      QString fixtureOwner() {
          const QDBusReply<QString> owner = QDBusConnection::systemBus().interface()->serviceOwner(
-@@ -258,6 +270,110 @@ class DaemonContextTest : public QObject {
+@@ -258,6 +270,129 @@ class DaemonContextTest : public QObject {
          QTRY_VERIFY(client.state(FingerprintState::Scanning));
      }
  private slots:
@@ -1706,9 +1706,28 @@ index b721e43..a3137a1 100644
 +                                  QStringLiteral("diagnostic_reservation_rejected")), 1);
 +        password(client, QStringLiteral("root"));
 +        start(client, 1);
++        clear(client, 3);
 +        QTest::qWait(100);
 +        QCOMPARE(display.m_auth->launchGeneration(), quint64(0));
 +        QCOMPARE(display.m_fingerprintAuth->launchGeneration(), quint64(0));
++        QCOMPARE(client.count(DaemonMessages::AuthenticationContext, QStringLiteral("cleared")), 0);
++        QVERIFY(!display.reserveDiagnosticContext(serverSocket, 3, QStringLiteral("root"), session));
++    }
++    void diagnosticReservationRejectsExitedHelper() {
++        Harness display(directory->filePath(QStringLiteral("control")));
++        Client client;
++        connectClient(display, client);
++        QTRY_VERIFY(!display.m_socketServer->findChildren<QLocalSocket *>().isEmpty());
++        auto *serverSocket = display.m_socketServer->findChildren<QLocalSocket *>().constFirst();
++        select(client, 1, QStringLiteral("root"));
++        QTRY_COMPARE(client.count(DaemonMessages::AuthenticationContext), 1);
++        password(client, QStringLiteral("root"));
++        QTRY_VERIFY(display.peers.contains(int(AuthMethod::Password)));
++        display.command(AuthMethod::Password, "E");
++        QTRY_VERIFY(!display.m_auth->isActive());
++        QVERIFY(display.m_auth->launchGeneration() > 0);
++        clear(client, 2);
++        QTRY_COMPARE(client.count(DaemonMessages::AuthenticationContext, QStringLiteral("cleared")), 1);
 +        QVERIFY(!display.reserveDiagnosticContext(serverSocket, 3, QStringLiteral("root"), session));
 +    }
 +    void diagnosticRealPamTimeoutFirst() {
@@ -1788,7 +1807,7 @@ index b721e43..a3137a1 100644
      void initTestCase() {
          busDirectory = std::make_unique<QTemporaryDir>(QDir::currentPath() + QStringLiteral("/availability-bus-XXXXXX"));
          QVERIFY(busDirectory->isValid());
-@@ -320,6 +436,13 @@ private slots:
+@@ -320,6 +455,13 @@ private slots:
      }
      void activationDeadlineRejectsLateOwnerAcquisition() {
          const auto gate = directory->filePath(QStringLiteral("late-start"));

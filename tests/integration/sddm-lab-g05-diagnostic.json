@@ -1,11 +1,11 @@
 {
-  "status": "blocked-offline-unverified-pre-READY-reservation-only-no-control-endpoint-or-recovery-no-deployment",
+  "status": "blocked-offline-unverified-reservation-guard-tests-only-no-control-endpoint-or-recovery-no-deployment",
   "base_traced_source": "c9cf9b7f28eabd4d190059ce4e55815921c071e5",
   "diagnostic_source": ".work/labs/sprint2/g05-diagnostic-source/",
-  "source_commit": "5d218e882e21549a9bae4c46e4df829dfecac4dc",
+  "source_commit": "49995bfc3590c678b1f0f3cd589706f83a0dbea1",
   "diagnostic_build": ".work/build/sddm-sprint2/g05-diagnostic/",
   "overlay_patch": "tests/integration/sddm-lab-g05-diagnostic.patch",
-  "overlay_sha256": "12658017541d18b55bbc28bb2fcf3581f54763860e0a46d4e392fb52c4fe7042",
+  "overlay_sha256": "b2a75ce8dfcbf9678c998a215da9927660c6d22c5b4a653b7346e6282b5fb8dc",
   "source_sha256": {
     "src/auth/Auth.cpp": "70a447ddd9d5c339901688b28e93538b68deea1282c46365acfef54153db0475",
     "src/auth/AuthMessages.h": "d970cb84fbd9e38fb22d76277efd84e00ec0eb75e56a7dd6c9f3cb218470c074",
@@ -16,7 +16,7 @@
     "test/AuthTransportHelper.cpp": "3fb0a38dbe7f7557bf5e68e2947d1cfd36307ea9d93aa67b2c1f2722838e2963",
     "test/AuthTransportTest.cpp": "927429359481edef4e734b87a42e4e26f0b6f5c5ff719ad235aed7dd92626c10",
     "test/CMakeLists.txt": "300246f61c2ff67927106a06b6c1dc17653c2d671ddf6ef8995ba2776be88df5",
-    "test/DaemonContextTest.cpp": "f0a6582fd274db425d73631886a6fd4407fa14c39e05d20ca9a3421c3d561fd8",
+    "test/DaemonContextTest.cpp": "8e0d2611e13c3666731a213d03e8a055a34271ceadb2c97e06732467f2c10ec8",
     "test/DaemonContextHelper.cpp": "6fdd5d3b8cb96dadb8fc9722204f053e56db952b097e28032256547d445d22dc",
     "lab/collect_sddm_g05.py": "58a9ed7d3a91ed2bb9a7973b2a72d30c5d097586461226def61a45f411f301d9",
     "lab/g05-offline-selfcheck.py": "a1cddb4297bef2d43db701bf1b4a776f6f85c45691e86d544d19f06d27eb3d57",
@@ -25,13 +25,13 @@
     "lab/test_success_first_negative.py": "e94d20203476cace60a1c976a07e94530eb38919261fe84111026f22be151804"
   },
   "build_sha256": {
-    "src/daemon/sddm": "b0f3d1b3e779bf69907fb9cf855b5014938b9aa924c0c40619d5890376e681fa",
+    "src/daemon/sddm": "08125013ee66223ee6062da4f3d194965ac5541128d8b2c29b9d60f4f47ee880",
     "src/helper/sddm-helper": "dcbed0db7ca0bd202753f74a114af9f710b9e56202493d11ecb9fd83201e30ca"
   },
-  "bundle": ".work/checkpoints/sddm-g05-pre-ready-5d218e8.bundle",
-  "bundle_sha256": "666582be2a11f0db835f3ba31cbd5d41885e65a077c97e1a7a86ff592cb3610a",
+  "bundle": ".work/checkpoints/sddm-g05-reservation-exited-49995bf.bundle",
+  "bundle_sha256": "b42bf4f81a8f8cdaf26d1ddde0d8b58f79d7625b4cb96bf18113e8b860360779",
   "verification": {
-    "isolated_no_network_build": "5d218e8 built in offline container; focused pre-READY test passed, full CTest 9/9 passed once. reservation-first-build-test.log; this is not an armed/integrated recovery test. Earlier HELLO_ACK runs remain historical.",
+    "isolated_no_network_build": "Focused reservation and prior-exited-helper tests passed (4/4 QtTest cases including init/cleanup) in offline no-network image sha256:56a91f43cf9f...; reservation-exited-helper-test-corrected.log. An initial archlinux:base-devel attempt lacked cmake; a traced runtime image had Qt ABI link mismatch. Full CTest was not rerun; historical 9/9 at 5d218e8 only. No authenticated caller, READY or recovery test.",
     "controller_negative_tests": "10 offline synthetic tests: 9 still failing, 1 baseline passing; no controller or prelaunch/recovery implementation. hello-ack-negative.log",
     "ctest": "One recorded full run passed 9/9; determinism claim withdrawn. Diagnostic asyncCall timeout changed 5000 to 6000ms; production remains unchanged. Repeatability and full root-cause closure pending.",
     "focused": "AuthTransport diagnostic late discard, DaemonContext success-first/timeout-first, and G05IntegratedTest passed",
@@ -49,7 +49,7 @@
   ],
   "limits": [
     "Corrected independent review retracts complete offline readiness and helper-deadlock safety; see docs/reviews/g05-offline-2026-10-28.md",
-    "Controller uses event-consumption time, races fingerprint gate creation, lacks full identity and exit binding, accepts missing request, lacks held/order checks, and watchdog does not observe helper termination; nine negative tests remain red. Reservation has no control endpoint, READY, armed HELLO_ACK, exact abort or recovery authority; it is exercised only by a test friend. Never treat as READY",
+    "Controller uses event-consumption time, races fingerprint gate creation, lacks full identity and exit binding, accepts missing request, lacks held/order checks, and watchdog does not observe helper termination; nine negative tests remain red. Reservation has no authenticated control endpoint, READY, armed HELLO_ACK, exact abort or recovery authority; these guard checks use only a test friend. Never treat as READY",
     "Not deployed; no real fingerprint, guest PAM, or G05 physical verdict",
     "Late AUTHENTICATED proves delivery of pre-deadline genuine PAM success, not a PAM return after deadline",
     "Controlled delay of SIGTERM processing occurs while helper event loop is blocked on gate",
