@@ -827,10 +827,10 @@ index 0000000..dc08026
 +    print("ALL CONTROLLER UNIT TESTS PASSED.")
 diff --git a/lab/test_success_first_negative.py b/lab/test_success_first_negative.py
 new file mode 100644
-index 0000000..09f62a3
+index 0000000..f0a5aef
 --- /dev/null
 +++ b/lab/test_success_first_negative.py
-@@ -0,0 +1,138 @@
+@@ -0,0 +1,166 @@
 +#!/usr/bin/env python3
 +"""Offline regression specifications for the blocked G05 controller; expected red on e02e018.
 +
@@ -860,7 +860,7 @@ index 0000000..09f62a3
 +        self.proc = subprocess.Popen(
 +            [sys.executable, str(SCRIPT), "--trace", str(self.trace),
 +             "--gate-dir", str(self.gates), "--request", self.request,
-+             "--margin-seconds", "1.4", "--timeout", "3"],
++             "--margin-seconds", "1.4", "--timeout", "4"],
 +            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
 +        )
 +        self.wait_for(self.gates / f"hold-password-{self.request}")
@@ -879,35 +879,50 @@ index 0000000..09f62a3
 +            stream.flush()
 +
 +    def start(self):
++        self.nominal_deadline = time.monotonic() + 2
 +        self.event("deadline-armed", duration_ms=2000)
 +        self.event("helper-start", role="fingerprint", method=1, helper_pid=1234)
 +        self.event("helper-start", role="password", method=0, helper_pid=1235)
 +        self.wait_for(self.gates / f"hold-{self.request}-1234")
 +
-+    def finish(self, *, held=True, exit_pid=1235, ordered=True, winner=True):
++    def finish(self, *, held=True, exit_pid=1235, ordered=True, winner=True,
++               held_boot=BOOT, reversed_clock=False):
++        fp_gate = self.gates / f"hold-{self.request}-1234"
++        assert fp_gate.exists(), "fingerprint helper must encounter a live hold"
 +        if held:
-+            self.event("password-held", role="password", method=0, helper_pid=1235)
-+            self.event("pam-success-held", role="fingerprint", method=1, helper_pid=1234)
-+        time.sleep(0.75)  # Existing nominal 2s deadline, 1.4s margin, 0.5s minimum.
++            self.event("password-held", role="password", method=0, helper_pid=1235, boot_id=held_boot)
++            self.event("pam-success-held", role="fingerprint", method=1, helper_pid=1234, boot_id=held_boot)
++        # Release must precede the original guest-time deadline; loser exit must follow it.
++        release_by = time.monotonic() + 1.3
++        while fp_gate.exists() and time.monotonic() < release_by:
++            time.sleep(0.01)
++        assert not fp_gate.exists(), "fingerprint hold did not release before nominal deadline"
++        if held:
++            self.event("pam-success-released", role="fingerprint", method=1, helper_pid=1234)
 +        if not ordered:
 +            self.event("loser-barrier-release", method=0)
 +            self.event("winner-authorize", method=1)
 +        if winner:
-+            self.event("winner-selected", method=1)
++            self.event("winner-selected", method=1,
++                       monotonic_us=int((time.monotonic() + 5 if reversed_clock else time.monotonic()) * 1e6))
 +        self.event("loser-barrier-wait", winner_method=1, loser_method=0, loser_generation=1)
++        # This is intentionally after t0 + 2s, not merely after the gate opens.
++        remaining = self.nominal_deadline - time.monotonic()
++        if remaining > 0:
++            time.sleep(remaining + 0.08)
 +        self.event("helper-exit", role="password", method=0, helper_pid=exit_pid)
 +        if ordered:
 +            self.event("loser-barrier-release", method=0)
 +            self.event("winner-authorize", method=1)
 +        self.event("session-result", method=1, helper_pid=1234, success=True)
-+        out, err = self.proc.communicate(timeout=4)
++        out, err = self.proc.communicate(timeout=5)
 +        assert not err, err
 +        return json.loads(out)
 +
 +    def close(self):
 +        if self.proc.poll() is None:
 +            self.proc.kill()
-+        self.proc.communicate(timeout=4)
++        self.proc.communicate(timeout=5)
 +
 +
 +class SuccessFirstNegativeTests(unittest.TestCase):
@@ -922,12 +937,17 @@ index 0000000..09f62a3
 +        self.fixture.event("deadline-armed", monotonic_us=old, duration_ms=2000)
 +        self.fixture.event("helper-start", role="fingerprint", method=1, helper_pid=1234)
 +        self.fixture.wait_for(self.fixture.gates / f"hold-{self.fixture.request}-1234")
-+        self.assertFalse(self.fixture.finish()["verified"],
-+                         "missed safe release window must abort, not claim success")
++        # A missed window must abort promptly, not wait for synthetic success events.
++        time.sleep(0.25)
++        self.assertIsNotNone(self.fixture.proc.poll(), "stale deadline did not abort promptly")
++        out, err = self.fixture.proc.communicate(timeout=6)
++        self.assertFalse(err, err)
++        self.assertFalse(json.loads(out)["verified"])
++        self.assertNotEqual(self.fixture.proc.returncode, 0)
 +
 +    def test_gate_must_be_ready_before_helper_can_check_it(self):
-+        gate = self.fixture.gates / f"hold-{self.fixture.request}-1234"
-+        self.assertTrue(gate.exists(), "helper could pass absent gate before helper-start is consumed")
++        gate = self.fixture.gates / f"hold-fingerprint-{self.fixture.request}"
++        self.assertTrue(gate.exists(), "request-scoped gate must precede helper PID discovery")
 +
 +    def test_valid_synthetic_baseline(self):
 +        self.fixture.start()
@@ -952,6 +972,14 @@ index 0000000..09f62a3
 +    def test_reordered_barrier_cannot_verify(self):
 +        self.fixture.start()
 +        self.assertFalse(self.fixture.finish(ordered=False)["verified"])
++
++    def test_foreign_boot_hold_cannot_verify(self):
++        self.fixture.start()
++        self.assertFalse(self.fixture.finish(held_boot="b" * 32)["verified"])
++
++    def test_timestamp_reversal_cannot_verify(self):
++        self.fixture.start()
++        self.assertFalse(self.fixture.finish(reversed_clock=True)["verified"])
 +
 +    def test_death_recovery_must_report_failed_unlink(self):
 +        gate = self.fixture.gates / f"hold-password-{self.fixture.request}"
