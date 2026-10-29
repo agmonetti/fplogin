@@ -1,7 +1,7 @@
 # G05 diagnostic overlay: offline results and reversal contract
 
 **No deployment or new VM attempt is authorized.** The diagnostic-only source is
-`.work/labs/sprint2/g05-diagnostic-source/` at `212130b247a496bc0018c361a4837abe2a3df974` (test-only successor to `e02e018`).
+`.work/labs/sprint2/g05-diagnostic-source/` at `cf77affafc6bf0c10e79acc2af618fc93a694320` (fixture-only successor to `e02e018`).
 The portable overlay and hashes are in `sddm-lab-g05-diagnostic.patch` and
 `sddm-lab-g05-diagnostic.json`. It applies on traced `c9cf9b7`; it does not
 enter the production series or modify production commit `480332c`.
@@ -12,13 +12,16 @@ enter the production series or modify production commit `480332c`.
 review withdrew its initial readiness/deadlock-safety verdict. See the
 [complete closure review](../../docs/reviews/g05-offline-2026-10-28.md) for six
 controller defects and the required negative tests. `lab/test_success_first_negative.py`
-now records eight synthetic offline checks: one baseline passes, seven intentionally
-fail against the unchanged controller. The gate-readiness check uses the current
-helper's request/PID gate pathname; if a new handshake changes the gate protocol,
-update the check and real-helper fixture together. Death recovery requires an
+now records ten synthetic offline checks: one held/same-boot baseline passes,
+nine intentionally fail against the unchanged controller. The fixture places
+winner selection before the nominal deadline and loser exit after it. The
+prelaunch gate check specifies a request-scoped gate before PID discovery;
+update the real-helper fixture and controller together when implementing it.
+See the [offline protocol specification](../../docs/reviews/g05-controller-protocol-2026-10-29.md)
+for identity, ordering and bounded independent recovery requirements. Death recovery requires an
 explicit durable `recovery.json` failure verdict, not a silently swallowed unlink.
 These tests are specifications, not proof of PAM behavior or safe recovery.
-The sequence below is the required protocol, not proof that the current controller implements it.
+The sequence below describes historical diagnostic behavior, **not** an approved prelaunch/recovery protocol or proof that the current controller implements the new specification.
 
 ## Diagnostic behavior and scope
 
