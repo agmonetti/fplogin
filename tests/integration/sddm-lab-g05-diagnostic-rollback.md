@@ -1,7 +1,7 @@
 # G05 diagnostic overlay: offline results and reversal contract
 
 **No deployment or new VM attempt is authorized.** The diagnostic-only source is
-`.work/labs/sprint2/g05-diagnostic-source/` at `cf77affafc6bf0c10e79acc2af618fc93a694320` (fixture-only successor to `e02e018`).
+`.work/labs/sprint2/g05-diagnostic-source/` at `6262d98bbd2fad951d850a2ff4dafdecfaac8ca8` (unverified HELLO_ACK successor to the fixture-only `cf77aff`).
 The portable overlay and hashes are in `sddm-lab-g05-diagnostic.patch` and
 `sddm-lab-g05-diagnostic.json`. It applies on traced `c9cf9b7`; it does not
 enter the production series or modify production commit `480332c`.
@@ -21,7 +21,7 @@ See the [offline protocol specification](../../docs/reviews/g05-controller-proto
 for identity, ordering and bounded independent recovery requirements. Death recovery requires an
 explicit durable `recovery.json` failure verdict, not a silently swallowed unlink.
 These tests are specifications, not proof of PAM behavior or safe recovery.
-The sequence below describes historical diagnostic behavior, **not** an approved prelaunch/recovery protocol or proof that the current controller implements the new specification.
+The current helper now requires a bounded explicit unarmed HELLO_ACK bound to auth ID, request, method and generation before backend/PAM; wrong-generation ACK fails before PAM in the isolated selfcheck. Armed ACK is deliberately rejected until daemon-owned prelaunch reservation and recovery are implemented. Nine negatives remain red. The sequence below describes historical diagnostic behavior, **not** an approved prelaunch/recovery protocol or proof that the current controller implements the new specification.
 
 ## Diagnostic behavior and scope
 
