@@ -1119,10 +1119,71 @@ index 9651ba3..79907bb 100644
      };
  
 diff --git a/src/daemon/Display.cpp b/src/daemon/Display.cpp
-index f70a3c6..64465fc 100644
+index f70a3c6..81425e3 100644
 --- a/src/daemon/Display.cpp
 +++ b/src/daemon/Display.cpp
-@@ -558,8 +558,9 @@ namespace SDDM {
+@@ -366,7 +366,7 @@ namespace SDDM {
+ 
+     void Display::login(QLocalSocket *socket, const QString &user, const QString &password,
+                         const Session &session) {
+-        if (!socket || m_tearingDown || m_contextCommitted)
++        if (!socket || diagnosticLaunchBlocked(socket) || m_tearingDown || m_contextCommitted)
+             return;
+         if (user.isEmpty() || user == QLatin1String("sddm") || !session.isValid()) {
+             emit loginFailed(socket);
+@@ -431,10 +431,51 @@ namespace SDDM {
+         }
+     }
+ 
++    bool Display::reserveDiagnosticContext(QLocalSocket *socket, quint64 serial, const QString &user,
++                                           const Session &session) {
++        // No retrospective arm: an exited helper still has a launch generation.
++        if (!socket || !serial || user.isEmpty() || user == QLatin1String("sddm") || !session.isValid()
++            || m_diagnosticSocket || m_diagnosticRejectedSockets.contains(socket)
++            || m_pendingContext || m_contextSocket || m_methodAttemptActive || m_contextCommitted
++            || m_auth->isActive() || m_fingerprintAuth->isActive()
++            || m_auth->launchGeneration() || m_fingerprintAuth->launchGeneration()
++            || m_selectionSerials.value(socket))
++            return false;
++        m_diagnosticSocket = socket;
++        m_diagnosticSerial = serial;
++        m_diagnosticUser = user;
++        m_diagnosticSession = session;
++        m_diagnosticRequest = QUuid::createUuid().toString(QUuid::WithoutBraces);
++        return true;
++    }
++
++    bool Display::diagnosticLaunchBlocked(QLocalSocket *socket) const {
++        return m_diagnosticSocket || (socket && m_diagnosticRejectedSockets.contains(socket));
++    }
++
+     void Display::setAuthenticationContext(QLocalSocket *socket, quint64 serial, bool hasContext,
+                                            const QString &user, const Session &session) {
+         if (!socket || m_tearingDown)
+             return;
++        if (m_diagnosticRejectedSockets.contains(socket)
++            || (m_diagnosticSocket && (socket != m_diagnosticSocket || serial != m_diagnosticSerial
++                || !hasContext || user != m_diagnosticUser
++                || session.type() != m_diagnosticSession.type()
++                || session.fileName() != m_diagnosticSession.fileName()))) {
++            if (socket == m_diagnosticSocket) {
++                m_diagnosticRejectedSockets.insert(socket);
++                m_diagnosticSocket.clear();
++                invalidateProbe();
++                clearPendingLogin();
++                cancelMethodAttempt();
++                m_contextOptedIn = false;
++                m_contextSocket.clear();
++            }
++            m_socketServer->authenticationContext(socket, serial, 0, QString(), QString(), Session(),
++                    quint32(AuthenticationAvailability::Unavailable), quint32(AuthenticationPhase::Idle),
++                    QStringLiteral("diagnostic_reservation_rejected"));
++            return;
++        }
+         const auto owner = m_pendingContext ? m_pendingContextSocket : m_contextSocket;
+         if ((owner && owner != socket) || (m_methodAttemptActive && m_attemptSocket != socket)
+             || (m_contextCommitted && m_contextSocket != socket)) {
+@@ -558,8 +599,9 @@ namespace SDDM {
                          QStringLiteral("/org/freedesktop/DBus"), QStringLiteral("org.freedesktop.DBus"),
                          QStringLiteral("StartServiceByName"));
                  activate << QStringLiteral("net.reactivated.Fprint") << quint32(0);
@@ -1133,7 +1194,7 @@ index f70a3c6..64465fc 100644
                  m_probeWatchers.insert(activationWatcher);
                  connect(activationWatcher, &QDBusPendingCallWatcher::finished, this,
                          [this, activationWatcher, generation, serial, requestId] {
-@@ -571,6 +572,11 @@ namespace SDDM {
+@@ -571,6 +613,11 @@ namespace SDDM {
                      qInfo().noquote().nospace() << "FPLOGIN_TRACE event=probe-activation-return request=" << requestId
                          << " serial=" << serial << " probe_generation=" << generation
                          << " success=" << (!activation.isError() && (activation.value() == 1 || activation.value() == 2));
@@ -1145,7 +1206,44 @@ index f70a3c6..64465fc 100644
                      if (activation.isError() || (activation.value() != 1 && activation.value() != 2)) {
                          setFingerprintAvailability(serial, requestId, false,
                                                     QStringLiteral("service_unavailable"));
-@@ -1002,6 +1008,8 @@ namespace SDDM {
+@@ -615,7 +662,7 @@ namespace SDDM {
+     }
+ 
+     void Display::startFingerprint(QLocalSocket *socket, quint64 serial) {
+-        if (m_tearingDown || m_contextCommitted)
++        if (diagnosticLaunchBlocked(socket) || m_tearingDown || m_contextCommitted)
+             return;
+         if (m_pendingContext) {
+             if (socket == m_pendingContextSocket && serial == m_pendingContextSerial && m_pendingHasContext) {
+@@ -728,7 +775,7 @@ namespace SDDM {
+     }
+ 
+     void Display::authorizeWinner() {
+-        if (m_tearingDown || m_pendingContext || !m_methodAttemptActive || !m_winnerAuth
++        if (diagnosticLaunchBlocked(m_contextSocket) || m_tearingDown || m_pendingContext || !m_methodAttemptActive || !m_winnerAuth
+             || !isCurrentHelper(m_winnerAuth) || !m_winnerAuth->isActive()
+             || !m_winnerAuth->isAwaitingAuthorization() || m_waitingForLoser
+             || !m_attemptGate.authorize(m_winnerAuth->method()))
+@@ -746,7 +793,7 @@ namespace SDDM {
+     }
+ 
+     void Display::startPendingLogin() {
+-        if (!m_pendingLogin || m_pendingContext || m_tearingDown || m_contextCommitted
++        if (diagnosticLaunchBlocked(m_pendingSocket) || !m_pendingLogin || m_pendingContext || m_tearingDown || m_contextCommitted
+             || m_methodWinnerChosen || m_auth->isActive())
+             return;
+         if (m_pendingPasswordGeneration) {
+@@ -913,7 +960,8 @@ namespace SDDM {
+         m_contextOptedIn = m_pendingHasContext;
+         m_contextUser = m_pendingContextUser;
+         m_contextSession = m_pendingContextSession;
+-        m_requestId = m_contextOptedIn ? QUuid::createUuid().toString(QUuid::WithoutBraces) : QString();
++        m_requestId = m_diagnosticSocket ? m_diagnosticRequest
++            : m_contextOptedIn ? QUuid::createUuid().toString(QUuid::WithoutBraces) : QString();
+         m_contextCommitted = false;
+         m_contextFinished = false;
+         m_contextPhase = AuthenticationPhase::Idle;
+@@ -1002,6 +1050,8 @@ namespace SDDM {
                  || m_requestId != requestId || m_contextSerial != serial || m_contextSocket != socket
                  || auth->launchGeneration() != generation || m_pendingContext || m_tearingDown)
                  return;
@@ -1154,7 +1252,7 @@ index f70a3c6..64465fc 100644
              disarmFingerprintDeadline();
              m_attemptGate.cancel(AuthMethod::Fingerprint);
              m_fingerprintTerminal = true;
-@@ -1010,7 +1018,10 @@ namespace SDDM {
+@@ -1010,11 +1060,21 @@ namespace SDDM {
              stopAuthenticationHelper(auth);
          });
          // Bound invalid/overflowing configuration without an unbounded deadline.
@@ -1166,6 +1264,54 @@ index f70a3c6..64465fc 100644
      }
  
      void Display::retireSocket(QLocalSocket *socket) {
+         m_selectionSerials.remove(socket);
++        m_diagnosticRejectedSockets.remove(socket);
++        if (m_diagnosticSocket == socket) {
++            m_diagnosticSocket.clear();
++            invalidateProbe();
++            clearPendingLogin();
++            cancelMethodAttempt();
++        }
+         if (m_pendingContextSocket == socket) {
+             m_pendingContext = false;
+             m_pendingContextSocket.clear();
+@@ -1114,6 +1174,8 @@ namespace SDDM {
+     }
+ 
+     bool Display::startAuth(const QString &user, const QString &password, const Session &session, AuthMethod method) {
++        if (diagnosticLaunchBlocked(m_contextSocket))
++            return false;
+         Auth *auth = method == AuthMethod::Fingerprint ? m_fingerprintAuth : m_auth;
+         if (auth->isActive()) {
+             qWarning() << "Existing authentication method is still active";
+diff --git a/src/daemon/Display.h b/src/daemon/Display.h
+index e4528e4..27b7897 100644
+--- a/src/daemon/Display.h
++++ b/src/daemon/Display.h
+@@ -111,6 +111,10 @@ namespace SDDM {
+                                        const QString &detailCode);
+         void startPendingLogin();
+         void advancePendingContext();
++        // Diagnostic reservation is daemon-owned; no greeter or trace can arm it.
++        bool reserveDiagnosticContext(QLocalSocket *socket, quint64 serial, const QString &user,
++                                      const Session &session);
++        bool diagnosticLaunchBlocked(QLocalSocket *socket) const;
+         void beginMethodAttempt(QLocalSocket *socket, const QString &user, const Session &session);
+         void clearPendingLogin();
+         void invalidateProbe();
+@@ -141,6 +145,12 @@ namespace SDDM {
+         bool m_pendingFingerprintCancelled { false };
+         bool m_fingerprintStartRequested { false };
+         QHash<QLocalSocket *, quint64> m_selectionSerials;
++        QPointer<QLocalSocket> m_diagnosticSocket;
++        quint64 m_diagnosticSerial { 0 };
++        QString m_diagnosticUser;
++        Session m_diagnosticSession;
++        QString m_diagnosticRequest;
++        QSet<QLocalSocket *> m_diagnosticRejectedSockets;
+         Session m_contextSession;
+         bool m_contextOptedIn { false };
+         bool m_contextCommitted { false };
 diff --git a/src/helper/HelperApp.cpp b/src/helper/HelperApp.cpp
 index bdcb93f..afbc733 100644
 --- a/src/helper/HelperApp.cpp
@@ -1492,7 +1638,7 @@ index e61bbeb..7f62fab 100644
                  app.exit(12);
                  return;
 diff --git a/test/DaemonContextTest.cpp b/test/DaemonContextTest.cpp
-index b721e43..a061559 100644
+index b721e43..a3137a1 100644
 --- a/test/DaemonContextTest.cpp
 +++ b/test/DaemonContextTest.cpp
 @@ -17,6 +17,8 @@
@@ -1531,10 +1677,40 @@ index b721e43..a061559 100644
      }
      QString fixtureOwner() {
          const QDBusReply<QString> owner = QDBusConnection::systemBus().interface()->serviceOwner(
-@@ -258,6 +270,80 @@ class DaemonContextTest : public QObject {
+@@ -258,6 +270,110 @@ class DaemonContextTest : public QObject {
          QTRY_VERIFY(client.state(FingerprintState::Scanning));
      }
  private slots:
++    void diagnosticReservationBlocksPreReadyLaunch() {
++        Harness display(directory->filePath(QStringLiteral("control")));
++        Client client;
++        connectClient(display, client);
++        QTRY_VERIFY(!display.m_socketServer->findChildren<QLocalSocket *>().isEmpty());
++        auto *serverSocket = display.m_socketServer->findChildren<QLocalSocket *>().constFirst();
++        QVERIFY(display.reserveDiagnosticContext(serverSocket, 1, QStringLiteral("root"), session));
++        const QString ticket = display.m_diagnosticRequest;
++        QVERIFY(!ticket.isEmpty());
++        select(client, 1, QStringLiteral("root"));
++        QTRY_COMPARE(display.m_requestId, ticket);
++        QTRY_COMPARE(client.count(DaemonMessages::AuthenticationContext), 1);
++        display.setFingerprintAvailability(1, ticket, true, QStringLiteral("available"));
++        password(client, QStringLiteral("root"));
++        start(client, 1);
++        QTest::qWait(100);
++        QCOMPARE(display.m_auth->launchGeneration(), quint64(0));
++        QCOMPARE(display.m_fingerprintAuth->launchGeneration(), quint64(0));
++        QVERIFY(!display.m_methodAttemptActive);
++        // A changed selection must poison this socket, not become unarmed.
++        select(client, 2, QStringLiteral("root"));
++        QTRY_COMPARE(client.count(DaemonMessages::AuthenticationContext,
++                                  QStringLiteral("diagnostic_reservation_rejected")), 1);
++        password(client, QStringLiteral("root"));
++        start(client, 1);
++        QTest::qWait(100);
++        QCOMPARE(display.m_auth->launchGeneration(), quint64(0));
++        QCOMPARE(display.m_fingerprintAuth->launchGeneration(), quint64(0));
++        QVERIFY(!display.reserveDiagnosticContext(serverSocket, 3, QStringLiteral("root"), session));
++    }
 +    void diagnosticRealPamTimeoutFirst() {
 +#ifndef G05_INTEGRATED
 +        QSKIP("Run the separately compiled offline real-helper target");
@@ -1612,7 +1788,7 @@ index b721e43..a061559 100644
      void initTestCase() {
          busDirectory = std::make_unique<QTemporaryDir>(QDir::currentPath() + QStringLiteral("/availability-bus-XXXXXX"));
          QVERIFY(busDirectory->isValid());
-@@ -320,6 +406,13 @@ private slots:
+@@ -320,6 +436,13 @@ private slots:
      }
      void activationDeadlineRejectsLateOwnerAcquisition() {
          const auto gate = directory->filePath(QStringLiteral("late-start"));

@@ -1,21 +1,22 @@
 {
-  "status": "blocked-offline-unverified-HELLO_ACK-slice-no-prelaunch-or-recovery-no-deployment",
+  "status": "blocked-offline-unverified-pre-READY-reservation-only-no-control-endpoint-or-recovery-no-deployment",
   "base_traced_source": "c9cf9b7f28eabd4d190059ce4e55815921c071e5",
   "diagnostic_source": ".work/labs/sprint2/g05-diagnostic-source/",
-  "source_commit": "6262d98bbd2fad951d850a2ff4dafdecfaac8ca8",
+  "source_commit": "5d218e882e21549a9bae4c46e4df829dfecac4dc",
   "diagnostic_build": ".work/build/sddm-sprint2/g05-diagnostic/",
   "overlay_patch": "tests/integration/sddm-lab-g05-diagnostic.patch",
-  "overlay_sha256": "ad967de29f9d6d543ffa4f7e90c58bcf7176ded1d45f28180ede43a6ee569f5e",
+  "overlay_sha256": "12658017541d18b55bbc28bb2fcf3581f54763860e0a46d4e392fb52c4fe7042",
   "source_sha256": {
     "src/auth/Auth.cpp": "70a447ddd9d5c339901688b28e93538b68deea1282c46365acfef54153db0475",
     "src/auth/AuthMessages.h": "d970cb84fbd9e38fb22d76277efd84e00ec0eb75e56a7dd6c9f3cb218470c074",
-    "src/daemon/Display.cpp": "4254fb37d848d87053cee5110fa8cdc66ef699da2b44351e72421a44c4420964",
+    "src/daemon/Display.cpp": "f9909e2008100534468a84d6da0d2a6ccd0e17d31c3c65c2bd1794dd3ba88bcb",
+    "src/daemon/Display.h": "ea1a1a96186b06012f161132b45521933bd5070b90fc5ae4dbbd208f4b455280",
     "src/helper/HelperApp.cpp": "06fdbde9c341aad4e73dae0d75b37dd0c8f5188129064267b8bec2f7c9bec54f",
     "src/helper/HelperApp.h": "7b36cedf3a94a1664a145f5393420043d882e1db644208062e373be7eeeb4164",
     "test/AuthTransportHelper.cpp": "3fb0a38dbe7f7557bf5e68e2947d1cfd36307ea9d93aa67b2c1f2722838e2963",
     "test/AuthTransportTest.cpp": "927429359481edef4e734b87a42e4e26f0b6f5c5ff719ad235aed7dd92626c10",
     "test/CMakeLists.txt": "300246f61c2ff67927106a06b6c1dc17653c2d671ddf6ef8995ba2776be88df5",
-    "test/DaemonContextTest.cpp": "2af8eeacaf9d9e0c4b8c084407b1385db9404c5e30c8e4d0ee76c7eb8041ee0e",
+    "test/DaemonContextTest.cpp": "f0a6582fd274db425d73631886a6fd4407fa14c39e05d20ca9a3421c3d561fd8",
     "test/DaemonContextHelper.cpp": "6fdd5d3b8cb96dadb8fc9722204f053e56db952b097e28032256547d445d22dc",
     "lab/collect_sddm_g05.py": "58a9ed7d3a91ed2bb9a7973b2a72d30c5d097586461226def61a45f411f301d9",
     "lab/g05-offline-selfcheck.py": "a1cddb4297bef2d43db701bf1b4a776f6f85c45691e86d544d19f06d27eb3d57",
@@ -24,13 +25,13 @@
     "lab/test_success_first_negative.py": "e94d20203476cace60a1c976a07e94530eb38919261fe84111026f22be151804"
   },
   "build_sha256": {
-    "usr/local/bin/sddm": "4f032ab26b820d0d35030a46a27810909ac6358523f36ad3c9dfbe0e9b63949a",
-    "usr/local/libexec/sddm-helper": "b57a2e47e4bb5fe74539fdf9210e6ae6f4879f1cc801c562841e231239cfaebf"
+    "src/daemon/sddm": "b0f3d1b3e779bf69907fb9cf855b5014938b9aa924c0c40619d5890376e681fa",
+    "src/helper/sddm-helper": "dcbed0db7ca0bd202753f74a114af9f710b9e56202493d11ecb9fd83201e30ca"
   },
-  "bundle": ".work/checkpoints/sddm-g05-diagnostic-hello-ack-6262d98.bundle",
-  "bundle_sha256": "47ffde4bfe99bd060043cbf528ca3fbdadc541d000b14406bd393ad3e688d410",
+  "bundle": ".work/checkpoints/sddm-g05-pre-ready-5d218e8.bundle",
+  "bundle_sha256": "666582be2a11f0db835f3ba31cbd5d41885e65a077c97e1a7a86ff592cb3610a",
   "verification": {
-    "isolated_no_network_build": "current 6262d98 slice built in no-network container; isolated CTest 9/9 passed once after fixing fake-helper ACK parsing; first run 8/9 failed AuthTransport fake clean-exit parser, see hello-ack-build-test-{,2}.log",
+    "isolated_no_network_build": "5d218e8 built in offline container; focused pre-READY test passed, full CTest 9/9 passed once. reservation-first-build-test.log; this is not an armed/integrated recovery test. Earlier HELLO_ACK runs remain historical.",
     "controller_negative_tests": "10 offline synthetic tests: 9 still failing, 1 baseline passing; no controller or prelaunch/recovery implementation. hello-ack-negative.log",
     "ctest": "One recorded full run passed 9/9; determinism claim withdrawn. Diagnostic asyncCall timeout changed 5000 to 6000ms; production remains unchanged. Repeatability and full root-cause closure pending.",
     "focused": "AuthTransport diagnostic late discard, DaemonContext success-first/timeout-first, and G05IntegratedTest passed",
@@ -48,7 +49,7 @@
   ],
   "limits": [
     "Corrected independent review retracts complete offline readiness and helper-deadlock safety; see docs/reviews/g05-offline-2026-10-28.md",
-    "Controller uses event-consumption time, races fingerprint gate creation, lacks full identity and exit binding, accepts missing request, lacks held/order checks, and watchdog does not observe helper termination; nine negative tests remain red. HELLO_ACK is unarmed-only until daemon-owned reservation is implemented; never treat as READY",
+    "Controller uses event-consumption time, races fingerprint gate creation, lacks full identity and exit binding, accepts missing request, lacks held/order checks, and watchdog does not observe helper termination; nine negative tests remain red. Reservation has no control endpoint, READY, armed HELLO_ACK, exact abort or recovery authority; it is exercised only by a test friend. Never treat as READY",
     "Not deployed; no real fingerprint, guest PAM, or G05 physical verdict",
     "Late AUTHENTICATED proves delivery of pre-deadline genuine PAM success, not a PAM return after deadline",
     "Controlled delay of SIGTERM processing occurs while helper event loop is blocked on gate",
