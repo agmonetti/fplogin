@@ -25,13 +25,14 @@
     "lab/test_success_first_negative.py": "e94d20203476cace60a1c976a07e94530eb38919261fe84111026f22be151804"
   },
   "build_sha256": {
-    "src/daemon/sddm": "08125013ee66223ee6062da4f3d194965ac5541128d8b2c29b9d60f4f47ee880",
+    "src/daemon/sddm": "bfbcce2f94a615ec9dc06265d625a1c5ff5b97fb3654f950168c79893f649fc8",
     "src/helper/sddm-helper": "dcbed0db7ca0bd202753f74a114af9f710b9e56202493d11ecb9fd83201e30ca"
   },
   "bundle": ".work/checkpoints/sddm-g05-reservation-exited-49995bf.bundle",
   "bundle_sha256": "b42bf4f81a8f8cdaf26d1ddde0d8b58f79d7625b4cb96bf18113e8b860360779",
   "verification": {
-    "isolated_no_network_build": "Focused reservation and prior-exited-helper tests passed (4/4 QtTest cases including init/cleanup) in offline no-network image sha256:56a91f43cf9f...; reservation-exited-helper-test-corrected.log. An initial archlinux:base-devel attempt lacked cmake; a traced runtime image had Qt ABI link mismatch. Full CTest was not rerun; historical 9/9 at 5d218e8 only. No authenticated caller, READY or recovery test.",
+    "isolated_no_network_build": "Baseline 49995bf rebuilt after reverting unsafe draft; offline no-network image sha256:56a91f43cf9f...; /build/g05-baseline-restore-build.log. Draft control-focused run failed 2/4 cases because private-directory mode validation rejected valid 0700; control-build-focused.log. No authenticated daemon caller, READY or recovery test passed.",
+    "blocked_control_attempt": "Reverted all draft source changes. Baseline full CTest 9/9 passed in control-blocked-baseline-ctest.log; does not verify requested control endpoint. Daemon binary hash updated for actual rebuilt artifact; source, overlay and bundle unchanged.",
     "controller_negative_tests": "10 offline synthetic tests: 9 still failing, 1 baseline passing; no controller or prelaunch/recovery implementation. hello-ack-negative.log",
     "ctest": "One recorded full run passed 9/9; determinism claim withdrawn. Diagnostic asyncCall timeout changed 5000 to 6000ms; production remains unchanged. Repeatability and full root-cause closure pending.",
     "focused": "AuthTransport diagnostic late discard, DaemonContext success-first/timeout-first, and G05IntegratedTest passed",
