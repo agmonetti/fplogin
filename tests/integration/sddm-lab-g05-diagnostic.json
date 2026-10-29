@@ -2,10 +2,10 @@
   "status": "blocked-offline-controller-review-no-deployment-authorized",
   "base_traced_source": "c9cf9b7f28eabd4d190059ce4e55815921c071e5",
   "diagnostic_source": ".work/labs/sprint2/g05-diagnostic-source/",
-  "source_commit": "e02e01862596ab081c257dfb757085b4295a5816",
+  "source_commit": "212130b247a496bc0018c361a4837abe2a3df974",
   "diagnostic_build": ".work/build/sddm-sprint2/g05-diagnostic/",
   "overlay_patch": "tests/integration/sddm-lab-g05-diagnostic.patch",
-  "overlay_sha256": "e3657bea80847cd33252bc9de2754dc7259154a56c9857bc538b36d4e0f35992",
+  "overlay_sha256": "71c0a75bfa9bc0924c26b0831fdcdfae53b1d0977a63bbd74b9808ebad902616",
   "source_sha256": {
     "src/auth/Auth.cpp": "8c33d890e9dacfbddcea78e9bfec8f09dea216789bca8f9bd2e74603949afa85",
     "src/daemon/Display.cpp": "4254fb37d848d87053cee5110fa8cdc66ef699da2b44351e72421a44c4420964",
@@ -16,16 +16,18 @@
     "lab/collect_sddm_g05.py": "58a9ed7d3a91ed2bb9a7973b2a72d30c5d097586461226def61a45f411f301d9",
     "lab/g05-offline-selfcheck.py": "f5a99660b6b69660770cf6e6a0d580c2220743e2346f21ec9b17d09fa943fa0a",
     "lab/g05-success-first-controller.py": "8de58222704fd58aa8341d49186110e71651abb0cb051e6b613f55ed681bfeac",
-    "lab/test_success_first_controller.py": "42fd8cda7b5c253509ef5174487c203c52de0c67400c23813fd9378bfb2dd455"
+    "lab/test_success_first_controller.py": "42fd8cda7b5c253509ef5174487c203c52de0c67400c23813fd9378bfb2dd455",
+    "lab/test_success_first_negative.py": "e9877752ab84e8c8cc9ec78514397c46f08e0f0f7603ce9c7e3f40a72622f028"
   },
   "build_sha256": {
     "usr/local/bin/sddm": "c1b3398630625b33794965c5cd264cb64f3f2b6985a350a48e1bb210c81c4ab3",
     "usr/local/libexec/sddm-helper": "2c60ed1dcf330800bef73fa6c9b9ba5bf93000bc27b26b85e410e611b2355d8e"
   },
-  "bundle": ".work/checkpoints/sddm-g05-diagnostic-e02e018.bundle",
-  "bundle_sha256": "52287ac24e435ffdb15a9ffbe06b23877e0b06d17ef4ce830be8aacb029f0659",
+  "bundle": ".work/checkpoints/sddm-g05-diagnostic-negative-212130b.bundle",
+  "bundle_sha256": "9b2114d584e2077bbcccdcc3ef217fdb8d43f93cc0b16c93a7768be5a5f9d345",
   "verification": {
-    "isolated_no_network_build": "passed",
+    "isolated_no_network_build": "passed previously at e02e018; not rerun for test-only checkpoint",
+    "controller_negative_tests": "8 offline synthetic tests: 7 expected failures reproduce the six blocking defects, 1 baseline passes against e02e018 controller; no product fix or guest run",
     "ctest": "One recorded full run passed 9/9; determinism claim withdrawn. Diagnostic asyncCall timeout changed 5000 to 6000ms; production remains unchanged. Repeatability and full root-cause closure pending.",
     "focused": "AuthTransport diagnostic late discard, DaemonContext success-first/timeout-first, and G05IntegratedTest passed",
     "real_mock_PAM": "rc=0 before SIGTERM; AUTHENTICATED emitted after SIGTERM before helper exit, observed by offline peer",
@@ -42,7 +44,7 @@
   ],
   "limits": [
     "Corrected independent review retracts complete offline readiness and helper-deadlock safety; see docs/reviews/g05-offline-2026-10-28.md",
-    "Controller uses event-consumption time, races fingerprint gate creation, lacks full identity and exit binding, accepts missing request, lacks held/order checks, and watchdog does not observe helper termination",
+    "Controller uses event-consumption time, races fingerprint gate creation, lacks full identity and exit binding, accepts missing request, lacks held/order checks, and watchdog does not observe helper termination; new negative tests remain intentionally red",
     "Not deployed; no real fingerprint, guest PAM, or G05 physical verdict",
     "Late AUTHENTICATED proves delivery of pre-deadline genuine PAM success, not a PAM return after deadline",
     "Controlled delay of SIGTERM processing occurs while helper event loop is blocked on gate",

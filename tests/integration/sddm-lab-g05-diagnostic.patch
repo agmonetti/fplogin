@@ -825,6 +825,150 @@ index 0000000..dc08026
 +    test_watchdog_cleanup_on_sigkill()
 +    test_controller_simulated_success_first()
 +    print("ALL CONTROLLER UNIT TESTS PASSED.")
+diff --git a/lab/test_success_first_negative.py b/lab/test_success_first_negative.py
+new file mode 100644
+index 0000000..09f62a3
+--- /dev/null
++++ b/lab/test_success_first_negative.py
+@@ -0,0 +1,138 @@
++#!/usr/bin/env python3
++"""Offline regression specifications for the blocked G05 controller; expected red on e02e018.
++
++Synthetic events test controller rejection only, not PAM, helper cleanup, or G05 acceptance.
++"""
++
++import json
++from pathlib import Path
++import subprocess
++import sys
++import tempfile
++import time
++import unittest
++import uuid
++
++SCRIPT = Path(__file__).with_name("g05-success-first-controller.py")
++BOOT = "a" * 32
++
++
++class ControllerFixture:
++    def __init__(self, root):
++        self.root = Path(root)
++        self.gates = self.root / "gates"
++        self.trace = self.root / "trace.jsonl"
++        self.trace.touch()
++        self.request = str(uuid.uuid4())
++        self.proc = subprocess.Popen(
++            [sys.executable, str(SCRIPT), "--trace", str(self.trace),
++             "--gate-dir", str(self.gates), "--request", self.request,
++             "--margin-seconds", "1.4", "--timeout", "3"],
++            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
++        )
++        self.wait_for(self.gates / f"hold-password-{self.request}")
++
++    def wait_for(self, path):
++        end = time.monotonic() + 2
++        while not path.exists() and time.monotonic() < end:
++            time.sleep(0.01)
++        assert path.exists(), f"missing {path}"
++
++    def event(self, name, **fields):
++        with self.trace.open("a") as stream:
++            stream.write(json.dumps({"event": name, "request": self.request,
++                                     "boot_id": BOOT, "monotonic_us": int(time.monotonic() * 1e6),
++                                     "serial": 1, "generation": 1, **fields}) + "\n")
++            stream.flush()
++
++    def start(self):
++        self.event("deadline-armed", duration_ms=2000)
++        self.event("helper-start", role="fingerprint", method=1, helper_pid=1234)
++        self.event("helper-start", role="password", method=0, helper_pid=1235)
++        self.wait_for(self.gates / f"hold-{self.request}-1234")
++
++    def finish(self, *, held=True, exit_pid=1235, ordered=True, winner=True):
++        if held:
++            self.event("password-held", role="password", method=0, helper_pid=1235)
++            self.event("pam-success-held", role="fingerprint", method=1, helper_pid=1234)
++        time.sleep(0.75)  # Existing nominal 2s deadline, 1.4s margin, 0.5s minimum.
++        if not ordered:
++            self.event("loser-barrier-release", method=0)
++            self.event("winner-authorize", method=1)
++        if winner:
++            self.event("winner-selected", method=1)
++        self.event("loser-barrier-wait", winner_method=1, loser_method=0, loser_generation=1)
++        self.event("helper-exit", role="password", method=0, helper_pid=exit_pid)
++        if ordered:
++            self.event("loser-barrier-release", method=0)
++            self.event("winner-authorize", method=1)
++        self.event("session-result", method=1, helper_pid=1234, success=True)
++        out, err = self.proc.communicate(timeout=4)
++        assert not err, err
++        return json.loads(out)
++
++    def close(self):
++        if self.proc.poll() is None:
++            self.proc.kill()
++        self.proc.communicate(timeout=4)
++
++
++class SuccessFirstNegativeTests(unittest.TestCase):
++    def setUp(self):
++        self.temp = tempfile.TemporaryDirectory()
++        self.addCleanup(self.temp.cleanup)
++        self.fixture = ControllerFixture(self.temp.name)
++        self.addCleanup(self.fixture.close)
++
++    def test_delayed_armed_event_must_not_shift_deadline(self):
++        old = int((time.monotonic() - 3) * 1e6)
++        self.fixture.event("deadline-armed", monotonic_us=old, duration_ms=2000)
++        self.fixture.event("helper-start", role="fingerprint", method=1, helper_pid=1234)
++        self.fixture.wait_for(self.fixture.gates / f"hold-{self.fixture.request}-1234")
++        self.assertFalse(self.fixture.finish()["verified"],
++                         "missed safe release window must abort, not claim success")
++
++    def test_gate_must_be_ready_before_helper_can_check_it(self):
++        gate = self.fixture.gates / f"hold-{self.fixture.request}-1234"
++        self.assertTrue(gate.exists(), "helper could pass absent gate before helper-start is consumed")
++
++    def test_valid_synthetic_baseline(self):
++        self.fixture.start()
++        self.assertTrue(self.fixture.finish()["verified"])
++
++    def test_missing_or_foreign_identity_cannot_select_winner(self):
++        self.fixture.start()
++        self.fixture.event("winner-selected", request=None, method=1)
++        self.fixture.event("winner-selected", boot_id="b" * 32, method=1)
++        self.fixture.event("winner-selected", serial=0, method=1)
++        self.fixture.event("winner-selected", generation=0, method=1)
++        self.assertFalse(self.fixture.finish(winner=False)["verified"])
++
++    def test_other_password_helper_exit_does_not_release_loser(self):
++        self.fixture.start()
++        self.assertFalse(self.fixture.finish(exit_pid=4567)["verified"])
++
++    def test_missing_hold_proof_or_reordered_barrier_cannot_verify(self):
++        self.fixture.start()
++        self.assertFalse(self.fixture.finish(held=False)["verified"])
++
++    def test_reordered_barrier_cannot_verify(self):
++        self.fixture.start()
++        self.assertFalse(self.fixture.finish(ordered=False)["verified"])
++
++    def test_death_recovery_must_report_failed_unlink(self):
++        gate = self.fixture.gates / f"hold-password-{self.fixture.request}"
++        gate.unlink()
++        gate.mkdir()  # unlink() raises IsADirectoryError; old watchdog discards it.
++        self.fixture.proc.kill()
++        self.fixture.proc.wait(timeout=2)
++        status = self.fixture.gates / "recovery.json"
++        end = time.monotonic() + 2
++        while not status.exists() and time.monotonic() < end:
++            time.sleep(0.01)
++        self.assertTrue(status.exists(), "recovery failure was suppressed without a durable report")
++        self.assertEqual(json.loads(status.read_text())["state"], "failed")
++
++
++if __name__ == "__main__":
++    unittest.main()
 diff --git a/src/auth/Auth.cpp b/src/auth/Auth.cpp
 index d05eca7..d23e671 100644
 --- a/src/auth/Auth.cpp
