@@ -1118,11 +1118,492 @@ index 9651ba3..79907bb 100644
          MSG_LAST,
      };
  
+diff --git a/src/daemon/CMakeLists.txt b/src/daemon/CMakeLists.txt
+index ce89837..68f6d87 100644
+--- a/src/daemon/CMakeLists.txt
++++ b/src/daemon/CMakeLists.txt
+@@ -22,6 +22,7 @@ set(DAEMON_SOURCES
+     ${CMAKE_SOURCE_DIR}/src/auth/AuthRequest.cpp
+ 
+     DaemonApp.cpp
++    DiagnosticControl.cpp
+     Display.cpp
+     DisplayManager.cpp
+     DisplayServer.cpp
+diff --git a/src/daemon/DaemonApp.cpp b/src/daemon/DaemonApp.cpp
+index 5ff5a71..d77f6c1 100644
+--- a/src/daemon/DaemonApp.cpp
++++ b/src/daemon/DaemonApp.cpp
+@@ -18,6 +18,7 @@
+ ***************************************************************************/
+ 
+ #include "DaemonApp.h"
++#include "DiagnosticControl.h"
+ 
+ #include "Configuration.h"
+ #include "Constants.h"
+@@ -42,6 +43,11 @@ namespace SDDM {
+         // point instance to this
+         self = this;
+ 
++        // Diagnostic opt-in must fail closed before any manager can create a seat.
++        auto *control = DiagnosticControl::fromArguments(arguments(), this);
++        if (control && control->state() == DiagnosticControl::State::Failed)
++            qFatal("Invalid diagnostic control opt-in");
++
+         qInstallMessageHandler(SDDM::DaemonMessageHandler);
+ 
+         // log message
+@@ -132,6 +138,7 @@ int main(int argc, char **argv) {
+         std::cout << "Usage: sddm [options]\n"
+                   << "Options: \n"
+                   << "  --test-mode         Start daemon in test mode" << std::endl
++                  << "  --g05-control-dir   Private root-owned directory for diagnostic pre-ACK control (no launches)" << std::endl
+                   << "  --example-config    Print the complete current configuration to stdout" << std::endl;
+ 
+         return EXIT_FAILURE;
+diff --git a/src/daemon/DiagnosticControl.cpp b/src/daemon/DiagnosticControl.cpp
+new file mode 100644
+index 0000000..1ff95f2
+--- /dev/null
++++ b/src/daemon/DiagnosticControl.cpp
+@@ -0,0 +1,330 @@
++#include "DiagnosticControl.h"
++#include "Display.h"
++#include "SocketServer.h"
++
++#include <QCoreApplication>
++#include <QDataStream>
++#include <QFile>
++#include <QJsonDocument>
++#include <QLocalSocket>
++#include <QSocketNotifier>
++#include <QUuid>
++
++#include <cerrno>
++#include <cstring>
++#include <fcntl.h>
++#include <sys/socket.h>
++#include <sys/stat.h>
++#include <sys/un.h>
++#include <unistd.h>
++
++namespace SDDM {
++namespace {
++constexpr int MaxFrame = 4096;
++constexpr char BootstrapLatch[] = "_sddm_g05_control_bootstrapped";
++QString uuid() { return QUuid::createUuid().toString(QUuid::WithoutBraces); }
++}
++
++DiagnosticControl::DiagnosticControl(QObject *parent) : QObject(parent) {
++    m_timer.setSingleShot(true);
++    connect(&m_timer, &QTimer::timeout, this, &DiagnosticControl::fail);
++}
++
++DiagnosticControl *DiagnosticControl::forApplication() {
++    return QCoreApplication::instance()->findChild<DiagnosticControl *>(QString(), Qt::FindDirectChildrenOnly);
++}
++
++bool DiagnosticControl::enabledForApplication() {
++    return QCoreApplication::instance()->property(BootstrapLatch).toBool();
++}
++
++DiagnosticControl *DiagnosticControl::fromArguments(const QStringList &arguments, QObject *application) {
++    if (application != QCoreApplication::instance() || enabledForApplication())
++        qFatal("Duplicate or invalid diagnostic bootstrap");
++    const QString option = QStringLiteral("--g05-control-dir");
++    int index = -1, count = 0;
++    for (int i = 0; i < arguments.size(); ++i) {
++        if (arguments.at(i) == option || arguments.at(i).startsWith(option + QLatin1Char('='))) {
++            index = i;
++            ++count;
++        }
++    }
++    if (!count)
++        return nullptr;
++    application->setProperty(BootstrapLatch, true); // Irreversible for this daemon's lifetime.
++    auto *control = new DiagnosticControl(application);
++    if (count != 1 || arguments.at(index) != option || index + 1 >= arguments.size()
++        || !control->listen(arguments.at(index + 1)))
++        return control;
++    control->phase(State::WaitingSupervisor);
++    return control;
++}
++
++bool DiagnosticControl::listen(const QString &directory) {
++#ifndef SO_PEERCRED
++    Q_UNUSED(directory);
++    return false;
++#else
++    // Pin every component; neither symlinks nor non-root writable parents are trusted.
++    if (geteuid() != 0 || !directory.startsWith(QLatin1Char('/'))
++        || QDir::cleanPath(directory) != directory || directory == QLatin1String("/")
++        || QFile::encodeName(directory + QStringLiteral("/control.sock")).size() >= int(sizeof(sockaddr_un::sun_path)))
++        return false;
++    int fd = ::open("/", O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
++    if (fd < 0)
++        return false;
++    const auto components = directory.mid(1).split(QLatin1Char('/'));
++    for (int i = 0; i < components.size(); ++i) {
++        const auto component = QFile::encodeName(components.at(i));
++        const int next = ::openat(fd, component.constData(), O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
++        ::close(fd);
++        if (next < 0)
++            return false;
++        fd = next;
++        struct stat st {};
++        if (::fstat(fd, &st) || st.st_uid != 0 || st.st_gid != 0
++            || (st.st_mode & 0022) || (i == components.size() - 1 && (st.st_mode & 07777) != 0700)) {
++            ::close(fd);
++            return false;
++        }
++    }
++    m_dirFd = fd;
++    struct stat st {};
++    if (::fstatat(fd, "control.sock", &st, AT_SYMLINK_NOFOLLOW) == 0 || errno != ENOENT)
++        return false;
++    QFile boot(QStringLiteral("/proc/sys/kernel/random/boot_id"));
++    if (!boot.open(QIODevice::ReadOnly))
++        return false;
++    m_boot = QString::fromLatin1(boot.read(64)).trimmed();
++    if (m_boot.size() != 36 || QUuid(m_boot).isNull())
++        return false;
++    m_epoch = uuid();
++    // Native listener: QLocalServer::close unlinks even a substituted pathname.
++    // Cleanup below removes only the inode we created in the pinned directory.
++    const int socketFd = ::socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC | SOCK_NONBLOCK, 0);
++    if (socketFd < 0)
++        return false;
++    sockaddr_un name {};
++    name.sun_family = AF_UNIX;
++    const auto pinnedPath = QStringLiteral("/proc/self/fd/%1/control.sock").arg(fd).toLatin1();
++    if (pinnedPath.size() >= int(sizeof(name.sun_path))) {
++        ::close(socketFd);
++        return false;
++    }
++    std::memcpy(name.sun_path, pinnedPath.constData(), pinnedPath.size() + 1);
++    if (::bind(socketFd, reinterpret_cast<sockaddr *>(&name), sizeof(name))) {
++        ::close(socketFd);
++        return false;
++    }
++    if (::fstatat(fd, "control.sock", &st, AT_SYMLINK_NOFOLLOW)) {
++        ::close(socketFd);
++        return false;
++    }
++    m_device = st.st_dev;
++    m_inode = st.st_ino;
++    if (::fchmodat(fd, "control.sock", 0600, 0) || !S_ISSOCK(st.st_mode)
++        || st.st_uid != 0 || st.st_gid != 0 || ::listen(socketFd, 4)) {
++        ::close(socketFd);
++        return false;
++    }
++    m_listenerFd = socketFd;
++    m_notifier = new QSocketNotifier(socketFd, QSocketNotifier::Read, this);
++    connect(m_notifier, &QSocketNotifier::activated, this, [this] { accept(); });
++    m_address = directory + QStringLiteral("/control.sock");
++    return true;
++#endif
++}
++
++DiagnosticControl::~DiagnosticControl() {
++    fail();
++    if (m_notifier)
++        m_notifier->setEnabled(false);
++    if (m_listenerFd >= 0) {
++        ::close(m_listenerFd);
++        m_listenerFd = -1;
++    }
++    if (m_supervisor)
++        m_supervisor->abort();
++    if (m_dirFd >= 0) {
++        struct stat st {};
++        if (m_inode && !::fstatat(m_dirFd, "control.sock", &st, AT_SYMLINK_NOFOLLOW)
++            && quint64(st.st_dev) == m_device && quint64(st.st_ino) == m_inode && S_ISSOCK(st.st_mode))
++            ::unlinkat(m_dirFd, "control.sock", 0);
++        ::close(m_dirFd);
++    }
++}
++
++void DiagnosticControl::phase(State state) {
++    m_state = state;
++    m_timer.stop();
++    m_deadline = QDeadlineTimer(TimeoutMs, Qt::PreciseTimer);
++    if (state != State::ReservedConfirmed && state != State::Failed)
++        m_timer.start(TimeoutMs);
++}
++
++void DiagnosticControl::accept() {
++#ifdef SO_PEERCRED
++    // Bound work per event-loop turn, including unauthorized/extra connections.
++    for (int i = 0; i < 4; ++i) {
++        const int fd = ::accept4(m_listenerFd, nullptr, nullptr, SOCK_NONBLOCK | SOCK_CLOEXEC);
++        if (fd < 0) {
++            if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) {
++                m_notifier->setEnabled(false);
++                fail();
++            }
++            return;
++        }
++        struct ucred credentials {};
++        socklen_t size = sizeof(credentials);
++        const bool authorized = !::getsockopt(fd, SOL_SOCKET, SO_PEERCRED, &credentials, &size)
++            && size == sizeof(credentials) && credentials.uid == 0;
++        if (!authorized || m_supervisor || m_state != State::WaitingSupervisor || m_deadline.hasExpired()) {
++            ::close(fd);
++            continue;
++        }
++        auto *socket = new QLocalSocket(this);
++        if (!socket->setSocketDescriptor(fd)) {
++            ::close(fd);
++            socket->deleteLater();
++            fail();
++            return;
++        }
++        m_supervisor = socket;
++        socket->setReadBufferSize(MaxFrame + 4);
++        connect(socket, &QLocalSocket::readyRead, this, &DiagnosticControl::read);
++        connect(socket, &QLocalSocket::disconnected, this, &DiagnosticControl::fail);
++        connect(socket, &QLocalSocket::errorOccurred, this, [this] { fail(); });
++        read();
++    }
++#endif
++}
++
++bool DiagnosticControl::send(const QJsonObject &object) {
++    const auto payload = QJsonDocument(object).toJson(QJsonDocument::Compact);
++    if (!m_supervisor || payload.isEmpty() || payload.size() > MaxFrame
++        || m_supervisor->bytesToWrite() + payload.size() + 4 > MaxFrame + 4) {
++        fail();
++        return false;
++    }
++    QByteArray frame;
++    QDataStream out(&frame, QIODevice::WriteOnly);
++    out << quint32(payload.size());
++    frame.append(payload);
++    if (m_supervisor->write(frame) != frame.size()) {
++        fail();
++        return false;
++    }
++    return true;
++}
++
++void DiagnosticControl::read() {
++    if (!m_supervisor || m_state == State::Failed)
++        return;
++    m_input.append(m_supervisor->read(MaxFrame + 4 - m_input.size()));
++    while (m_input.size() >= 4) {
++        quint32 length = 0;
++        QDataStream header(m_input.left(4));
++        header >> length;
++        if (!length || length > MaxFrame) { fail(); return; }
++        if (m_input.size() < length + 4) {
++            if (m_supervisor->bytesAvailable())
++                QTimer::singleShot(0, this, &DiagnosticControl::read);
++            return;
++        }
++        const auto payload = m_input.mid(4, length);
++        m_input.remove(0, length + 4);
++        QJsonParseError error;
++        const auto document = QJsonDocument::fromJson(payload, &error);
++        // Canonical encoding also rejects duplicate keys and alternative spellings.
++        if (error.error != QJsonParseError::NoError || !document.isObject()
++            || document.toJson(QJsonDocument::Compact) != payload) { fail(); return; }
++        process(document.object());
++        if (m_state == State::Failed)
++            return;
++    }
++    if (m_supervisor->bytesAvailable())
++        QTimer::singleShot(0, this, &DiagnosticControl::read);
++}
++
++void DiagnosticControl::process(const QJsonObject &object) {
++    if (m_state != State::ReservedConfirmed && m_deadline.hasExpired()) { fail(); return; }
++    if (m_state == State::WaitingSupervisor) {
++        const QJsonObject hello {{QStringLiteral("version"), 1}, {QStringLiteral("type"), QStringLiteral("HELLO")},
++                                 {QStringLiteral("boot"), m_boot}};
++        if (object != hello) { fail(); return; }
++        phase(State::WaitingContext);
++        send({{QStringLiteral("version"), 1}, {QStringLiteral("type"), QStringLiteral("BOUND")},
++              {QStringLiteral("boot"), m_boot}, {QStringLiteral("epoch"), m_epoch}});
++        return;
++    }
++    auto confirm = m_binding;
++    confirm.insert(QStringLiteral("type"), QStringLiteral("CONFIRM"));
++    if (m_state != State::AwaitConfirm || object != confirm || !m_display || !m_greeter) {
++        fail();
++        return;
++    }
++    phase(State::ReservedConfirmed);
++    m_display->stageAuthenticationContext(m_greeter, m_display->m_diagnosticSerial, true,
++                                         m_display->m_diagnosticUser, m_display->m_diagnosticSession);
++}
++
++void DiagnosticControl::attach(Display *display) {
++    if (m_attached) { fail(); return; }
++    m_attached = true;
++    m_display = display;
++    connect(display, &QObject::destroyed, this, &DiagnosticControl::fail);
++}
++
++void DiagnosticControl::reject(QLocalSocket *socket, quint64 serial) {
++    if (!socket)
++        return;
++    if (m_display)
++        m_display->m_socketServer->authenticationContext(socket, serial, 0, QString(), QString(), Session(),
++            quint32(AuthenticationAvailability::Unavailable), quint32(AuthenticationPhase::Idle),
++            QStringLiteral("diagnostic_control_failed"));
++    socket->disconnectFromServer();
++}
++
++void DiagnosticControl::reserve(Display *display, QLocalSocket *socket, quint64 serial, bool hasContext,
++                                const QString &user, const Session &session) {
++    if (m_display != display || m_state != State::WaitingContext || m_deadline.hasExpired()
++        || !hasContext || !m_supervisor || !display->reserveDiagnosticContext(socket, serial, user, session)) {
++        fail();
++        reject(socket, serial);
++        return;
++    }
++    m_greeter = socket;
++    m_binding = {{QStringLiteral("version"), 1}, {QStringLiteral("type"), QStringLiteral("RESERVED")},
++                 {QStringLiteral("boot"), m_boot}, {QStringLiteral("epoch"), m_epoch},
++                 {QStringLiteral("transaction"), uuid()}, {QStringLiteral("socketId"), uuid()},
++                 {QStringLiteral("serial"), QString::number(serial)},
++                 {QStringLiteral("request"), display->m_diagnosticRequest}, {QStringLiteral("user"), user},
++                 {QStringLiteral("sessionType"), int(session.type())}, {QStringLiteral("sessionFile"), session.fileName()},
++                 {QStringLiteral("passwordGeneration"), QString::number(display->m_auth->launchGeneration() + 1)},
++                 {QStringLiteral("fingerprintGeneration"), QString::number(display->m_fingerprintAuth->launchGeneration() + 1)}};
++    phase(State::AwaitConfirm);
++    send(m_binding);
++}
++
++bool DiagnosticControl::confirmedFor(Display *display, QLocalSocket *socket, quint64 serial) const {
++    return m_state == State::ReservedConfirmed && display == m_display && socket && socket == m_greeter
++        && QString::number(serial) == m_binding.value(QStringLiteral("serial")).toString();
++}
++
++void DiagnosticControl::greeterDisconnected(QLocalSocket *socket) {
++    if (socket == m_greeter)
++        fail();
++}
++
++void DiagnosticControl::fail() {
++    if (m_state == State::Failed)
++        return;
++    phase(State::Failed);
++    m_input.clear();
++    emit failed(); // Clear pending context before any disconnect or queued callback.
++    reject(m_greeter, m_binding.value(QStringLiteral("serial")).toString().toULongLong());
++    m_greeter.clear();
++    if (m_supervisor)
++        m_supervisor->abort();
++}
++}
+diff --git a/src/daemon/DiagnosticControl.h b/src/daemon/DiagnosticControl.h
+new file mode 100644
+index 0000000..c1bb8f9
+--- /dev/null
++++ b/src/daemon/DiagnosticControl.h
+@@ -0,0 +1,64 @@
++// Diagnostic-only pre-ACK reservation. Confirmation never permits a helper launch.
++#ifndef SDDM_DIAGNOSTICCONTROL_H
++#define SDDM_DIAGNOSTICCONTROL_H
++
++#include <QObject>
++#include <QPointer>
++#include <QJsonObject>
++#include <QTimer>
++#include <QDeadlineTimer>
++#include "Session.h"
++
++class QLocalSocket;
++class QSocketNotifier;
++namespace SDDM {
++class Display;
++class DiagnosticControl final : public QObject {
++    Q_OBJECT
++public:
++    enum class State { WaitingSupervisor, WaitingContext, AwaitConfirm, ReservedConfirmed, Failed };
++    static constexpr int TimeoutMs = 3000;
++    // Null means no option; an invalid opt-in returns Failed, never disabled.
++    static DiagnosticControl *fromArguments(const QStringList &arguments, QObject *application);
++    static DiagnosticControl *forApplication();
++    static bool enabledForApplication();
++    ~DiagnosticControl() override;
++    State state() const { return m_state; }
++    QString address() const { return m_address; }
++    void attach(Display *display);
++    void reserve(Display *display, QLocalSocket *socket, quint64 serial, bool hasContext,
++                 const QString &user, const Session &session);
++    bool confirmedFor(Display *display, QLocalSocket *socket, quint64 serial) const;
++    void greeterDisconnected(QLocalSocket *socket);
++    void fail();
++
++signals:
++    void failed();
++
++private:
++    explicit DiagnosticControl(QObject *parent);
++    bool listen(const QString &directory);
++    void accept();
++    void read();
++    void process(const QJsonObject &object);
++    bool send(const QJsonObject &object);
++    void phase(State state);
++    void reject(QLocalSocket *socket, quint64 serial);
++
++    State m_state = State::Failed;
++    int m_listenerFd = -1;
++    QSocketNotifier *m_notifier = nullptr;
++    QTimer m_timer;
++    QDeadlineTimer m_deadline;
++    QPointer<QLocalSocket> m_supervisor;
++    QPointer<QLocalSocket> m_greeter;
++    QPointer<Display> m_display;
++    bool m_attached = false;
++    QByteArray m_input;
++    QString m_address, m_boot, m_epoch;
++    QJsonObject m_binding;
++    int m_dirFd = -1;
++    quint64 m_device = 0, m_inode = 0;
++};
++}
++#endif
 diff --git a/src/daemon/Display.cpp b/src/daemon/Display.cpp
-index f70a3c6..81425e3 100644
+index f70a3c6..391f7f0 100644
 --- a/src/daemon/Display.cpp
 +++ b/src/daemon/Display.cpp
-@@ -366,7 +366,7 @@ namespace SDDM {
+@@ -20,6 +20,7 @@
+ ***************************************************************************/
+ 
+ #include "Display.h"
++#include "DiagnosticControl.h"
+ 
+ #include "Configuration.h"
+ #include "DaemonApp.h"
+@@ -127,6 +128,13 @@ namespace SDDM {
+         m_socketServer(new SocketServer(this)),
+         m_greeter(new Greeter(this))
+     {
++        m_diagnosticControl = DiagnosticControl::forApplication();
++        m_diagnosticEnabled = DiagnosticControl::enabledForApplication();
++        if (m_diagnosticControl) {
++            connect(m_diagnosticControl, &DiagnosticControl::failed, this, &Display::failDiagnosticContext);
++            connect(m_diagnosticControl, &QObject::destroyed, this, &Display::failDiagnosticContext);
++            m_diagnosticControl->attach(this);
++        }
+         m_fprintServiceWatcher = new QDBusServiceWatcher(
+                 QStringLiteral("net.reactivated.Fprint"), QDBusConnection::systemBus(),
+                 QDBusServiceWatcher::WatchForOwnerChange, this);
+@@ -343,6 +351,8 @@ namespace SDDM {
+     }
+ 
+     void Display::stopInternal(bool destroying) {
++        if (m_diagnosticControl)
++            m_diagnosticControl->fail();
+         m_tearingDown = true;
+         m_pendingPower = -1;
+         m_pendingContext = false;
+@@ -366,7 +376,7 @@ namespace SDDM {
  
      void Display::login(QLocalSocket *socket, const QString &user, const QString &password,
                          const Session &session) {
@@ -1131,7 +1612,7 @@ index f70a3c6..81425e3 100644
              return;
          if (user.isEmpty() || user == QLatin1String("sddm") || !session.isValid()) {
              emit loginFailed(socket);
-@@ -431,10 +431,51 @@ namespace SDDM {
+@@ -431,10 +441,92 @@ namespace SDDM {
          }
      }
  
@@ -1154,11 +1635,52 @@ index f70a3c6..81425e3 100644
 +    }
 +
 +    bool Display::diagnosticLaunchBlocked(QLocalSocket *socket) const {
-+        return m_diagnosticSocket || (socket && m_diagnosticRejectedSockets.contains(socket));
++        return m_diagnosticEnabled || m_diagnosticSocket || (socket && m_diagnosticRejectedSockets.contains(socket));
++    }
++
++    void Display::failDiagnosticContext() {
++        m_pendingContext = false;
++        m_pendingHasContext = false;
++        m_pendingContextSocket.clear();
++        m_pendingContextSerial = 0;
++        m_pendingContextUser.clear();
++        m_pendingContextSession = Session();
++        m_pendingFingerprintStart = false;
++        m_pendingFingerprintCancelled = false;
++        m_fingerprintStartRequested = false;
++        clearPendingLogin();
++        invalidateProbe();
++        cancelMethodAttempt();
++        m_contextSocket.clear();
++        m_contextSerial = 0;
++        m_contextOptedIn = false;
++        m_contextUser.clear();
++        m_contextSession = Session();
++        m_requestId.clear();
++        m_diagnosticSocket.clear();
++        m_diagnosticSerial = 0;
++        m_diagnosticUser.clear();
++        m_diagnosticSession = Session();
++        m_diagnosticRequest.clear();
 +    }
 +
      void Display::setAuthenticationContext(QLocalSocket *socket, quint64 serial, bool hasContext,
                                             const QString &user, const Session &session) {
++        if (m_diagnosticEnabled) {
++            if (m_diagnosticControl)
++                m_diagnosticControl->reserve(this, socket, serial, hasContext, user, session);
++            else if (socket)
++                socket->abort();
++            return;
++        }
++        stageAuthenticationContext(socket, serial, hasContext, user, session);
++    }
++
++    void Display::stageAuthenticationContext(QLocalSocket *socket, quint64 serial, bool hasContext,
++                                             const QString &user, const Session &session) {
++        if (m_diagnosticEnabled && (!m_diagnosticControl
++            || !m_diagnosticControl->confirmedFor(this, socket, serial)))
++            return;
          if (!socket || m_tearingDown)
              return;
 +        if (m_diagnosticRejectedSockets.contains(socket)
@@ -1183,7 +1705,25 @@ index f70a3c6..81425e3 100644
          const auto owner = m_pendingContext ? m_pendingContextSocket : m_contextSocket;
          if ((owner && owner != socket) || (m_methodAttemptActive && m_attemptSocket != socket)
              || (m_contextCommitted && m_contextSocket != socket)) {
-@@ -558,8 +599,9 @@ namespace SDDM {
+@@ -474,7 +566,7 @@ namespace SDDM {
+     }
+     void Display::setFingerprintAvailability(quint64 serial, const QString &requestId,
+                                             bool available, const QString &detailCode) {
+-        if (serial != m_contextSerial || requestId != m_requestId || !m_contextOptedIn
++        if (m_diagnosticEnabled || serial != m_contextSerial || requestId != m_requestId || !m_contextOptedIn
+             || !m_contextSocket || m_contextCommitted || m_contextFinished || m_pendingContext || m_tearingDown)
+             return;
+         const char *reason = available ? "available"
+@@ -501,7 +593,7 @@ namespace SDDM {
+     }
+ 
+     void Display::probeFingerprintAvailability() {
+-        if (!m_contextOptedIn || !m_contextSocket || m_pendingContext || m_contextFinished
++        if (m_diagnosticEnabled || !m_contextOptedIn || !m_contextSocket || m_pendingContext || m_contextFinished
+             || m_contextCommitted || m_tearingDown)
+             return;
+         invalidateProbe();
+@@ -558,8 +650,9 @@ namespace SDDM {
                          QStringLiteral("/org/freedesktop/DBus"), QStringLiteral("org.freedesktop.DBus"),
                          QStringLiteral("StartServiceByName"));
                  activate << QStringLiteral("net.reactivated.Fprint") << quint32(0);
@@ -1194,7 +1734,7 @@ index f70a3c6..81425e3 100644
                  m_probeWatchers.insert(activationWatcher);
                  connect(activationWatcher, &QDBusPendingCallWatcher::finished, this,
                          [this, activationWatcher, generation, serial, requestId] {
-@@ -571,6 +613,11 @@ namespace SDDM {
+@@ -571,6 +664,11 @@ namespace SDDM {
                      qInfo().noquote().nospace() << "FPLOGIN_TRACE event=probe-activation-return request=" << requestId
                          << " serial=" << serial << " probe_generation=" << generation
                          << " success=" << (!activation.isError() && (activation.value() == 1 || activation.value() == 2));
@@ -1206,7 +1746,7 @@ index f70a3c6..81425e3 100644
                      if (activation.isError() || (activation.value() != 1 && activation.value() != 2)) {
                          setFingerprintAvailability(serial, requestId, false,
                                                     QStringLiteral("service_unavailable"));
-@@ -615,7 +662,7 @@ namespace SDDM {
+@@ -615,7 +713,7 @@ namespace SDDM {
      }
  
      void Display::startFingerprint(QLocalSocket *socket, quint64 serial) {
@@ -1215,7 +1755,16 @@ index f70a3c6..81425e3 100644
              return;
          if (m_pendingContext) {
              if (socket == m_pendingContextSocket && serial == m_pendingContextSerial && m_pendingHasContext) {
-@@ -728,7 +775,7 @@ namespace SDDM {
+@@ -664,7 +762,7 @@ namespace SDDM {
+     }
+ 
+     void Display::cancelFingerprint(QLocalSocket *socket, quint64 serial, const QString &requestId) {
+-        if (m_tearingDown || m_contextCommitted)
++        if (m_diagnosticEnabled || m_tearingDown || m_contextCommitted)
+             return;
+         if (m_pendingContext) {
+             if (socket == m_pendingContextSocket && serial == m_pendingContextSerial
+@@ -728,7 +826,7 @@ namespace SDDM {
      }
  
      void Display::authorizeWinner() {
@@ -1224,7 +1773,7 @@ index f70a3c6..81425e3 100644
              || !isCurrentHelper(m_winnerAuth) || !m_winnerAuth->isActive()
              || !m_winnerAuth->isAwaitingAuthorization() || m_waitingForLoser
              || !m_attemptGate.authorize(m_winnerAuth->method()))
-@@ -746,7 +793,7 @@ namespace SDDM {
+@@ -746,7 +844,7 @@ namespace SDDM {
      }
  
      void Display::startPendingLogin() {
@@ -1233,7 +1782,17 @@ index f70a3c6..81425e3 100644
              || m_methodWinnerChosen || m_auth->isActive())
              return;
          if (m_pendingPasswordGeneration) {
-@@ -913,7 +960,8 @@ namespace SDDM {
+@@ -904,6 +1002,9 @@ namespace SDDM {
+     }
+ 
+     void Display::advancePendingContext() {
++        if (m_diagnosticEnabled && (!m_diagnosticControl
++            || !m_diagnosticControl->confirmedFor(this, m_pendingContextSocket, m_pendingContextSerial)))
++            return;
+         if (!m_pendingContext || m_tearingDown || m_auth->isActive() || m_fingerprintAuth->isActive())
+             return;
+         const bool start = m_pendingFingerprintStart;
+@@ -913,7 +1014,8 @@ namespace SDDM {
          m_contextOptedIn = m_pendingHasContext;
          m_contextUser = m_pendingContextUser;
          m_contextSession = m_pendingContextSession;
@@ -1243,7 +1802,16 @@ index f70a3c6..81425e3 100644
          m_contextCommitted = false;
          m_contextFinished = false;
          m_contextPhase = AuthenticationPhase::Idle;
-@@ -1002,6 +1050,8 @@ namespace SDDM {
+@@ -939,6 +1041,8 @@ namespace SDDM {
+             m_contextSocket.clear();
+             return;
+         }
++        if (m_diagnosticEnabled)
++            return; // A reservation ACK is not READY: no probe, password queue or launch.
+         if (cancelled)
+             publishMethodState(AuthenticationMethod::Fingerprint, FingerprintState::Cancelled,
+                                AuthenticationPhase::Idle, QStringLiteral("cancelled"));
+@@ -1002,6 +1106,8 @@ namespace SDDM {
                  || m_requestId != requestId || m_contextSerial != serial || m_contextSocket != socket
                  || auth->launchGeneration() != generation || m_pendingContext || m_tearingDown)
                  return;
@@ -1252,7 +1820,7 @@ index f70a3c6..81425e3 100644
              disarmFingerprintDeadline();
              m_attemptGate.cancel(AuthMethod::Fingerprint);
              m_fingerprintTerminal = true;
-@@ -1010,11 +1060,21 @@ namespace SDDM {
+@@ -1010,11 +1116,23 @@ namespace SDDM {
              stopAuthenticationHelper(auth);
          });
          // Bound invalid/overflowing configuration without an unbounded deadline.
@@ -1264,6 +1832,8 @@ index f70a3c6..81425e3 100644
      }
  
      void Display::retireSocket(QLocalSocket *socket) {
++        if (m_diagnosticControl)
++            m_diagnosticControl->greeterDisconnected(socket);
          m_selectionSerials.remove(socket);
 +        m_diagnosticRejectedSockets.remove(socket);
 +        if (m_diagnosticSocket == socket) {
@@ -1275,7 +1845,7 @@ index f70a3c6..81425e3 100644
          if (m_pendingContextSocket == socket) {
              m_pendingContext = false;
              m_pendingContextSocket.clear();
-@@ -1114,6 +1174,8 @@ namespace SDDM {
+@@ -1114,6 +1232,8 @@ namespace SDDM {
      }
  
      bool Display::startAuth(const QString &user, const QString &password, const Session &session, AuthMethod method) {
@@ -1285,10 +1855,29 @@ index f70a3c6..81425e3 100644
          if (auth->isActive()) {
              qWarning() << "Existing authentication method is still active";
 diff --git a/src/daemon/Display.h b/src/daemon/Display.h
-index e4528e4..27b7897 100644
+index e4528e4..1e02674 100644
 --- a/src/daemon/Display.h
 +++ b/src/daemon/Display.h
-@@ -111,6 +111,10 @@ namespace SDDM {
+@@ -44,6 +44,7 @@ namespace SDDM {
+     class Seat;
+     class SocketServer;
+     class Greeter;
++    class DiagnosticControl;
+ 
+     class Display : public QObject {
+         Q_OBJECT
+@@ -93,6 +94,10 @@ namespace SDDM {
+ 
+     private:
+         friend class DaemonContextTest;
++        friend class DiagnosticControl;
++        void stageAuthenticationContext(QLocalSocket *socket, quint64 serial, bool hasContext,
++                                        const QString &user, const Session &session);
++        void failDiagnosticContext();
+         Display(Seat *parent, DisplayServerType serverType, int terminalId);
+         QString findGreeterTheme() const;
+         bool findSessionEntry(const QStringList &dirPaths, const QString &name) const;
+@@ -111,6 +116,10 @@ namespace SDDM {
                                         const QString &detailCode);
          void startPendingLogin();
          void advancePendingContext();
@@ -1299,7 +1888,16 @@ index e4528e4..27b7897 100644
          void beginMethodAttempt(QLocalSocket *socket, const QString &user, const Session &session);
          void clearPendingLogin();
          void invalidateProbe();
-@@ -141,6 +145,12 @@ namespace SDDM {
+@@ -128,6 +137,8 @@ namespace SDDM {
+         void startSocketServerAndGreeter();
+         void handleAutologinFailure();
+ 
++        QPointer<DiagnosticControl> m_diagnosticControl;
++        bool m_diagnosticEnabled { false };
+         QPointer<QLocalSocket> m_contextSocket;
+         quint64 m_contextSerial { 0 };
+         quint64 m_pendingContextSerial { 0 };
+@@ -141,6 +152,12 @@ namespace SDDM {
          bool m_pendingFingerprintCancelled { false };
          bool m_fingerprintStartRequested { false };
          QHash<QLocalSocket *, quint64> m_selectionSerials;
@@ -1569,11 +2167,24 @@ index 7ef2de3..cc87e9b 100644
          Auth auth;
          auth.setUser(QStringLiteral("stop-late-success"));
 diff --git a/test/CMakeLists.txt b/test/CMakeLists.txt
-index 8005098..70c87f5 100644
+index 8005098..22c1694 100644
 --- a/test/CMakeLists.txt
 +++ b/test/CMakeLists.txt
-@@ -119,6 +119,26 @@ target_link_libraries(DaemonContextTest ${DaemonTest_LIBS} Qt${QT_MAJOR_VERSION}
- add_dependencies(DaemonContextTest DaemonContextHelper FingerprintAvailabilityService sddm)
+@@ -93,6 +93,8 @@ target_link_libraries(DaemonContextHelper Qt${QT_MAJOR_VERSION}::Core
+     Qt${QT_MAJOR_VERSION}::Network Qt${QT_MAJOR_VERSION}::Qml)
+ 
+ 
++add_executable(DiagnosticCredentialClient DiagnosticCredentialClient.cpp)
++
+ add_executable(FingerprintAvailabilityService FingerprintAvailabilityService.cpp)
+ target_link_libraries(FingerprintAvailabilityService Qt${QT_MAJOR_VERSION}::Core Qt${QT_MAJOR_VERSION}::DBus)
+ get_target_property(DaemonTest_SRCS sddm SOURCES)
+@@ -116,9 +118,29 @@ target_include_directories(DaemonContextTest BEFORE PRIVATE
+     ${CMAKE_CURRENT_BINARY_DIR}/../src/common ${LIBXAU_INCLUDE_DIRS} ${LIBXCB_INCLUDE_DIR})
+ get_target_property(DaemonTest_LIBS sddm LINK_LIBRARIES)
+ target_link_libraries(DaemonContextTest ${DaemonTest_LIBS} Qt${QT_MAJOR_VERSION}::Test)
+-add_dependencies(DaemonContextTest DaemonContextHelper FingerprintAvailabilityService sddm)
++add_dependencies(DaemonContextTest DaemonContextHelper DiagnosticCredentialClient FingerprintAvailabilityService sddm)
  add_test(NAME DaemonContext COMMAND DaemonContextTest)
  
 +# Diagnostic-only integration: same Display/Auth, actual helper and disposable container PAM.
@@ -1638,19 +2249,90 @@ index e61bbeb..7f62fab 100644
                  app.exit(12);
                  return;
 diff --git a/test/DaemonContextTest.cpp b/test/DaemonContextTest.cpp
-index b721e43..9ae90c8 100644
+index b721e43..7931915 100644
 --- a/test/DaemonContextTest.cpp
 +++ b/test/DaemonContextTest.cpp
-@@ -17,6 +17,8 @@
+@@ -1,5 +1,6 @@
+ // Exercises production Display/SocketServer/Auth with private unprivileged peers.
+ #include "Display.h"
++#include "DiagnosticControl.h"
+ #include "SocketServer.h"
+ #include "Configuration.h"
+ #include "GreeterProxy.h"
+@@ -17,6 +18,13 @@
  #include <QDBusMessage>
  #include <QDBusReply>
  #include <QProcess>
 +#include <QElapsedTimer>
 +#include <QRegularExpression>
++#include <QJsonDocument>
++#include <QProcessEnvironment>
++#include <QUuid>
++#include <sys/stat.h>
++#include <unistd.h>
  #include <memory>
  #include <functional>
  
-@@ -153,7 +155,11 @@ class DaemonContextTest : public QObject {
+@@ -95,6 +103,49 @@ class DaemonContextTest : public QObject {
+             return false;
+         }
+     };
++    struct Supervisor {
++        QLocalSocket socket;
++        QByteArray pending;
++        QList<QJsonObject> messages;
++        Supervisor() {
++            QObject::connect(&socket, &QLocalSocket::readyRead, &socket, [this] {
++                pending.append(socket.readAll());
++                while (pending.size() >= 4) {
++                    quint32 length = 0;
++                    QDataStream header(pending.left(4));
++                    header >> length;
++                    if (!length || length > 4096 || pending.size() < length + 4)
++                        return;
++                    messages.append(QJsonDocument::fromJson(pending.mid(4, length)).object());
++                    pending.remove(0, length + 4);
++                }
++            });
++        }
++        static QByteArray frame(const QJsonObject &object) {
++            const auto payload = QJsonDocument(object).toJson(QJsonDocument::Compact);
++            QByteArray bytes;
++            QDataStream output(&bytes, QIODevice::WriteOnly);
++            output << quint32(payload.size());
++            return bytes + payload;
++        }
++        void send(const QJsonObject &object) { socket.write(frame(object)); socket.flush(); }
++    };
++    void bindSupervisor(DiagnosticControl &control, Supervisor &supervisor) {
++        supervisor.socket.connectToServer(control.address());
++        QTRY_COMPARE(supervisor.socket.state(), QLocalSocket::ConnectedState);
++        QFile boot(QStringLiteral("/proc/sys/kernel/random/boot_id"));
++        QVERIFY(boot.open(QIODevice::ReadOnly));
++        supervisor.send({{QStringLiteral("type"), QStringLiteral("HELLO")}, {QStringLiteral("version"), 1},
++                         {QStringLiteral("boot"), QString::fromLatin1(boot.readAll()).trimmed()}});
++        QTRY_COMPARE(supervisor.messages.size(), 1);
++        QCOMPARE(supervisor.messages.first().value(QStringLiteral("type")).toString(), QStringLiteral("BOUND"));
++        QCOMPARE(control.state(), DiagnosticControl::State::WaitingContext);
++    }
++    static QJsonObject confirmation(const Supervisor &supervisor) {
++        auto object = supervisor.messages.last();
++        object.insert(QStringLiteral("type"), QStringLiteral("CONFIRM"));
++        return object;
++    }
+     struct Control {
+         QPointer<QLocalSocket> socket;
+         QString request;
+@@ -146,6 +197,8 @@ class DaemonContextTest : public QObject {
+             m_fingerprintAvailability = AuthenticationAvailability::Unknown;
+         }
+         bool startAuth(const QString &user, const QString &password, const Session &, AuthMethod method) override {
++            if (diagnosticLaunchBlocked(m_contextSocket))
++                return false;
+             Auth *auth = method == AuthMethod::Fingerprint ? m_fingerprintAuth : m_auth;
+             if (auth->isActive())
+                 return false;
+@@ -153,7 +206,11 @@ class DaemonContextTest : public QObject {
              auth->setRequestId(m_requestId);
              auth->setDeferredAuthorization(true);
              auth->setUser(user);
@@ -1662,7 +2344,7 @@ index b721e43..9ae90c8 100644
              auth->setDisplayServerCommand(controls.fullServerName());
              if (method == AuthMethod::Password)
                  m_passPhrase = password;
-@@ -185,7 +191,13 @@ class DaemonContextTest : public QObject {
+@@ -185,7 +242,13 @@ class DaemonContextTest : public QObject {
                        .arg(executable, args.join(QLatin1Char(' '))).toUtf8());
          service.close();
          const auto reply = QDBusConnection::systemBus().interface()->call(QStringLiteral("ReloadConfig"));
@@ -1677,10 +2359,485 @@ index b721e43..9ae90c8 100644
      }
      QString fixtureOwner() {
          const QDBusReply<QString> owner = QDBusConnection::systemBus().interface()->serviceOwner(
-@@ -258,6 +270,129 @@ class DaemonContextTest : public QObject {
+@@ -258,6 +321,604 @@ class DaemonContextTest : public QObject {
          QTRY_VERIFY(client.state(FingerprintState::Scanning));
      }
  private slots:
++    void diagnosticControlTwoConnections() {
++        if (geteuid() || !QFile::exists(QStringLiteral("/.dockerenv")))
++            QSKIP("Root-only control test runs only in the disposable offline container");
++        QTemporaryDir privateDirectory(QStringLiteral("/run/g05-control-XXXXXX"));
++        QVERIFY(privateDirectory.isValid());
++        std::unique_ptr<DiagnosticControl> control(DiagnosticControl::fromArguments(
++            {QStringLiteral("sddm"), QStringLiteral("--g05-control-dir"), privateDirectory.path()}, qApp));
++        QVERIFY(control && control->state() == DiagnosticControl::State::WaitingSupervisor);
++        Harness display(directory->filePath(QStringLiteral("control")));
++        Supervisor supervisor;
++        bindSupervisor(*control, supervisor);
++        Client client;
++        connectClient(display, client);
++        select(client, 7, QStringLiteral("root"));
++        QTRY_COMPARE(supervisor.messages.size(), 2);
++        const auto reservation = supervisor.messages.last();
++        QCOMPARE(reservation.value(QStringLiteral("type")).toString(), QStringLiteral("RESERVED"));
++        QCOMPARE(reservation.value(QStringLiteral("boot")), supervisor.messages.first().value(QStringLiteral("boot")));
++        QCOMPARE(reservation.value(QStringLiteral("epoch")), supervisor.messages.first().value(QStringLiteral("epoch")));
++        QCOMPARE(reservation.value(QStringLiteral("serial")).toString(), QStringLiteral("7"));
++        QCOMPARE(reservation.value(QStringLiteral("user")).toString(), QStringLiteral("root"));
++        QCOMPARE(reservation.value(QStringLiteral("sessionFile")).toString(), session.fileName());
++        QCOMPARE(reservation.value(QStringLiteral("passwordGeneration")).toString(), QStringLiteral("1"));
++        QCOMPARE(reservation.value(QStringLiteral("fingerprintGeneration")).toString(), QStringLiteral("1"));
++        QVERIFY(!QUuid(reservation.value(QStringLiteral("request")).toString()).isNull());
++        QVERIFY(!QUuid(reservation.value(QStringLiteral("transaction")).toString()).isNull());
++        QVERIFY(!QUuid(reservation.value(QStringLiteral("socketId")).toString()).isNull());
++        password(client, QStringLiteral("root"));
++        start(client, 7);
++        start(client, 7);
++        const auto confirm = Supervisor::frame(confirmation(supervisor));
++        supervisor.socket.write(confirm.left(9));
++        supervisor.socket.flush();
++        bool ticked = false;
++        QTimer::singleShot(0, &display, [&] { ticked = true; });
++        QTRY_VERIFY(ticked);
++        QTest::qWait(30);
++        QCOMPARE(client.count(DaemonMessages::AuthenticationContext), 0);
++        QVERIFY(!display.m_pendingLogin && display.m_pendingPassword.isEmpty());
++        QCOMPARE(display.probes, 0);
++        QCOMPARE(display.m_auth->launchGeneration(), quint64(0));
++        QCOMPARE(display.m_fingerprintAuth->launchGeneration(), quint64(0));
++        supervisor.socket.write(confirm.mid(9));
++        supervisor.socket.flush();
++        QTRY_COMPARE(client.count(DaemonMessages::AuthenticationContext), 1);
++        const auto ack = client.events.last();
++        QCOMPARE(ack.accepted, quint32(1));
++        QCOMPARE(ack.request, reservation.value(QStringLiteral("request")).toString());
++        QCOMPARE(ack.serial, quint64(7));
++        QCOMPARE(control->state(), DiagnosticControl::State::ReservedConfirmed);
++        password(client, QStringLiteral("root"));
++        start(client, 7);
++        QVERIFY(!display.attemptAutologin());
++        QVERIFY(!display.Display::startAuth(QStringLiteral("root"), QString(), session, AuthMethod::Password));
++        QVERIFY(!display.Display::startAuth(QStringLiteral("root"), QString(), session, AuthMethod::Fingerprint));
++        QTest::qWait(50);
++        QCOMPARE(display.probes, 0);
++        QCOMPARE(display.m_auth->launchGeneration(), quint64(0));
++        QCOMPARE(display.m_fingerprintAuth->launchGeneration(), quint64(0));
++        QVERIFY(!display.m_pendingLogin && display.m_pendingPassword.isEmpty());
++        // Even an exact replay is rejected; no second positive ACK is published.
++        supervisor.socket.write(confirm);
++        supervisor.socket.flush();
++        QTRY_COMPARE(control->state(), DiagnosticControl::State::Failed);
++        int positive = 0;
++        for (const auto &event : client.events)
++            positive += event.message == DaemonMessages::AuthenticationContext && event.accepted == 1;
++        QCOMPARE(positive, 1);
++        display.advancePendingContext();
++        QVERIFY(!display.m_pendingContext && !display.m_contextOptedIn && display.m_requestId.isEmpty());
++    }
++    void diagnosticControlFailures_data() {
++        QTest::addColumn<QString>("failure");
++        for (const auto &name : {"boot", "epoch", "transaction", "socketId", "serial", "request", "user",
++                                 "sessionType", "sessionFile", "passwordGeneration", "fingerprintGeneration",
++                                 "version", "type", "extra", "oversized", "invalid-json", "partial-timeout",
++                                 "numeric-serial", "duplicate-key", "trailing", "coalesced-replay",
++                                 "supervisor-disconnect", "greeter-disconnect", "context-change", "clear",
++                                 "postack-supervisor-disconnect", "postack-greeter-disconnect"})
++            QTest::newRow(name) << QString::fromLatin1(name);
++    }
++    void diagnosticControlFailures() {
++        if (geteuid() || !QFile::exists(QStringLiteral("/.dockerenv")))
++            QSKIP("Root-only control test runs only in the disposable offline container");
++        QFETCH(QString, failure);
++        QTemporaryDir privateDirectory(QStringLiteral("/run/g05-control-XXXXXX"));
++        QVERIFY(privateDirectory.isValid());
++        std::unique_ptr<DiagnosticControl> control(DiagnosticControl::fromArguments(
++            {QStringLiteral("sddm"), QStringLiteral("--g05-control-dir"), privateDirectory.path()}, qApp));
++        QVERIFY(control && control->state() == DiagnosticControl::State::WaitingSupervisor);
++        Harness display(directory->filePath(QStringLiteral("control")));
++        Supervisor supervisor;
++        bindSupervisor(*control, supervisor);
++        Client client;
++        connectClient(display, client);
++        select(client, 1, QStringLiteral("root"));
++        QTRY_COMPARE(supervisor.messages.size(), 2);
++        auto confirm = confirmation(supervisor);
++        const bool postack = failure.startsWith(QLatin1String("postack-"));
++        if (postack) {
++            supervisor.send(confirm);
++            QTRY_COMPARE(client.count(DaemonMessages::AuthenticationContext), 1);
++        }
++        if (failure.endsWith(QLatin1String("supervisor-disconnect")))
++            supervisor.socket.abort();
++        else if (failure.endsWith(QLatin1String("greeter-disconnect")))
++            client.socket.abort();
++        else if (failure == QLatin1String("context-change"))
++            select(client, 2, QStringLiteral("other"));
++        else if (failure == QLatin1String("clear"))
++            clear(client, 2);
++        else if (failure == QLatin1String("partial-timeout")) {
++            supervisor.socket.write(Supervisor::frame(confirm).left(10));
++            supervisor.socket.flush();
++        } else if (failure == QLatin1String("oversized")) {
++            supervisor.socket.write(packet([](QDataStream &out) { out << quint32(4097); }));
++            supervisor.socket.flush();
++        } else if (failure == QLatin1String("invalid-json")) {
++            supervisor.socket.write(packet([](QDataStream &out) { out << quint32(1); }) + "{");
++            supervisor.socket.flush();
++        } else if (failure == QLatin1String("duplicate-key") || failure == QLatin1String("trailing")) {
++            auto payload = QJsonDocument(confirm).toJson(QJsonDocument::Compact);
++            if (failure == QLatin1String("duplicate-key"))
++                payload.insert(1, "\"version\":1,");
++            else
++                payload.append("garbage");
++            supervisor.socket.write(packet([&](QDataStream &out) { out << quint32(payload.size()); }) + payload);
++            supervisor.socket.flush();
++        } else if (failure == QLatin1String("coalesced-replay")) {
++            supervisor.socket.write(Supervisor::frame(confirm) + Supervisor::frame(confirm));
++            supervisor.socket.flush();
++        } else {
++            if (failure == QLatin1String("numeric-serial"))
++                confirm.insert(QStringLiteral("serial"), 1);
++            else if (failure == QLatin1String("sessionType") || failure == QLatin1String("version"))
++                confirm.insert(failure, 999);
++            else
++                confirm.insert(failure, QStringLiteral("foreign"));
++            supervisor.send(confirm);
++        }
++        bool ticked = false;
++        QTimer::singleShot(0, &display, [&] { ticked = true; });
++        QTRY_VERIFY(ticked);
++        QTRY_COMPARE_WITH_TIMEOUT(control->state(), DiagnosticControl::State::Failed, DiagnosticControl::TimeoutMs + 1000);
++        display.advancePendingContext(); // Simulate an old helper-finished queued callback.
++        QVERIFY(!display.m_pendingContext && !display.m_contextOptedIn && display.m_requestId.isEmpty());
++        QVERIFY(!display.m_pendingLogin && display.m_pendingPassword.isEmpty());
++        QTRY_COMPARE(client.socket.state(), QLocalSocket::UnconnectedState);
++        Client replacement;
++        connectClient(display, replacement);
++        password(replacement, QStringLiteral("root"));
++        select(replacement, 1, QStringLiteral("root"));
++        QTRY_COMPARE(replacement.socket.state(), QLocalSocket::UnconnectedState);
++        Supervisor reconnect;
++        reconnect.socket.connectToServer(control->address());
++        QTRY_COMPARE(reconnect.socket.state(), QLocalSocket::UnconnectedState);
++        QTest::qWait(30);
++        int positive = 0;
++        for (const auto &event : client.events)
++            positive += event.message == DaemonMessages::AuthenticationContext && event.accepted == 1;
++        QCOMPARE(positive, postack || failure == QLatin1String("coalesced-replay") ? 1 : 0);
++        for (const auto &event : replacement.events)
++            QVERIFY(event.message != DaemonMessages::AuthenticationContext || event.accepted == 0);
++        QCOMPARE(display.probes, 0);
++        QCOMPARE(display.m_auth->launchGeneration(), quint64(0));
++        QCOMPARE(display.m_fingerprintAuth->launchGeneration(), quint64(0));
++        // Recreating Display cannot reset a daemon-scoped failure.
++        Harness recreated(directory->filePath(QStringLiteral("replacement-control")));
++        Client afterRecreation;
++        connectClient(recreated, afterRecreation);
++        password(afterRecreation, QStringLiteral("root"));
++        select(afterRecreation, 1, QStringLiteral("root"));
++        QTRY_COMPARE(afterRecreation.socket.state(), QLocalSocket::UnconnectedState);
++        QCOMPARE(recreated.m_auth->launchGeneration(), quint64(0));
++    }
++    void diagnosticControlInitialFailures_data() {
++        QTest::addColumn<QString>("failure");
++        for (const auto &name : {"bootstrap-timeout", "hello-slow-fragments", "hello-boot", "hello-version", "context-timeout"})
++            QTest::newRow(name) << QString::fromLatin1(name);
++    }
++    void diagnosticControlInitialFailures() {
++        if (geteuid() || !QFile::exists(QStringLiteral("/.dockerenv")))
++            QSKIP("Root-only control test runs only in the disposable offline container");
++        QFETCH(QString, failure);
++        QTemporaryDir privateDirectory(QStringLiteral("/run/g05-control-XXXXXX"));
++        QVERIFY(privateDirectory.isValid());
++        std::unique_ptr<DiagnosticControl> control(DiagnosticControl::fromArguments(
++            {QStringLiteral("sddm"), QStringLiteral("--g05-control-dir"), privateDirectory.path()}, qApp));
++        QVERIFY(control && control->state() == DiagnosticControl::State::WaitingSupervisor);
++        Harness display(directory->filePath(QStringLiteral("control")));
++        Supervisor supervisor;
++        QTimer fragments;
++        if (failure == QLatin1String("context-timeout")) {
++            bindSupervisor(*control, supervisor);
++        } else if (failure != QLatin1String("bootstrap-timeout")) {
++            supervisor.socket.connectToServer(control->address());
++            QTRY_COMPARE(supervisor.socket.state(), QLocalSocket::ConnectedState);
++            if (failure == QLatin1String("hello-slow-fragments")) {
++                // A byte every 100ms cannot renew the phase's absolute deadline.
++                supervisor.socket.write(packet([](QDataStream &out) { out << quint32(4096); }));
++                QObject::connect(&fragments, &QTimer::timeout, &supervisor.socket, [&] {
++                    if (supervisor.socket.state() == QLocalSocket::ConnectedState)
++                        supervisor.socket.write(" ", 1);
++                });
++                fragments.start(100);
++            } else {
++                QFile boot(QStringLiteral("/proc/sys/kernel/random/boot_id"));
++                QVERIFY(boot.open(QIODevice::ReadOnly));
++                QJsonObject hello {{QStringLiteral("type"), QStringLiteral("HELLO")}, {QStringLiteral("version"), 1},
++                                   {QStringLiteral("boot"), QString::fromLatin1(boot.readAll()).trimmed()}};
++                hello.insert(failure == QLatin1String("hello-boot") ? QStringLiteral("boot") : QStringLiteral("version"),
++                             QStringLiteral("foreign"));
++                supervisor.send(hello);
++            }
++        }
++        Client client;
++        connectClient(display, client);
++        QTRY_COMPARE_WITH_TIMEOUT(control->state(), DiagnosticControl::State::Failed, DiagnosticControl::TimeoutMs + 1000);
++        fragments.stop();
++        select(client, 1, QStringLiteral("root"));
++        QTRY_COMPARE(client.socket.state(), QLocalSocket::UnconnectedState);
++        for (const auto &event : client.events)
++            QVERIFY(event.message != DaemonMessages::AuthenticationContext || event.accepted == 0);
++        QCOMPARE(display.m_auth->launchGeneration(), quint64(0));
++        QCOMPARE(display.m_fingerprintAuth->launchGeneration(), quint64(0));
++    }
++    void diagnosticControlSocketCleanupAndSecondDisplay() {
++        if (geteuid() || !QFile::exists(QStringLiteral("/.dockerenv")))
++            QSKIP("Root-only control test runs only in the disposable offline container");
++        QTemporaryDir privateDirectory(QStringLiteral("/run/g05-control-XXXXXX"));
++        QVERIFY(privateDirectory.isValid());
++        std::unique_ptr<DiagnosticControl> control(DiagnosticControl::fromArguments(
++            {QStringLiteral("sddm"), QStringLiteral("--g05-control-dir"), privateDirectory.path()}, qApp));
++        QVERIFY(control && control->state() == DiagnosticControl::State::WaitingSupervisor);
++        const auto address = control->address();
++        struct stat st {};
++        QVERIFY(!::lstat(QFile::encodeName(address).constData(), &st));
++        QCOMPARE(st.st_mode & 0777, mode_t(0600));
++        QCOMPARE(st.st_uid, uid_t(0));
++        QCOMPARE(st.st_gid, gid_t(0));
++        Harness first(directory->filePath(QStringLiteral("first")));
++        Harness second(directory->filePath(QStringLiteral("second")));
++        QCOMPARE(control->state(), DiagnosticControl::State::Failed);
++        QVERIFY(first.diagnosticLaunchBlocked(nullptr) && second.diagnosticLaunchBlocked(nullptr));
++        // Root fault injection: substitution must not make cleanup unlink a foreign inode.
++        QVERIFY(QFile::rename(address, address + QStringLiteral(".original")));
++        QFile foreign(address);
++        QVERIFY(foreign.open(QIODevice::WriteOnly));
++        foreign.write("foreign-inode");
++        foreign.close();
++        control.reset();
++        QVERIFY(foreign.open(QIODevice::ReadOnly));
++        QCOMPARE(foreign.readAll(), QByteArray("foreign-inode"));
++        QVERIFY(QFile::exists(address + QStringLiteral(".original")));
++    }
++    void diagnosticControlSecondSupervisor() {
++        if (geteuid() || !QFile::exists(QStringLiteral("/.dockerenv")))
++            QSKIP("Root-only control test runs only in the disposable offline container");
++        QTemporaryDir privateDirectory(QStringLiteral("/run/g05-control-XXXXXX"));
++        QVERIFY(privateDirectory.isValid());
++        std::unique_ptr<DiagnosticControl> control(DiagnosticControl::fromArguments(
++            {QStringLiteral("sddm"), QStringLiteral("--g05-control-dir"), privateDirectory.path()}, qApp));
++        QVERIFY(control && control->state() == DiagnosticControl::State::WaitingSupervisor);
++        Harness display(directory->filePath(QStringLiteral("control")));
++        Supervisor owner;
++        bindSupervisor(*control, owner);
++        Supervisor foreign;
++        foreign.socket.connectToServer(control->address());
++        QTRY_COMPARE(foreign.socket.state(), QLocalSocket::UnconnectedState);
++        QCOMPARE(control->state(), DiagnosticControl::State::WaitingContext);
++        Client client;
++        connectClient(display, client);
++        select(client, 1, QStringLiteral("root"));
++        QTRY_COMPARE(owner.messages.size(), 2);
++        owner.send(confirmation(owner));
++        QTRY_COMPARE(client.count(DaemonMessages::AuthenticationContext), 1);
++        QCOMPARE(client.events.last().accepted, quint32(1));
++    }
++    void diagnosticControlNonRootPeer() {
++        if (geteuid() || !QFile::exists(QStringLiteral("/.dockerenv")))
++            QSKIP("Credential fault injection runs only in the disposable offline container");
++        QTemporaryDir privateDirectory(QStringLiteral("/run/g05-control-XXXXXX"));
++        QVERIFY(privateDirectory.isValid());
++        std::unique_ptr<DiagnosticControl> control(DiagnosticControl::fromArguments(
++            {QStringLiteral("sddm"), QStringLiteral("--g05-control-dir"), privateDirectory.path()}, qApp));
++        QVERIFY(control && control->state() == DiagnosticControl::State::WaitingSupervisor);
++        Harness display(directory->filePath(QStringLiteral("control")));
++        // Root-only fixture fault: bypass path DAC to exercise SO_PEERCRED itself.
++        QVERIFY(!::chmod(QFile::encodeName(privateDirectory.path()).constData(), 0711));
++        QVERIFY(!::chmod(QFile::encodeName(control->address()).constData(), 0666));
++        QProcess peer;
++        peer.start(QCoreApplication::applicationDirPath() + QStringLiteral("/DiagnosticCredentialClient"),
++                   {control->address()});
++        QVERIFY(peer.waitForStarted());
++        QTRY_VERIFY(peer.state() == QProcess::NotRunning);
++        QCOMPARE(peer.exitStatus(), QProcess::NormalExit);
++        QCOMPARE(peer.exitCode(), 0);
++        QVERIFY(!::chmod(QFile::encodeName(privateDirectory.path()).constData(), 0700));
++        QVERIFY(!::chmod(QFile::encodeName(control->address()).constData(), 0600));
++        QCOMPARE(control->state(), DiagnosticControl::State::WaitingSupervisor);
++        Supervisor owner;
++        bindSupervisor(*control, owner);
++        Client client;
++        connectClient(display, client);
++        select(client, 1, QStringLiteral("root"));
++        QTRY_COMPARE(owner.messages.size(), 2);
++        owner.send(confirmation(owner));
++        QTRY_COMPARE(client.count(DaemonMessages::AuthenticationContext), 1);
++        QCOMPARE(client.events.last().accepted, quint32(1));
++    }
++    void diagnosticControlDestroyedBeforeDisplay_data() {
++        QTest::addColumn<bool>("confirmed");
++        QTest::newRow("before-confirm") << false;
++        QTest::newRow("after-confirm") << true;
++    }
++    void diagnosticControlDestroyedBeforeDisplay() {
++        if (geteuid() || !QFile::exists(QStringLiteral("/.dockerenv")))
++            QSKIP("Root-only control test runs only in the disposable offline container");
++        QFETCH(bool, confirmed);
++        QTemporaryDir privateDirectory(QStringLiteral("/run/g05-control-XXXXXX"));
++        QVERIFY(privateDirectory.isValid());
++        std::unique_ptr<DiagnosticControl> control(DiagnosticControl::fromArguments(
++            {QStringLiteral("sddm"), QStringLiteral("--g05-control-dir"), privateDirectory.path()}, qApp));
++        QVERIFY(control && control->state() == DiagnosticControl::State::WaitingSupervisor);
++        auto display = std::make_unique<Harness>(directory->filePath(QStringLiteral("control")));
++        Supervisor supervisor;
++        bindSupervisor(*control, supervisor);
++        Client client;
++        connectClient(*display, client);
++        select(client, 1, QStringLiteral("root"));
++        QTRY_COMPARE(supervisor.messages.size(), 2);
++        if (confirmed) {
++            supervisor.send(confirmation(supervisor));
++            QTRY_COMPARE(client.count(DaemonMessages::AuthenticationContext), 1);
++        }
++        control.reset(); // Mirrors QObject child order in the executable application.
++        QVERIFY(!display->m_diagnosticControl && display->m_diagnosticEnabled);
++        QVERIFY(!display->m_pendingContext && !display->m_contextOptedIn);
++        display->advancePendingContext();
++        Client replacement;
++        connectClient(*display, replacement);
++        password(replacement, QStringLiteral("root"));
++        select(replacement, 1, QStringLiteral("root"));
++        QTRY_COMPARE(replacement.socket.state(), QLocalSocket::UnconnectedState);
++        QVERIFY(!display->Display::startAuth(QStringLiteral("root"), QString(), session));
++        QCOMPARE(display->m_auth->launchGeneration(), quint64(0));
++        QCOMPARE(display->m_fingerprintAuth->launchGeneration(), quint64(0));
++        QCOMPARE(display->probes, 0);
++        Harness recreated(directory->filePath(QStringLiteral("after-control-destruction")));
++        QVERIFY(recreated.m_diagnosticEnabled && !recreated.m_diagnosticControl);
++        Client afterRecreation;
++        connectClient(recreated, afterRecreation);
++        password(afterRecreation, QStringLiteral("root"));
++        select(afterRecreation, 1, QStringLiteral("root"));
++        QTRY_COMPARE(afterRecreation.socket.state(), QLocalSocket::UnconnectedState);
++        QCOMPARE(recreated.m_auth->launchGeneration(), quint64(0));
++        QCOMPARE(recreated.m_fingerprintAuth->launchGeneration(), quint64(0));
++        display.reset(); // Must not dereference the destroyed control from stopInternal.
++    }
++    void diagnosticControlExitedHistory_data() {
++        QTest::addColumn<bool>("fingerprint");
++        QTest::newRow("password") << false;
++        QTest::newRow("fingerprint") << true;
++    }
++    void diagnosticControlExitedHistory() {
++        if (geteuid() || !QFile::exists(QStringLiteral("/.dockerenv")))
++            QSKIP("Root-only control test runs only in the disposable offline container");
++#ifdef G05_INTEGRATED
++        QSKIP("History fault injection uses only the private fake-helper target");
++#endif
++        QFETCH(bool, fingerprint);
++        QTemporaryDir privateDirectory(QStringLiteral("/run/g05-control-XXXXXX"));
++        QVERIFY(privateDirectory.isValid());
++        std::unique_ptr<DiagnosticControl> control(DiagnosticControl::fromArguments(
++            {QStringLiteral("sddm"), QStringLiteral("--g05-control-dir"), privateDirectory.path()}, qApp));
++        QVERIFY(control && control->state() == DiagnosticControl::State::WaitingSupervisor);
++        Harness display(directory->filePath(QStringLiteral("control")));
++        Supervisor supervisor;
++        bindSupervisor(*control, supervisor);
++        // Inject real launched-and-exited history below Display's barrier. This is
++        // not a permitted diagnostic launch; reserve must still reject its history.
++        auto *auth = fingerprint ? display.m_fingerprintAuth : display.m_auth;
++        const auto method = fingerprint ? AuthMethod::Fingerprint : AuthMethod::Password;
++        auth->setMethod(method);
++        auth->setRequestId(QUuid::createUuid().toString(QUuid::WithoutBraces));
++        auth->setUser(QStringLiteral("root"));
++        auth->setSession(QStringLiteral("ignore-term"));
++        auth->setDeferredAuthorization(true);
++        auth->setDisplayServerCommand(display.controls.fullServerName());
++        auth->start();
++        QTRY_VERIFY(display.peers.contains(int(method)));
++        display.command(method, "E");
++        QTRY_VERIFY(!auth->isActive());
++        QVERIFY(auth->launchGeneration() > 0);
++        display.clearPendingLogin();
++        Client client;
++        connectClient(display, client);
++        select(client, 1, QStringLiteral("root"));
++        QTRY_COMPARE(control->state(), DiagnosticControl::State::Failed);
++        QTRY_COMPARE(client.socket.state(), QLocalSocket::UnconnectedState);
++        QCOMPARE(supervisor.messages.size(), 1); // No RESERVED after prior launch, even exited.
++        for (const auto &event : client.events)
++            QVERIFY(event.message != DaemonMessages::AuthenticationContext || event.accepted == 0);
++    }
++    void diagnosticControlBootstrap_data() {
++        QTest::addColumn<QString>("failure");
++        for (const auto &name : {"mode", "symlink", "owner", "existing", "missing", "duplicate", "equals", "absent"})
++            QTest::newRow(name) << QString::fromLatin1(name);
++    }
++    void diagnosticControlBootstrap() {
++        if (geteuid() || !QFile::exists(QStringLiteral("/.dockerenv")))
++            QSKIP("Root-only control test runs only in the disposable offline container");
++        QFETCH(QString, failure);
++        QTemporaryDir privateDirectory(QStringLiteral("/run/g05-control-XXXXXX"));
++        QVERIFY(privateDirectory.isValid());
++        QString path = privateDirectory.path();
++        QStringList args {QStringLiteral("sddm"), QStringLiteral("--g05-control-dir"), path};
++        if (failure == QLatin1String("mode"))
++            QVERIFY(!::chmod(QFile::encodeName(path).constData(), 0755));
++        else if (failure == QLatin1String("owner"))
++            QVERIFY(!::chown(QFile::encodeName(path).constData(), 65534, 65534));
++        else if (failure == QLatin1String("symlink")) {
++            const auto alias = path + QStringLiteral("/alias");
++            QVERIFY(!::symlink(".", QFile::encodeName(alias).constData()));
++            args.last() = alias;
++        } else if (failure == QLatin1String("existing")) {
++            QFile file(path + QStringLiteral("/control.sock"));
++            QVERIFY(file.open(QIODevice::WriteOnly));
++            file.write("not-owned-by-control");
++        } else if (failure == QLatin1String("missing"))
++            args.removeLast();
++        else if (failure == QLatin1String("duplicate"))
++            args << QStringLiteral("--g05-control-dir") << path;
++        else if (failure == QLatin1String("equals"))
++            args = {QStringLiteral("sddm"), QStringLiteral("--g05-control-dir=") + path};
++        else if (failure == QLatin1String("absent"))
++            args = {QStringLiteral("sddm")};
++        std::unique_ptr<DiagnosticControl> control(DiagnosticControl::fromArguments(args, qApp));
++        if (failure == QLatin1String("absent")) {
++            QVERIFY(!control && !DiagnosticControl::forApplication());
++        } else {
++            QVERIFY(control && control->state() == DiagnosticControl::State::Failed);
++            Harness display(directory->filePath(QStringLiteral("control")));
++            Client client;
++            connectClient(display, client);
++            password(client, QStringLiteral("root"));
++            select(client, 1, QStringLiteral("root"));
++            QTRY_COMPARE(client.socket.state(), QLocalSocket::UnconnectedState);
++            QCOMPARE(display.m_auth->launchGeneration(), quint64(0));
++        }
++        if (failure == QLatin1String("owner"))
++            QVERIFY(!::chown(QFile::encodeName(path).constData(), 0, 0));
++        if (failure == QLatin1String("existing")) {
++            control.reset();
++            QFile file(path + QStringLiteral("/control.sock"));
++            QVERIFY(file.open(QIODevice::ReadOnly));
++            QCOMPARE(file.readAll(), QByteArray("not-owned-by-control"));
++        }
++    }
++    void diagnosticExecutableRejectsInvalidOptInBeforeSeats() {
++        if (geteuid() || !QFile::exists(QStringLiteral("/.dockerenv")))
++            QSKIP("Never execute a daemon bootstrap against host seats");
++        QProcess process;
++        auto environment = QProcessEnvironment::systemEnvironment();
++        environment.insert(QStringLiteral("QT_FORCE_STDERR_LOGGING"), QStringLiteral("1"));
++        process.setProcessEnvironment(environment);
++        process.start(QCoreApplication::applicationDirPath() + QStringLiteral("/../src/daemon/sddm"),
++                      {QStringLiteral("--g05-control-dir"), directory->filePath(QStringLiteral("absent"))});
++        QVERIFY(process.waitForStarted());
++        QVERIFY(process.waitForFinished());
++        QVERIFY(process.exitStatus() == QProcess::CrashExit || process.exitCode() != 0);
++        const auto output = process.readAllStandardError() + process.readAllStandardOutput();
++        QVERIFY(output.contains("Invalid diagnostic control opt-in"));
++        QVERIFY(!output.contains("Starting...") && !output.contains("Adding new display"));
++    }
 +    void diagnosticReservationBlocksPreReadyLaunch() {
 +        Harness display(directory->filePath(QStringLiteral("control")));
 +        Client client;
@@ -1807,7 +2964,17 @@ index b721e43..9ae90c8 100644
      void initTestCase() {
          busDirectory = std::make_unique<QTemporaryDir>(QDir::currentPath() + QStringLiteral("/availability-bus-XXXXXX"));
          QVERIFY(busDirectory->isValid());
-@@ -320,6 +455,13 @@ private slots:
+@@ -280,6 +941,9 @@ private slots:
+         QVERIFY(QDBusConnection::systemBus().isConnected());
+     }
+     void cleanup() {
++        QVERIFY(!DiagnosticControl::forApplication());
++        // Fixture-only reset between independent daemon lifetimes; no production reset API.
++        qApp->setProperty("_sddm_g05_control_bootstrapped", QVariant());
+         const auto current = fixtureOwner();
+         Q_UNUSED(current);
+         for (const auto &owner : qAsConst(fixtureOwners))
+@@ -320,6 +984,13 @@ private slots:
      }
      void activationDeadlineRejectsLateOwnerAcquisition() {
          const auto gate = directory->filePath(QStringLiteral("late-start"));
@@ -1821,3 +2988,37 @@ index b721e43..9ae90c8 100644
          enableService({QStringLiteral("--startup-gate"), gate});
          Harness display(directory->filePath(QStringLiteral("control")));
          display.realAvailability = true;
+diff --git a/test/DiagnosticCredentialClient.cpp b/test/DiagnosticCredentialClient.cpp
+new file mode 100644
+index 0000000..a6a6331
+--- /dev/null
++++ b/test/DiagnosticCredentialClient.cpp
+@@ -0,0 +1,28 @@
++// Real non-root peer; only used by the disposable-container credential regression.
++#include <cstring>
++#include <poll.h>
++#include <sys/socket.h>
++#include <sys/un.h>
++#include <unistd.h>
++
++int main(int argc, char **argv) {
++    if (argc != 2 || ::setgid(65534) || ::setuid(65534))
++        return 2;
++    const int fd = ::socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
++    if (fd < 0)
++        return 3;
++    sockaddr_un address {};
++    address.sun_family = AF_UNIX;
++    if (std::strlen(argv[1]) >= sizeof(address.sun_path))
++        return 4;
++    std::strcpy(address.sun_path, argv[1]);
++    if (::connect(fd, reinterpret_cast<sockaddr *>(&address), sizeof(address)))
++        return 5; // The fixture must reach peercred, not stop at filesystem permissions.
++    pollfd wait {fd, POLLIN | POLLHUP, 0};
++    if (::poll(&wait, 1, 2000) <= 0)
++        return 6;
++    char byte;
++    const auto count = ::read(fd, &byte, 1);
++    ::close(fd);
++    return count == 0 ? 0 : 7;
++}
