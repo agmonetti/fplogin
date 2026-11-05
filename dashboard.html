@@ -1040,11 +1040,11 @@
     "tagline": "Biometric Fingerprint Authentication for Linux Display Managers",
     "target_v1": "Arch Linux · systemd · SDDM 0.21.0 · fprintd / libfprint · Hyprland",
     "reference_hardware": "Synaptics 06cb:00bd (match-on-sensor USB)",
-    "last_updated": "2026-10-28",
+    "last_updated": "2026-11-05",
     "current_gate": "Sprint 2 (Repetir / G05 offline bloqueado; aceptación física pendiente)",
     "current_gate_status": "in_progress",
-    "latest_achievement": "Checkpoint G05 e02e018 preservado; revisión corregida retracta readiness y seguridad ante bloqueo. Integridad no equivale a aceptación.",
-    "next_step": "Cierre 2026-10-28: G05 offline BLOQUEADO por seis defectos del controlador. Próxima sesión: corregir reloj, identidad, barreras, orden y recuperación; revisar D-Bus. Sin despliegue autorizado.",
+    "latest_achievement": "Control diagnóstico pre-ACK preservado: dos conexiones reales en fixture, CTest 9/9 y 51 checks focalizados; revisión independiente sin bloqueantes del slice. No READY ni aceptación G05.",
+    "next_step": "G05 sigue BLOQUEADO: faltan READY, gates/ACK armado, cancelación/salidas exactas, recuperación y correcciones de reloj/identidad/orden del controlador. Sin despliegue autorizado.",
     "summary": {
       "total_items": 152,
       "done": 120,
@@ -1607,8 +1607,8 @@
           "id": "G05",
           "title": "G05: Límite de 30s de Huella, Timeout y Carreras",
           "status": "blocked",
-          "description": "El sensor biométrico apaga el led tras 30s de inactividad; verificar recuperación limpia sin colisión de hilos ni carreras de apagado.",
-          "evidence": "docs/reviews/sprint-2.md (Pendiente Hardware)"
+          "description": "Timeout solo tras salida del helper; success-first y timeout-first con entrada retenida. Reserva autenticada pre-ACK verificada offline en fixture; no READY, recuperación ni aceptación física.",
+          "evidence": "docs/reviews/g05-preack-control-2026-11-05.md; docs/reviews/sprint-2.md"
         },
         {
           "id": "G06",

@@ -14,6 +14,8 @@ The Foundation Gate, Sprint 0 and Sprint 1 are complete. Sprint 1 is accepted an
 
 The [2026-10-20 activation correction](docs/reviews/sprint-2.md#6-2026-10-20-bounded-fprintd-activation-correction) fixes initial availability and explicit Retry when installed fprintd is inactive, without a keepalive or restart loop. The corrected traced guest's [new G04 physical verification and closure](docs/reviews/sprint-2.md#7-2026-10-21-g04-physical-verification-and-laboratory-closure) corroborates invalid-finger retry guidance, PAM attempt exhaustion, retained-input password recovery and absence of an automatic restart in the observed window. The preserved VM is stopped and the owner restored the reader handoff. G05–G16, the documented earlier scope gaps and independent Sprint 2 acceptance remain pending.
 
+The [2026-11-05 offline pre-ACK slice](docs/reviews/g05-preack-control-2026-11-05.md) adds authenticated diagnostic reservation before the greeter context ACK. Its two-connection fixture, 51 focused checks and full 9/9 suite passed; independent source/log review found no remaining blockers within that slice. It is not READY, recovery, G05 acceptance or deployment authorization. The dashboard capture above reflects this still-blocked state.
+
 The planned product has:
 
 - A minimal, upstream-quality SDDM patch coordinating concurrent PAM authentication methods.
