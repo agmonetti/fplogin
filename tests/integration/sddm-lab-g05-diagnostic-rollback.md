@@ -1,7 +1,7 @@
 # G05 diagnostic overlay: offline results and reversal contract
 
 **No deployment or new VM attempt is authorized.** The diagnostic-only source is
-`.work/labs/sprint2/g05-diagnostic-source/` at `b7632c8b51ab4f799bcfd8f72c456dec87564ab0` (offline authenticated pre-ACK reservation slice; not READY or recovery).
+`.work/labs/sprint2/g05-diagnostic-source/` at `0367b616aaf8c9b41114ec4ee0339f25f0639b5a` (offline dispatch/lifetime prerequisite over authenticated pre-ACK; not ABORT/exit, READY or recovery).
 The portable overlay and hashes are in `sddm-lab-g05-diagnostic.patch` and
 `sddm-lab-g05-diagnostic.json`. It applies on traced `c9cf9b7`; it does not
 enter the production series or modify production commit `480332c`.
@@ -22,6 +22,12 @@ for identity, ordering and bounded independent recovery requirements. Death reco
 explicit durable `recovery.json` failure verdict, not a silently swallowed unlink.
 These tests are specifications, not proof of PAM behavior or safe recovery.
 The current helper now requires a bounded explicit unarmed HELLO_ACK bound to auth ID, request, method and generation before backend/PAM; wrong-generation ACK fails before PAM in the isolated selfcheck. Armed ACK is deliberately rejected until daemon-owned prelaunch reservation and recovery are implemented. The [2026-11-05 pre-ACK slice](../../docs/reviews/g05-preack-control-2026-11-05.md) adds a live executable diagnostic opt-in and a separate authenticated control endpoint. The positive two-connection test uses the actual Display/SocketServer/DiagnosticControl and executable's common bootstrap factory; the executable subprocess covers invalid opt-in rejection, not valid seat startup. Reservation confirmation permits a context ACK but **no helper/probe/password launch**. Full CTest 9/9 and 51 focused checks passed; independent read-only review found no remaining blockers for that slice. No READY, armed launch, or recovery exists. The controller is unchanged; its historical nine red negatives were not rerun or claimed fixed. The sequence below describes historical diagnostic behavior, **not** an approved prelaunch/recovery protocol or proof that the current controller implements the new specification.
+
+The [2026-11-06 dispatch/lifetime prerequisite](../../docs/reviews/g05-dispatch-foundation-2026-11-06.md)
+adds callback/reuse guards with 47 focused checks and CTest 9/9. The post-dispatch
+completion is not exact child-exit evidence; owner destruction still suppresses
+terminal observation. No ABORT/result wire, retained exit authority or recovery
+is implemented. Historical mock-PAM results below were not rerun this session.
 
 ## Diagnostic behavior and scope
 

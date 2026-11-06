@@ -1040,11 +1040,11 @@
     "tagline": "Biometric Fingerprint Authentication for Linux Display Managers",
     "target_v1": "Arch Linux · systemd · SDDM 0.21.0 · fprintd / libfprint · Hyprland",
     "reference_hardware": "Synaptics 06cb:00bd (match-on-sensor USB)",
-    "last_updated": "2026-11-05",
+    "last_updated": "2026-11-06",
     "current_gate": "Sprint 2 (Repetir / G05 offline bloqueado; aceptación física pendiente)",
     "current_gate_status": "in_progress",
-    "latest_achievement": "Especificación ABORT/result revisada independientemente; implementación sin lanzamientos pendiente. Pre-ACK preservado; CTest 9/9 y 51 checks son históricos. No READY ni aceptación G05.",
-    "next_step": "Implementar y revisar ABORT/salidas exactas con lanzamientos bloqueados; después READY/gates/ACK armado y recuperación integrada. Sin despliegue autorizado.",
+    "latest_achievement": "Prerrequisito dispatch/lifetime preservado y revisado: 47 checks y CTest 9/9. ABORT/result y autoridad exacta de salidas aún no implementados. No READY ni aceptación G05.",
+    "next_step": "Implementar registros inmutables de lanzamiento/salida y observación retenida; después ABORT/result con lanzamientos bloqueados. Sin despliegue autorizado.",
     "summary": {
       "total_items": 152,
       "done": 120,
@@ -1607,8 +1607,8 @@
           "id": "G05",
           "title": "G05: Límite de 30s de Huella, Timeout y Carreras",
           "status": "blocked",
-          "description": "Timeout solo tras salida del helper; success-first y timeout-first con entrada retenida. ABORT/result especificado y revisado, no implementado; pre-ACK preservado. No READY ni aceptación física.",
-          "evidence": "docs/reviews/g05-abort-wire-spec-2026-11-05.md; docs/reviews/g05-preack-control-2026-11-05.md; docs/reviews/sprint-2.md"
+          "description": "Timeout solo tras salida del helper; success-first y timeout-first con entrada retenida. Prerrequisito dispatch/lifetime: 47 checks y CTest 9/9; ABORT/result y salidas exactas pendientes. No READY ni aceptación física.",
+          "evidence": "docs/reviews/g05-dispatch-foundation-2026-11-06.md; docs/reviews/g05-abort-wire-spec-2026-11-05.md; docs/reviews/sprint-2.md"
         },
         {
           "id": "G06",
