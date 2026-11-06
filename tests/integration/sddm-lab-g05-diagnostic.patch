@@ -1029,10 +1029,42 @@ index 0000000..f0a5aef
 +if __name__ == "__main__":
 +    unittest.main()
 diff --git a/src/auth/Auth.cpp b/src/auth/Auth.cpp
-index d05eca7..31f4152 100644
+index d05eca7..a7f99fb 100644
 --- a/src/auth/Auth.cpp
 +++ b/src/auth/Auth.cpp
-@@ -145,7 +145,8 @@ namespace SDDM {
+@@ -24,6 +24,7 @@
+ #include "SafeDataStream.h"
+ 
+ #include <QtCore/QProcess>
++#include <QtCore/QPointer>
+ #include <QtCore/QTimer>
+ #include <QtCore/QUuid>
+ #include <QtNetwork/QLocalServer>
+@@ -71,6 +72,23 @@ namespace SDDM {
+         void childError(QProcess::ProcessError error);
+         void requestFinished();
+     public:
++        // Completion may reuse/delete Auth only after the outermost callback returns.
++        class DispatchScope {
++        public:
++            explicit DispatchScope(Private *data) : data(data) { ++data->dispatchDepth; }
++            ~DispatchScope() {
++                if (!data || --data->dispatchDepth || !data->completionPending)
++                    return;
++                const auto status = data->completionStatus;
++                data->completionPending = false;
++                Auth *auth = qobject_cast<Auth *>(data->parent());
++                Q_EMIT auth->finishedDispatch(status);
++            }
++            QPointer<Private> data;
++        };
++        int dispatchDepth { 0 };
++        bool completionPending { false };
++        Auth::HelperExitStatus completionStatus { Auth::HELPER_OTHER_ERROR };
+         AuthRequest *request { nullptr };
+         QProcess *child { nullptr };
+         QLocalSocket *socket { nullptr };
+@@ -145,7 +163,8 @@ namespace SDDM {
                  qint64 id = 0;
                  QString requestId;
                  AuthMethod method = AuthMethod::Password;
@@ -1042,7 +1074,7 @@ index d05eca7..31f4152 100644
                  if (str.status() != QDataStream::Ok || !str.atEnd() || message != Msg::HELLO || !id
                      || !helpers.contains(id) || !helpers[id]->acceptHello(socket)) {
                      socket->setProperty("sddm-auth-handshake-pending", false);
-@@ -155,7 +156,8 @@ namespace SDDM {
+@@ -155,7 +174,8 @@ namespace SDDM {
                      return;
                  }
                  Auth::Private *helper = helpers[id];
@@ -1052,7 +1084,7 @@ index d05eca7..31f4152 100644
                      socket->setProperty("sddm-auth-handshake-pending", false);
                      --pendingHandshakes;
                      socket->abort();
-@@ -168,6 +170,14 @@ namespace SDDM {
+@@ -168,6 +188,14 @@ namespace SDDM {
                  --pendingHandshakes;
                  QObject::disconnect(socket, &QLocalSocket::readyRead, this, nullptr);
                  helper->setSocket(socket);
@@ -1067,11 +1099,25 @@ index d05eca7..31f4152 100644
                  helper->dataPending();
              });
              connect(socket, &QLocalSocket::disconnected, this, [this, socket] {
-@@ -265,11 +275,11 @@ namespace SDDM {
+@@ -221,7 +249,10 @@ namespace SDDM {
+         connect(child, QOverload<int,QProcess::ExitStatus>::of(&QProcess::finished), this, &Auth::Private::childExited);
+         connect(child, &QProcess::errorOccurred, this, &Auth::Private::childError);
+         connect(request, &AuthRequest::finished, this, &Auth::Private::requestFinished);
+-        connect(request, &AuthRequest::promptsChanged, parent, &Auth::requestChanged);
++        connect(request, &AuthRequest::promptsChanged, this, [this, parent] {
++            DispatchScope dispatch(this);
++            Q_EMIT parent->requestChanged();
++        });
+     }
+ 
+     Auth::Private::~Private()
+@@ -265,11 +296,13 @@ namespace SDDM {
      }
  
      void Auth::Private::dataPending() {
 -        if (!helloAccepted || stopping)
++        DispatchScope dispatch(this);
++        QPointer<Private> alive(this);
 +        if (!helloAccepted)
              return;
          Auth *auth = qobject_cast<Auth*>(parent());
@@ -1081,7 +1127,7 @@ index d05eca7..31f4152 100644
              qint64 length = -1;
              if (socket->peek(reinterpret_cast<char *>(&length), sizeof(length)) != sizeof(length)
                  || length < 0 || length > 1024 * 1024) {
-@@ -289,6 +299,16 @@ namespace SDDM {
+@@ -289,6 +322,16 @@ namespace SDDM {
                  auth->kill();
                  return;
              }
@@ -1098,7 +1144,235 @@ index d05eca7..31f4152 100644
              switch (m) {
                  case ERROR: {
                      QString message;
-@@ -651,6 +671,7 @@ namespace SDDM {
+@@ -327,8 +370,17 @@ namespace SDDM {
+                     authenticationDecided = true;
+                     if (!authenticatedUser.isEmpty()) {
+                         awaitingAuthorization = true;
+-                        auth->setUser(authenticatedUser);
++                        if (user != authenticatedUser) {
++                            user = authenticatedUser;
++                            Q_EMIT auth->userChanged();
++                            if (!alive)
++                                return;
++                        }
++                        if (stopping)
++                            break;
+                         Q_EMIT auth->authentication(authenticatedUser, true);
++                        if (!alive)
++                            return;
+                         if (!deferredAuthorization)
+                             auth->authorizeSession(true);
+                     } else {
+@@ -342,6 +394,8 @@ namespace SDDM {
+                     if (str.status() != QDataStream::Ok || !str.atEnd()) { auth->kill(); return; }
+                     trace(status ? "session-open-success" : "session-open-failure");
+                     Q_EMIT auth->sessionStarted(status);
++                    if (!alive || !socket || stopping)
++                        return;
+                     SafeDataStream reply(socket);
+                     reply << SESSION_STATUS << this->requestId << this->method;
+                     reply.send();
+@@ -352,6 +406,8 @@ namespace SDDM {
+                     str >> displayName;
+                     if (str.status() != QDataStream::Ok || !str.atEnd()) { auth->kill(); return; }
+                     Q_EMIT auth->displayServerReady(displayName);
++                    if (!alive || !socket || stopping)
++                        return;
+                     SafeDataStream reply(socket);
+                     reply << DISPLAY_SERVER_STARTED << this->requestId << this->method;
+                     reply.send();
+@@ -384,10 +440,14 @@ namespace SDDM {
+                     return;
+                 }
+             }
++            if (!alive)
++                return;
+         }
+     }
+ 
+     void Auth::Private::childExited(int exitCode, QProcess::ExitStatus exitStatus) {
++        DispatchScope dispatch(this);
++        QPointer<Private> alive(this);
+         trace("helper-exit");
+         qInfo().noquote().nospace() << "FPLOGIN_TRACE event=helper-exit-result request=" << requestId
+             << " helper_pid=" << launchPid << " generation=" << launchGeneration
+@@ -397,7 +457,11 @@ namespace SDDM {
+         // buffered terminal evidence before the consumer observes helper exit.
+         if (socket && !socket->bytesAvailable())
+             socket->waitForReadyRead(0);
++        if (!alive)
++            return;
+         dataPending();
++        if (!alive)
++            return;
+         helloAccepted = false;
+         awaitingAuthorization = false;
+         authorizationSent = false;
+@@ -415,6 +479,8 @@ namespace SDDM {
+         } else {
+             qWarning("Auth: sddm-helper exited abnormally (exit code %d)", exitCode);
+             Q_EMIT qobject_cast<Auth*>(parent())->error(child->errorString(), ERROR_INTERNAL);
++            if (!alive)
++                return;
+         }
+ 
+         if (status == Auth::HELPER_SUCCESS)
+@@ -422,10 +488,13 @@ namespace SDDM {
+         else
+             qWarning() << "Auth: sddm-helper exited with status" << status;
+ 
++        completionStatus = status;
++        completionPending = true;
+         Q_EMIT qobject_cast<Auth*>(parent())->finished(status);
+     }
+ 
+     void Auth::Private::childError(QProcess::ProcessError error) {
++        DispatchScope dispatch(this);
+         trace("helper-process-error");
+         qInfo().noquote().nospace() << "FPLOGIN_TRACE event=process-error process_error=" << int(error)
+             << " helper_pid=" << launchPid << " request=" << requestId;
+@@ -433,13 +502,16 @@ namespace SDDM {
+     }
+ 
+     void Auth::Private::requestFinished() {
++        DispatchScope dispatch(this);
++        QPointer<Private> alive(this);
+         if (stopping || !socket || socket->state() != QLocalSocket::ConnectedState)
+             return;
+         SafeDataStream str(socket);
+         Request r = request->request();
+         str << REQUEST << this->requestId << this->method << r;
+         str.send();
+-        request->setRequest();
++        if (alive)
++            request->setRequest();
+     }
+ 
+ 
+@@ -458,6 +530,11 @@ namespace SDDM {
+     }
+ 
+     Auth::~Auth() {
++        // Final disposal cannot deliver callbacks into a partially destroyed Auth.
++        d->child->blockSignals(true);
++        d->request->disconnect(d);
++        if (d->socket)
++            d->socket->disconnect(d);
+         stop();
+         // Destruction cannot leave callbacks referring to Private. Normal stop()
+         // is asynchronous; only final object disposal waits for a bounded reap.
+@@ -465,6 +542,9 @@ namespace SDDM {
+             d->child->kill();
+             d->child->waitForFinished(1000);
+         }
++        // QProcess may still be inside its own error/finished signal machinery.
++        d->child->setParent(nullptr);
++        d->child->deleteLater();
+         delete d;
+     }
+ 
+@@ -535,6 +615,7 @@ namespace SDDM {
+     }
+ 
+     void Auth::setCookie(const QByteArray& cookie) {
++        Private::DispatchScope dispatch(d);
+         if (cookie != d->cookie) {
+             d->cookie = cookie;
+             Q_EMIT cookieChanged();
+@@ -542,6 +623,8 @@ namespace SDDM {
+     }
+ 
+     void Auth::setUser(const QString &user) {
++        if (d->dispatchDepth)
++            return;
+         if (user != d->user) {
+             d->user = user;
+             Q_EMIT userChanged();
+@@ -549,6 +632,8 @@ namespace SDDM {
+     }
+ 
+     void Auth::setAutologin(bool on) {
++        if (d->dispatchDepth)
++            return;
+         if (on != d->autologin) {
+             d->autologin = on;
+             Q_EMIT autologinChanged();
+@@ -557,6 +642,8 @@ namespace SDDM {
+ 
+     void Auth::setGreeter(bool on)
+     {
++        if (d->dispatchDepth)
++            return;
+         if (on != d->greeter) {
+             d->greeter = on;
+             Q_EMIT greeterChanged();
+@@ -565,6 +652,8 @@ namespace SDDM {
+ 
+     void Auth::setDisplayServerCommand(const QString &command)
+     {
++        if (d->dispatchDepth)
++            return;
+         if (d->displayServerCmd != command) {
+             d->displayServerCmd = command;
+             Q_EMIT displayServerCommandChanged();
+@@ -572,6 +661,8 @@ namespace SDDM {
+     }
+ 
+     void Auth::setSession(const QString& path) {
++        if (d->dispatchDepth)
++            return;
+         if (path != d->sessionPath) {
+             d->sessionPath = path;
+             Q_EMIT sessionChanged();
+@@ -579,7 +670,7 @@ namespace SDDM {
+     }
+ 
+     void Auth::setMethod(AuthMethod method) {
+-        if (d->child->state() != QProcess::NotRunning
++        if (d->dispatchDepth || d->child->state() != QProcess::NotRunning
+             || (method != AuthMethod::Password && method != AuthMethod::Fingerprint))
+             return;
+         if (d->method != method) {
+@@ -589,7 +680,7 @@ namespace SDDM {
+     }
+ 
+     void Auth::setRequestId(const QString &requestId) {
+-        if (d->child->state() != QProcess::NotRunning || QUuid(requestId).isNull())
++        if (d->dispatchDepth || d->child->state() != QProcess::NotRunning || QUuid(requestId).isNull())
+             return;
+         if (d->requestId != requestId) {
+             d->requestId = requestId;
+@@ -598,7 +689,7 @@ namespace SDDM {
+     }
+ 
+     void Auth::setDeferredAuthorization(bool deferred) {
+-        if (d->child->state() == QProcess::NotRunning)
++        if (!d->dispatchDepth && d->child->state() == QProcess::NotRunning)
+             d->deferredAuthorization = deferred;
+     }
+ 
+@@ -617,6 +708,8 @@ namespace SDDM {
+     }
+ 
+     void Auth::setVerbose(bool on) {
++        if (d->dispatchDepth)
++            return;
+         if (on != verbose()) {
+             if (on)
+                 d->child->setProcessChannelMode(QProcess::ForwardedChannels);
+@@ -627,8 +720,10 @@ namespace SDDM {
+     }
+ 
+     void Auth::start() {
+-        if (d->child->state() != QProcess::NotRunning)
++        if (d->dispatchDepth || d->child->state() != QProcess::NotRunning)
+             return;
++        Private::DispatchScope dispatch(d);
++        QPointer<Private> alive(d);
+         const quint64 generation = ++d->launchGeneration;
+         d->launchPid = 0;
+         d->trace("helper-launch");
+@@ -651,6 +746,7 @@ namespace SDDM {
          args << QStringLiteral("--id") << QString::number(d->id);
          args << QStringLiteral("--request-id") << d->requestId;
          args << QStringLiteral("--method") << QString::number(qint32(d->method));
@@ -1106,6 +1380,34 @@ index d05eca7..31f4152 100644
          if (d->deferredAuthorization)
              args << QStringLiteral("--defer-auth");
          if (!d->sessionPath.isEmpty())
+@@ -664,6 +760,8 @@ namespace SDDM {
+         if (d->greeter)
+             args << QStringLiteral("--greeter");
+         d->child->start(QStringLiteral("%1/sddm-helper").arg(QStringLiteral(LIBEXEC_INSTALL_DIR)), args);
++        if (!alive)
++            return;
+         QTimer::singleShot(5000, d, [privateData = d, generation] {
+             if (privateData->launchGeneration == generation
+                 && privateData->child->state() != QProcess::NotRunning && !privateData->helloAccepted) {
+diff --git a/src/auth/Auth.h b/src/auth/Auth.h
+index 8cbbe77..dbf1be5 100644
+--- a/src/auth/Auth.h
++++ b/src/auth/Auth.h
+@@ -236,8 +236,14 @@ namespace SDDM {
+         *
+         * @param success true if every underlying task went fine
+         */
++        // Synchronous start/launch-identity mutation is rejected during callbacks.
+         void finished(Auth::HelperExitStatus status);
+ 
++        // Post-callback reuse boundary, not an exact child-exit evidence record.
++        // Emitted outside all nested Auth dispatch scopes; omitted if a previous
++        // callback destroys Auth. Environment/cookie enrichment remains supported.
++        void finishedDispatch(Auth::HelperExitStatus status);
++
+         /**
+         * Emitted on error
+         *
 diff --git a/src/auth/AuthMessages.h b/src/auth/AuthMessages.h
 index 9651ba3..79907bb 100644
 --- a/src/auth/AuthMessages.h
@@ -1118,6 +1420,43 @@ index 9651ba3..79907bb 100644
          MSG_LAST,
      };
  
+diff --git a/src/auth/AuthRequest.cpp b/src/auth/AuthRequest.cpp
+index 9ccc2d2..2897d30 100644
+--- a/src/auth/AuthRequest.cpp
++++ b/src/auth/AuthRequest.cpp
+@@ -21,6 +21,7 @@
+ #include "AuthRequest.h"
+ #include "Auth.h"
+ #include "AuthMessages.h"
++#include <QPointer>
+ 
+ namespace SDDM {
+     class AuthRequest::Private : public QObject {
+@@ -62,10 +63,22 @@ namespace SDDM {
+             }
+             d->finished = false;
+         }
+-        Q_EMIT promptsChanged();
+         if (request == nullptr) {
+-            qDeleteAll(promptsCopy);
++            // A prompt's destroyed() observer may delete the request too.
++            QPointer<AuthRequest> alive(this);
++            QList<QPointer<AuthPrompt>> retired;
++            for (AuthPrompt *prompt : qAsConst(promptsCopy))
++                retired << prompt;
++            for (const auto &prompt : qAsConst(retired)) {
++                if (prompt)
++                    prompt->setParent(nullptr);
++                if (prompt)
++                    prompt->deleteLater();
++            }
++            if (!alive)
++                return;
+         }
++        Q_EMIT promptsChanged();
+     }
+ 
+     QList<AuthPrompt*> AuthRequest::prompts() {
 diff --git a/src/daemon/CMakeLists.txt b/src/daemon/CMakeLists.txt
 index ce89837..68f6d87 100644
 --- a/src/daemon/CMakeLists.txt
@@ -1569,7 +1908,7 @@ index 0000000..c1bb8f9
 +}
 +#endif
 diff --git a/src/daemon/Display.cpp b/src/daemon/Display.cpp
-index f70a3c6..391f7f0 100644
+index f70a3c6..e67c853 100644
 --- a/src/daemon/Display.cpp
 +++ b/src/daemon/Display.cpp
 @@ -20,6 +20,7 @@
@@ -1594,6 +1933,23 @@ index f70a3c6..391f7f0 100644
          m_fprintServiceWatcher = new QDBusServiceWatcher(
                  QStringLiteral("net.reactivated.Fprint"), QDBusConnection::systemBus(),
                  QDBusServiceWatcher::WatchForOwnerChange, this);
+@@ -170,14 +178,14 @@ namespace SDDM {
+         connect(m_auth, &Auth::requestChanged, this, &Display::slotRequestChanged);
+         connect(m_auth, &Auth::authentication, this, &Display::slotAuthenticationFinished);
+         connect(m_auth, &Auth::sessionStarted, this, &Display::slotSessionStarted);
+-        connect(m_auth, &Auth::finished, this, &Display::slotHelperFinished);
++        connect(m_auth, &Auth::finishedDispatch, this, &Display::slotHelperFinished);
+         connect(m_auth, &Auth::info, this, &Display::slotAuthInfo);
+         connect(m_auth, &Auth::error, this, &Display::slotAuthError);
+         m_fingerprintAuth->setVerbose(true);
+         connect(m_fingerprintAuth, &Auth::requestChanged, this, &Display::slotRequestChanged);
+         connect(m_fingerprintAuth, &Auth::authentication, this, &Display::slotAuthenticationFinished);
+         connect(m_fingerprintAuth, &Auth::sessionStarted, this, &Display::slotSessionStarted);
+-        connect(m_fingerprintAuth, &Auth::finished, this, &Display::slotHelperFinished);
++        connect(m_fingerprintAuth, &Auth::finishedDispatch, this, &Display::slotHelperFinished);
+         connect(m_fingerprintAuth, &Auth::authenticationMethodState,
+                 this, &Display::slotAuthenticationMethodState);
+         connect(m_fingerprintAuth, &Auth::info, this, &Display::slotAuthInfo);
 @@ -343,6 +351,8 @@ namespace SDDM {
      }
  
@@ -2078,7 +2434,7 @@ index 9c5bcf5..85c268d 100644
          UserSession *m_session { nullptr };
          QLocalSocket *m_socket { nullptr };
 diff --git a/test/AuthTransportHelper.cpp b/test/AuthTransportHelper.cpp
-index 9ffc410..bebb37a 100644
+index 9ffc410..f440fbe 100644
 --- a/test/AuthTransportHelper.cpp
 +++ b/test/AuthTransportHelper.cpp
 @@ -35,7 +35,8 @@ int main(int argc, char **argv) {
@@ -2101,7 +2457,46 @@ index 9ffc410..bebb37a 100644
          if (user == QStringLiteral("stop-late-success")) {
              std::signal(SIGTERM, SIG_IGN);
              QByteArray info;
-@@ -201,7 +203,21 @@ int main(int argc, char **argv) {
+@@ -166,9 +168,24 @@ int main(int argc, char **argv) {
+             socket.write(frame(hello) + frame(info) + frame(error));
+             return;
+         }
++        if (user.startsWith(QStringLiteral("dispatch-"))) {
++            QByteArray payload;
++            QDataStream stream(&payload, QIODevice::WriteOnly);
++            if (user == QStringLiteral("dispatch-session"))
++                stream << SESSION_STATUS << id << method << true;
++            else if (user == QStringLiteral("dispatch-display"))
++                stream << DISPLAY_SERVER_STARTED << id << method << QStringLiteral(":fixture");
++            else {
++                Request request({Prompt(AuthPrompt::LOGIN_PASSWORD, QStringLiteral("fixture prompt"), true),
++                                 Prompt(AuthPrompt::LOGIN_PASSWORD, QStringLiteral("second fixture prompt"), true)});
++                stream << REQUEST << id << method << request;
++            }
++            socket.write(frame(hello) + frame(payload));
++            return;
++        }
+         QDataStream second(&authenticated, QIODevice::WriteOnly);
+         second << AUTHENTICATED << (user == QStringLiteral("wrong") ? QStringLiteral("stale") : id)
+-               << method << user;
++               << method << (user.isEmpty() ? QStringLiteral("resolved-user") : user);
+         if (user == QStringLiteral("split")) {
+             socket.write(frame(hello));
+             QTimer::singleShot(30, &app, [&, authenticated] { socket.write(frame(authenticated)); });
+@@ -184,10 +201,10 @@ int main(int argc, char **argv) {
+         }
+     });
+     QObject::connect(&socket, &QLocalSocket::disconnected, &app, [&] {
+-        if (user != QStringLiteral("clean-exit"))
++        if (user != QStringLiteral("clean-exit") && user != QStringLiteral("payload-exit"))
+             app.quit();
+     });
+-    if (user == QStringLiteral("clean-exit")) {
++    if (user == QStringLiteral("clean-exit") || user == QStringLiteral("payload-exit")) {
+         QObject::connect(&socket, &QLocalSocket::readyRead, &app, [&] {
+             if (socket.bytesAvailable() < qint64(sizeof(qint64)))
+                 return;
+@@ -201,12 +218,37 @@ int main(int argc, char **argv) {
              QString requestId;
              AuthMethod responseMethod = AuthMethod::Password;
              bool proceed = false;
@@ -2124,11 +2519,238 @@ index 9ffc410..bebb37a 100644
              if (response.status() != QDataStream::Ok || message != SESSION_AUTHORIZATION
                  || requestId != id || responseMethod != method || !proceed) {
                  app.exit(7);
+                 return;
+             }
++            if (user == QStringLiteral("payload-exit")) {
++                QProcessEnvironment environment;
++                QByteArray cookie;
++                response >> environment >> cookie;
++                if (response.status() != QDataStream::Ok || !response.atEnd()
++                    || environment.value(QStringLiteral("DISPATCH_FIXTURE")) != QStringLiteral("present")
++                    || cookie != QByteArray("fixture-cookie")) {
++                    app.exit(8);
++                    return;
++                }
++            }
+             socket.disconnectFromServer();
+             QTimer::singleShot(100, &app, &QCoreApplication::quit);
+         });
 diff --git a/test/AuthTransportTest.cpp b/test/AuthTransportTest.cpp
-index 7ef2de3..cc87e9b 100644
+index 7ef2de3..7d46c53 100644
 --- a/test/AuthTransportTest.cpp
 +++ b/test/AuthTransportTest.cpp
-@@ -206,6 +206,37 @@ private slots:
+@@ -1,4 +1,5 @@
+ #include <QtTest/QtTest>
++#include <QProcess>
+ 
+ #include "Auth.h"
+ 
+@@ -7,6 +8,204 @@ using namespace SDDM;
+ class AuthTransportTest : public QObject {
+     Q_OBJECT
+ private slots:
++    void destructiveCallback_data() {
++        QTest::addColumn<QString>("event");
++        for (const char *event : {"authentication", "info", "error", "progress", "session", "display",
++                                  "request", "request-clear", "user", "finished", "completion", "exit-error"})
++            QTest::newRow(event) << QString::fromLatin1(event);
++    }
++
++    void destructiveCallback() {
++        QFETCH(QString, event);
++        QPointer<Auth> auth = new Auth;
++        QString user = QStringLiteral("coalesced");
++        if (event == QLatin1String("info") || event == QLatin1String("error"))
++            user = QStringLiteral("password-feedback");
++        else if (event == QLatin1String("progress")) {
++            user = QStringLiteral("progress-retry-success");
++            auth->setMethod(AuthMethod::Fingerprint);
++        } else if (event == QLatin1String("session") || event == QLatin1String("display"))
++            user = QStringLiteral("dispatch-") + event;
++        else if (event.startsWith(QLatin1String("request")))
++            user = QStringLiteral("dispatch-request");
++        else if (event == QLatin1String("user"))
++            user.clear();
++        auth->setUser(user);
++        auth->setDeferredAuthorization(true);
++        auto destroy = [&] { delete auth.data(); };
++        if (event == QLatin1String("authentication"))
++            connect(auth, &Auth::authentication, this, destroy);
++        else if (event == QLatin1String("user"))
++            connect(auth, &Auth::userChanged, this, destroy);
++        else if (event == QLatin1String("info"))
++            connect(auth, &Auth::info, this, destroy);
++        else if (event == QLatin1String("error") || event == QLatin1String("exit-error"))
++            connect(auth, &Auth::error, this, destroy);
++        else if (event == QLatin1String("progress"))
++            connect(auth, &Auth::authenticationMethodState, this, destroy);
++        else if (event == QLatin1String("session"))
++            connect(auth, &Auth::sessionStarted, this, destroy);
++        else if (event == QLatin1String("display"))
++            connect(auth, &Auth::displayServerReady, this, destroy);
++        else if (event == QLatin1String("request"))
++            connect(auth, &Auth::requestChanged, this, destroy);
++        else if (event == QLatin1String("request-clear")) {
++            connect(auth, &Auth::requestChanged, this, [&] {
++                if (auth->request()->prompts().isEmpty())
++                    destroy();
++                else
++                    auth->request()->done();
++            });
++        } else if (event == QLatin1String("finished"))
++            connect(auth, &Auth::finished, this, destroy);
++        else
++            connect(auth, &Auth::finishedDispatch, this, destroy);
++        if (event == QLatin1String("finished") || event == QLatin1String("completion")
++            || event == QLatin1String("exit-error"))
++            connect(auth, &Auth::authentication, this, [&] { auth->kill(); });
++        auth->start();
++        QTRY_VERIFY_WITH_TIMEOUT(auth.isNull(), 3000);
++    }
++
++    void promptDestructionCanDeleteOwner() {
++        QPointer<Auth> auth = new Auth;
++        auth->setUser(QStringLiteral("dispatch-request"));
++        int destroyedPrompts = 0;
++        connect(auth, &Auth::requestChanged, this, [&] {
++            const auto prompts = auth->request()->prompts();
++            if (prompts.isEmpty())
++                return;
++            QCOMPARE(prompts.size(), 2);
++            for (AuthPrompt *prompt : prompts)
++                connect(prompt, &QObject::destroyed, this, [&] {
++                    ++destroyedPrompts;
++                    delete auth.data();
++                });
++            auth->request()->done();
++        });
++        auth->start();
++        QTRY_VERIFY_WITH_TIMEOUT(auth.isNull(), 3000);
++        QCOMPARE(destroyedPrompts, 2);
++    }
++
++    void failedToStartCallbackCanDeleteOwner() {
++        QPointer<Auth> auth = new Auth;
++        QTemporaryDir directory;
++        QVERIFY(directory.isValid());
++        auto child = auth->findChild<QProcess *>();
++        QVERIFY(child);
++        child->setWorkingDirectory(directory.path() + QStringLiteral("/absent"));
++        bool failedToStart = false;
++        connect(auth, &Auth::error, this, [&] {
++            failedToStart = child->error() == QProcess::FailedToStart;
++            delete auth.data();
++        });
++        auth->start();
++        QTRY_VERIFY_WITH_TIMEOUT(auth.isNull(), 3000);
++        QVERIFY(failedToStart);
++    }
++
++    void ordinaryDispatchRejectsReuse_data() {
++        QTest::addColumn<bool>("onError");
++        QTest::newRow("information") << false;
++        QTest::newRow("error") << true;
++    }
++
++    void ordinaryDispatchRejectsReuse() {
++        QFETCH(bool, onError);
++        Auth auth;
++        auth.setUser(QStringLiteral("password-feedback"));
++        bool checked = false;
++        auto check = [&] {
++            const auto generation = auth.launchGeneration();
++            const auto requestId = auth.requestId();
++            const auto verbose = auth.verbose();
++            QSignalSpy commandChanged(&auth, &Auth::displayServerCommandChanged);
++            auth.setUser(QStringLiteral("forbidden"));
++            auth.setDisplayServerCommand(QStringLiteral("forbidden"));
++            auth.setVerbose(!verbose);
++            auth.setMethod(AuthMethod::Fingerprint);
++            auth.setRequestId(QUuid::createUuid().toString(QUuid::WithoutBraces));
++            auth.start();
++            QCOMPARE(auth.user(), QStringLiteral("password-feedback"));
++            QCOMPARE(auth.launchGeneration(), generation);
++            QCOMPARE(auth.method(), AuthMethod::Password);
++            QCOMPARE(auth.requestId(), requestId);
++            QCOMPARE(auth.verbose(), verbose);
++            QCOMPARE(commandChanged.count(), 0);
++            checked = true;
++        };
++        if (onError)
++            connect(&auth, &Auth::error, this, check);
++        else
++            connect(&auth, &Auth::info, this, check);
++        auth.start();
++        QTRY_VERIFY_WITH_TIMEOUT(checked, 2000);
++    }
++
++    void completionWaitsForOutermostDispatchAndAllowsRetry() {
++        Auth auth;
++        auth.setUser(QStringLiteral("coalesced"));
++        auth.setDeferredAuthorization(true);
++        const QString request = auth.requestId();
++        const QString session = auth.session();
++        bool insideCallback = false;
++        int completions = 0;
++        QSignalSpy finished(&auth, &Auth::finished);
++        connect(&auth, &Auth::finished, this, [&] {
++            const auto generation = auth.launchGeneration();
++            auth.setUser(QStringLiteral("forbidden"));
++            auth.setMethod(AuthMethod::Fingerprint);
++            auth.setRequestId(QUuid::createUuid().toString(QUuid::WithoutBraces));
++            auth.setSession(QStringLiteral("forbidden"));
++            auth.setAutologin(true);
++            auth.setGreeter(true);
++            auth.setDeferredAuthorization(false);
++            auth.start();
++            QCOMPARE(auth.launchGeneration(), generation);
++            QCOMPARE(auth.user(), QStringLiteral("coalesced"));
++            QCOMPARE(auth.method(), AuthMethod::Password);
++            QCOMPARE(auth.requestId(), request);
++            QCOMPARE(auth.session(), session);
++            QVERIFY(!auth.autologin());
++            QVERIFY(!auth.isGreeter());
++            QVERIFY(auth.isDeferredAuthorization());
++        });
++        connect(&auth, &Auth::finishedDispatch, this, [&] {
++            QVERIFY(!insideCallback);
++            ++completions;
++            if (completions == 1) {
++                const auto generation = auth.launchGeneration();
++                auth.start();
++                QCOMPARE(auth.launchGeneration(), generation + 1);
++            }
++        });
++        connect(&auth, &Auth::authentication, this, [&] {
++            insideCallback = true;
++            auth.kill();
++            const int expected = finished.count() + 1;
++            QTRY_COMPARE_WITH_TIMEOUT(finished.count(), expected, 2000);
++            QCOMPARE(completions, expected - 1);
++            insideCallback = false;
++        });
++        auth.start();
++        QTRY_COMPARE_WITH_TIMEOUT(completions, 2, 5000);
++        QCOMPARE(finished.count(), 2);
++    }
++
++    void authorizationCallbackRetainsPayloadEnrichment() {
++        Auth auth;
++        auth.setUser(QStringLiteral("payload-exit"));
++        QSignalSpy finished(&auth, &Auth::finishedDispatch);
++        connect(&auth, &Auth::authentication, this, [&] {
++            auth.insertEnvironment(QStringLiteral("DISPATCH_FIXTURE"), QStringLiteral("present"));
++            auth.setCookie(QByteArray("fixture-cookie"));
++        });
++        auth.start();
++        QTRY_COMPARE_WITH_TIMEOUT(finished.count(), 1, 3000);
++        QCOMPARE(finished.at(0).at(0).toInt(), int(Auth::HELPER_SUCCESS));
++    }
++
+     void handoff_data() {
+         QTest::addColumn<QString>("user");
+         QTest::addColumn<AuthMethod>("method");
+@@ -206,6 +405,37 @@ private slots:
          QTRY_COMPARE_WITH_TIMEOUT(finished.count(), 1, 2000);
      }
  
