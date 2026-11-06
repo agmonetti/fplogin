@@ -1029,7 +1029,7 @@ index 0000000..f0a5aef
 +if __name__ == "__main__":
 +    unittest.main()
 diff --git a/src/auth/Auth.cpp b/src/auth/Auth.cpp
-index d05eca7..a7f99fb 100644
+index d05eca7..c675807 100644
 --- a/src/auth/Auth.cpp
 +++ b/src/auth/Auth.cpp
 @@ -24,6 +24,7 @@
@@ -1040,7 +1040,89 @@ index d05eca7..a7f99fb 100644
  #include <QtCore/QTimer>
  #include <QtCore/QUuid>
  #include <QtNetwork/QLocalServer>
-@@ -71,6 +72,23 @@ namespace SDDM {
+@@ -32,11 +33,81 @@
+ #include <QtQml/QtQml>
+ 
+ #include <memory>
++#include <chrono>
+ 
+ #include <unistd.h>
+ #include <sys/socket.h>
+ 
+ namespace SDDM {
++    AuthLaunchObservation::AuthLaunchObservation(const AuthLaunchRecord &record, QProcess *process)
++        : QObject(QCoreApplication::instance()), m_record(record), m_process(process) {
++        process->setParent(this);
++    }
++
++    AuthLaunchRecord AuthLaunchObservation::record() const { return m_record; }
++    void AuthLaunchObservation::retainEvidence() { m_retained = true; }
++
++    qint64 AuthLaunchObservation::monotonicMs() {
++        return std::chrono::duration_cast<std::chrono::milliseconds>(
++            std::chrono::steady_clock::now().time_since_epoch()).count();
++    }
++
++    bool AuthLaunchObservation::cancelExact(const AuthLaunchRecord &expected) {
++        if (expected.requestId != m_record.requestId || expected.method != m_record.method
++            || expected.generation != m_record.generation || expected.authId != m_record.authId
++            || expected.user != m_record.user)
++            return false;
++        if (m_cancelled)
++            return true;
++        m_cancelled = true;
++        // Invalidate even a captured-but-unpublished exit before terminal draining.
++        if (m_invalidate)
++            m_invalidate();
++        if (m_record.state == AuthLaunchRecord::Exited
++            || m_record.state == AuthLaunchRecord::FailedToStart)
++            return true;
++        if (m_process) {
++            m_process->terminate();
++            QTimer::singleShot(5000, this, [this] {
++                if (m_process && m_record.state != AuthLaunchRecord::Exited
++                    && m_record.state != AuthLaunchRecord::FailedToStart)
++                    m_process->kill();
++            });
++        }
++        return true;
++    }
++
++    void AuthLaunchObservation::captureExit(int code, QProcess::ExitStatus status) {
++        if (m_record.terminalEntryMs >= 0)
++            return;
++        m_record.terminalEntryMs = monotonicMs();
++        m_record.exitCode = code;
++        m_record.exitStatus = status;
++        m_record.state = AuthLaunchRecord::Exited;
++    }
++
++    void AuthLaunchObservation::captureFailedToStart() {
++        if (m_record.terminalEntryMs >= 0)
++            return;
++        m_record.terminalEntryMs = monotonicMs();
++        m_record.state = AuthLaunchRecord::FailedToStart;
++    }
++
++    void AuthLaunchObservation::publishTerminal() {
++        if (m_terminalPublished || m_record.terminalEntryMs < 0)
++            return;
++        m_terminalPublished = true;
++        if (m_process)
++            QObject::disconnect(m_process, nullptr, this, nullptr);
++        m_process = nullptr;
++        m_invalidate = {};
++        const auto snapshot = m_record;
++        QPointer<AuthLaunchObservation> alive(this);
++        Q_EMIT changed(snapshot);
++        if (alive && m_ownerGone && !m_retained)
++            deleteLater();
++    }
++
+     class Auth::SocketServer : public QLocalServer {
+         Q_OBJECT
+     public slots:
+@@ -71,8 +142,27 @@ namespace SDDM {
          void childError(QProcess::ProcessError error);
          void requestFinished();
      public:
@@ -1060,11 +1142,15 @@ index d05eca7..a7f99fb 100644
 +        };
 +        int dispatchDepth { 0 };
 +        bool completionPending { false };
++        bool disposing { false };
 +        Auth::HelperExitStatus completionStatus { Auth::HELPER_OTHER_ERROR };
          AuthRequest *request { nullptr };
          QProcess *child { nullptr };
++        QPointer<AuthLaunchObservation> observation;
          QLocalSocket *socket { nullptr };
-@@ -145,7 +163,8 @@ namespace SDDM {
+         QString displayServerCmd;
+         QString sessionPath { };
+@@ -145,7 +235,8 @@ namespace SDDM {
                  qint64 id = 0;
                  QString requestId;
                  AuthMethod method = AuthMethod::Password;
@@ -1074,7 +1160,7 @@ index d05eca7..a7f99fb 100644
                  if (str.status() != QDataStream::Ok || !str.atEnd() || message != Msg::HELLO || !id
                      || !helpers.contains(id) || !helpers[id]->acceptHello(socket)) {
                      socket->setProperty("sddm-auth-handshake-pending", false);
-@@ -155,7 +174,8 @@ namespace SDDM {
+@@ -155,7 +246,8 @@ namespace SDDM {
                      return;
                  }
                  Auth::Private *helper = helpers[id];
@@ -1084,7 +1170,7 @@ index d05eca7..a7f99fb 100644
                      socket->setProperty("sddm-auth-handshake-pending", false);
                      --pendingHandshakes;
                      socket->abort();
-@@ -168,6 +188,14 @@ namespace SDDM {
+@@ -168,6 +260,14 @@ namespace SDDM {
                  --pendingHandshakes;
                  QObject::disconnect(socket, &QLocalSocket::readyRead, this, nullptr);
                  helper->setSocket(socket);
@@ -1099,8 +1185,11 @@ index d05eca7..a7f99fb 100644
                  helper->dataPending();
              });
              connect(socket, &QLocalSocket::disconnected, this, [this, socket] {
-@@ -221,7 +249,10 @@ namespace SDDM {
-         connect(child, QOverload<int,QProcess::ExitStatus>::of(&QProcess::finished), this, &Auth::Private::childExited);
+@@ -218,10 +318,12 @@ namespace SDDM {
+             launchPid = child->processId();
+             trace("helper-start");
+         });
+-        connect(child, QOverload<int,QProcess::ExitStatus>::of(&QProcess::finished), this, &Auth::Private::childExited);
          connect(child, &QProcess::errorOccurred, this, &Auth::Private::childError);
          connect(request, &AuthRequest::finished, this, &Auth::Private::requestFinished);
 -        connect(request, &AuthRequest::promptsChanged, parent, &Auth::requestChanged);
@@ -1111,7 +1200,7 @@ index d05eca7..a7f99fb 100644
      }
  
      Auth::Private::~Private()
-@@ -265,11 +296,13 @@ namespace SDDM {
+@@ -265,11 +367,13 @@ namespace SDDM {
      }
  
      void Auth::Private::dataPending() {
@@ -1127,7 +1216,7 @@ index d05eca7..a7f99fb 100644
              qint64 length = -1;
              if (socket->peek(reinterpret_cast<char *>(&length), sizeof(length)) != sizeof(length)
                  || length < 0 || length > 1024 * 1024) {
-@@ -289,6 +322,16 @@ namespace SDDM {
+@@ -289,6 +393,16 @@ namespace SDDM {
                  auth->kill();
                  return;
              }
@@ -1144,7 +1233,7 @@ index d05eca7..a7f99fb 100644
              switch (m) {
                  case ERROR: {
                      QString message;
-@@ -327,8 +370,17 @@ namespace SDDM {
+@@ -327,8 +441,17 @@ namespace SDDM {
                      authenticationDecided = true;
                      if (!authenticatedUser.isEmpty()) {
                          awaitingAuthorization = true;
@@ -1163,7 +1252,7 @@ index d05eca7..a7f99fb 100644
                          if (!deferredAuthorization)
                              auth->authorizeSession(true);
                      } else {
-@@ -342,6 +394,8 @@ namespace SDDM {
+@@ -342,6 +465,8 @@ namespace SDDM {
                      if (str.status() != QDataStream::Ok || !str.atEnd()) { auth->kill(); return; }
                      trace(status ? "session-open-success" : "session-open-failure");
                      Q_EMIT auth->sessionStarted(status);
@@ -1172,7 +1261,7 @@ index d05eca7..a7f99fb 100644
                      SafeDataStream reply(socket);
                      reply << SESSION_STATUS << this->requestId << this->method;
                      reply.send();
-@@ -352,6 +406,8 @@ namespace SDDM {
+@@ -352,6 +477,8 @@ namespace SDDM {
                      str >> displayName;
                      if (str.status() != QDataStream::Ok || !str.atEnd()) { auth->kill(); return; }
                      Q_EMIT auth->displayServerReady(displayName);
@@ -1181,7 +1270,7 @@ index d05eca7..a7f99fb 100644
                      SafeDataStream reply(socket);
                      reply << DISPLAY_SERVER_STARTED << this->requestId << this->method;
                      reply.send();
-@@ -384,10 +440,14 @@ namespace SDDM {
+@@ -384,10 +511,16 @@ namespace SDDM {
                      return;
                  }
              }
@@ -1191,12 +1280,14 @@ index d05eca7..a7f99fb 100644
      }
  
      void Auth::Private::childExited(int exitCode, QProcess::ExitStatus exitStatus) {
++        // The retained process callback captured identity/time before this drain.
++        const QPointer<AuthLaunchObservation> terminalObservation = observation;
 +        DispatchScope dispatch(this);
 +        QPointer<Private> alive(this);
          trace("helper-exit");
          qInfo().noquote().nospace() << "FPLOGIN_TRACE event=helper-exit-result request=" << requestId
              << " helper_pid=" << launchPid << " generation=" << launchGeneration
-@@ -397,7 +457,11 @@ namespace SDDM {
+@@ -397,7 +530,15 @@ namespace SDDM {
          // buffered terminal evidence before the consumer observes helper exit.
          if (socket && !socket->bytesAvailable())
              socket->waitForReadyRead(0);
@@ -1205,10 +1296,14 @@ index d05eca7..a7f99fb 100644
          dataPending();
 +        if (!alive)
 +            return;
++        if (terminalObservation)
++            terminalObservation->publishTerminal();
++        if (!alive)
++            return;
          helloAccepted = false;
          awaitingAuthorization = false;
          authorizationSent = false;
-@@ -415,6 +479,8 @@ namespace SDDM {
+@@ -415,6 +556,8 @@ namespace SDDM {
          } else {
              qWarning("Auth: sddm-helper exited abnormally (exit code %d)", exitCode);
              Q_EMIT qobject_cast<Auth*>(parent())->error(child->errorString(), ERROR_INTERNAL);
@@ -1217,7 +1312,7 @@ index d05eca7..a7f99fb 100644
          }
  
          if (status == Auth::HELPER_SUCCESS)
-@@ -422,10 +488,13 @@ namespace SDDM {
+@@ -422,10 +565,20 @@ namespace SDDM {
          else
              qWarning() << "Auth: sddm-helper exited with status" << status;
  
@@ -1228,10 +1323,17 @@ index d05eca7..a7f99fb 100644
  
      void Auth::Private::childError(QProcess::ProcessError error) {
 +        DispatchScope dispatch(this);
++        QPointer<Private> alive(this);
++        if (error == QProcess::FailedToStart && observation) {
++            observation->captureFailedToStart();
++            observation->publishTerminal();
++            if (!alive)
++                return;
++        }
          trace("helper-process-error");
          qInfo().noquote().nospace() << "FPLOGIN_TRACE event=process-error process_error=" << int(error)
              << " helper_pid=" << launchPid << " request=" << requestId;
-@@ -433,13 +502,16 @@ namespace SDDM {
+@@ -433,13 +586,16 @@ namespace SDDM {
      }
  
      void Auth::Private::requestFinished() {
@@ -1249,29 +1351,55 @@ index d05eca7..a7f99fb 100644
      }
  
  
-@@ -458,6 +530,11 @@ namespace SDDM {
+@@ -458,6 +614,16 @@ namespace SDDM {
      }
  
      Auth::~Auth() {
++        d->disposing = true;
++        if (d->observation)
++            d->observation->m_ownerGone = true;
 +        // Final disposal cannot deliver callbacks into a partially destroyed Auth.
-+        d->child->blockSignals(true);
++        d->child->disconnect(d);
 +        d->request->disconnect(d);
 +        if (d->socket)
 +            d->socket->disconnect(d);
++        if (d->observation)
++            d->observation->cancelExact(d->observation->record());
          stop();
          // Destruction cannot leave callbacks referring to Private. Normal stop()
          // is asynchronous; only final object disposal waits for a bounded reap.
-@@ -465,6 +542,9 @@ namespace SDDM {
+@@ -465,6 +631,19 @@ namespace SDDM {
              d->child->kill();
              d->child->waitForFinished(1000);
          }
 +        // QProcess may still be inside its own error/finished signal machinery.
-+        d->child->setParent(nullptr);
-+        d->child->deleteLater();
++        // Retained observation owns an active process until its real terminal signal.
++        if (d->observation && d->observation->record().terminalEntryMs < 0) {
++            QProcess *process = d->child;
++            connect(process, QOverload<int,QProcess::ExitStatus>::of(&QProcess::finished),
++                    process, &QObject::deleteLater);
++        } else {
++            d->child->setParent(nullptr);
++            d->child->deleteLater();
++        }
++        if (d->observation && !d->observation->m_retained
++            && d->observation->record().terminalEntryMs >= 0)
++            d->observation->deleteLater();
          delete d;
      }
  
-@@ -535,6 +615,7 @@ namespace SDDM {
+@@ -507,6 +686,10 @@ namespace SDDM {
+         return d->launchGeneration;
+     }
+ 
++    AuthLaunchObservation *Auth::launchObservation() const {
++        return d->observation;
++    }
++
+     AuthMethod Auth::method() const {
+         return d->method;
+     }
+@@ -535,6 +718,7 @@ namespace SDDM {
      }
  
      void Auth::setCookie(const QByteArray& cookie) {
@@ -1279,7 +1407,7 @@ index d05eca7..a7f99fb 100644
          if (cookie != d->cookie) {
              d->cookie = cookie;
              Q_EMIT cookieChanged();
-@@ -542,6 +623,8 @@ namespace SDDM {
+@@ -542,6 +726,8 @@ namespace SDDM {
      }
  
      void Auth::setUser(const QString &user) {
@@ -1288,7 +1416,7 @@ index d05eca7..a7f99fb 100644
          if (user != d->user) {
              d->user = user;
              Q_EMIT userChanged();
-@@ -549,6 +632,8 @@ namespace SDDM {
+@@ -549,6 +735,8 @@ namespace SDDM {
      }
  
      void Auth::setAutologin(bool on) {
@@ -1297,7 +1425,7 @@ index d05eca7..a7f99fb 100644
          if (on != d->autologin) {
              d->autologin = on;
              Q_EMIT autologinChanged();
-@@ -557,6 +642,8 @@ namespace SDDM {
+@@ -557,6 +745,8 @@ namespace SDDM {
  
      void Auth::setGreeter(bool on)
      {
@@ -1306,7 +1434,7 @@ index d05eca7..a7f99fb 100644
          if (on != d->greeter) {
              d->greeter = on;
              Q_EMIT greeterChanged();
-@@ -565,6 +652,8 @@ namespace SDDM {
+@@ -565,6 +755,8 @@ namespace SDDM {
  
      void Auth::setDisplayServerCommand(const QString &command)
      {
@@ -1315,7 +1443,7 @@ index d05eca7..a7f99fb 100644
          if (d->displayServerCmd != command) {
              d->displayServerCmd = command;
              Q_EMIT displayServerCommandChanged();
-@@ -572,6 +661,8 @@ namespace SDDM {
+@@ -572,6 +764,8 @@ namespace SDDM {
      }
  
      void Auth::setSession(const QString& path) {
@@ -1324,7 +1452,7 @@ index d05eca7..a7f99fb 100644
          if (path != d->sessionPath) {
              d->sessionPath = path;
              Q_EMIT sessionChanged();
-@@ -579,7 +670,7 @@ namespace SDDM {
+@@ -579,7 +773,7 @@ namespace SDDM {
      }
  
      void Auth::setMethod(AuthMethod method) {
@@ -1333,7 +1461,7 @@ index d05eca7..a7f99fb 100644
              || (method != AuthMethod::Password && method != AuthMethod::Fingerprint))
              return;
          if (d->method != method) {
-@@ -589,7 +680,7 @@ namespace SDDM {
+@@ -589,7 +783,7 @@ namespace SDDM {
      }
  
      void Auth::setRequestId(const QString &requestId) {
@@ -1342,7 +1470,7 @@ index d05eca7..a7f99fb 100644
              return;
          if (d->requestId != requestId) {
              d->requestId = requestId;
-@@ -598,7 +689,7 @@ namespace SDDM {
+@@ -598,7 +792,7 @@ namespace SDDM {
      }
  
      void Auth::setDeferredAuthorization(bool deferred) {
@@ -1351,7 +1479,7 @@ index d05eca7..a7f99fb 100644
              d->deferredAuthorization = deferred;
      }
  
-@@ -617,6 +708,8 @@ namespace SDDM {
+@@ -617,6 +811,8 @@ namespace SDDM {
      }
  
      void Auth::setVerbose(bool on) {
@@ -1360,7 +1488,7 @@ index d05eca7..a7f99fb 100644
          if (on != verbose()) {
              if (on)
                  d->child->setProcessChannelMode(QProcess::ForwardedChannels);
-@@ -627,8 +720,10 @@ namespace SDDM {
+@@ -627,8 +823,10 @@ namespace SDDM {
      }
  
      void Auth::start() {
@@ -1372,7 +1500,7 @@ index d05eca7..a7f99fb 100644
          const quint64 generation = ++d->launchGeneration;
          d->launchPid = 0;
          d->trace("helper-launch");
-@@ -651,6 +746,7 @@ namespace SDDM {
+@@ -651,6 +849,7 @@ namespace SDDM {
          args << QStringLiteral("--id") << QString::number(d->id);
          args << QStringLiteral("--request-id") << d->requestId;
          args << QStringLiteral("--method") << QString::number(qint32(d->method));
@@ -1380,9 +1508,58 @@ index d05eca7..a7f99fb 100644
          if (d->deferredAuthorization)
              args << QStringLiteral("--defer-auth");
          if (!d->sessionPath.isEmpty())
-@@ -664,6 +760,8 @@ namespace SDDM {
+@@ -663,7 +862,57 @@ namespace SDDM {
+             args << QStringLiteral("--display-server") << d->displayServerCmd;
          if (d->greeter)
              args << QStringLiteral("--greeter");
++        AuthLaunchRecord record;
++        record.requestId = d->requestId;
++        record.method = d->method;
++        record.generation = generation;
++        record.authId = d->id;
++        record.user = d->launchUser;
++        if (d->observation && !d->observation->m_retained)
++            d->observation->deleteLater();
++        auto *observation = new AuthLaunchObservation(record, d->child);
++        d->observation = observation;
++        observation->m_invalidate = [alive, generation] {
++            if (alive && alive->launchGeneration == generation) {
++                alive->stopping = true;
++                alive->awaitingAuthorization = false;
++            }
++        };
++        connect(d->child, &QProcess::stateChanged, observation,
++                [observation, owner = QPointer<Auth>(this)](QProcess::ProcessState state) {
++            // start() has entered the actual launch, before synchronous failure callbacks.
++            if (state == QProcess::Starting && owner)
++                Q_EMIT owner->launchRecorded(observation);
++        });
++        connect(d->child, &QProcess::started, observation, [observation, alive] {
++            std::unique_ptr<Private::DispatchScope> dispatch;
++            if (alive && !alive->disposing)
++                dispatch = std::make_unique<Private::DispatchScope>(alive);
++            observation->m_record.pid = observation->m_process->processId();
++            observation->m_record.state = AuthLaunchRecord::Running;
++            if (observation->m_cancelled)
++                observation->m_process->terminate();
++            const auto snapshot = observation->record();
++            Q_EMIT observation->changed(snapshot);
++        });
++        connect(d->child, QOverload<int,QProcess::ExitStatus>::of(&QProcess::finished),
++                observation, [observation, alive](int code, QProcess::ExitStatus status) {
++            observation->captureExit(code, status);
++            if (alive && !alive->disposing)
++                alive->childExited(code, status);
++            // Draining may have destroyed Auth; the retained record still publishes.
++            observation->publishTerminal();
++        });
++        connect(d->child, &QProcess::errorOccurred, observation,
++                [observation](QProcess::ProcessError error) {
++            if (error == QProcess::FailedToStart) {
++                observation->captureFailedToStart();
++                observation->publishTerminal();
++            }
++        });
          d->child->start(QStringLiteral("%1/sddm-helper").arg(QStringLiteral(LIBEXEC_INSTALL_DIR)), args);
 +        if (!alive)
 +            return;
@@ -1390,10 +1567,82 @@ index d05eca7..a7f99fb 100644
              if (privateData->launchGeneration == generation
                  && privateData->child->state() != QProcess::NotRunning && !privateData->helloAccepted) {
 diff --git a/src/auth/Auth.h b/src/auth/Auth.h
-index 8cbbe77..dbf1be5 100644
+index 8cbbe77..ea9d716 100644
 --- a/src/auth/Auth.h
 +++ b/src/auth/Auth.h
-@@ -236,8 +236,14 @@ namespace SDDM {
+@@ -24,6 +24,9 @@
+ #include "../common/Messages.h"
+ #include "AuthRequest.h"
+ #include "AuthPrompt.h"
++#include <QtCore/QPointer>
++#include <QtCore/QProcess>
++#include <functional>
+ 
+ class QProcessEnvironment;
+ 
+@@ -33,6 +36,45 @@ namespace SDDM {
+         Fingerprint = 1,
+     };
+ 
++    struct AuthLaunchRecord {
++        enum State { Starting, Running, Exited, FailedToStart };
++        QString requestId;
++        AuthMethod method { AuthMethod::Password };
++        quint64 generation { 0 };
++        qint64 authId { 0 };
++        QString user;
++        qint64 pid { 0 };
++        State state { Starting };
++        QProcess::ExitStatus exitStatus { QProcess::NormalExit };
++        int exitCode { 0 };
++        qint64 terminalEntryMs { -1 };
++    };
++
++    // Application-owned evidence: Auth disposal cannot erase a running launch.
++    class AuthLaunchObservation : public QObject {
++        Q_OBJECT
++    public:
++        AuthLaunchRecord record() const;
++        void retainEvidence();
++        static qint64 monotonicMs();
++        bool cancelExact(const AuthLaunchRecord &expected);
++    Q_SIGNALS:
++        void changed(const SDDM::AuthLaunchRecord &record);
++    private:
++        friend class Auth;
++        AuthLaunchObservation(const AuthLaunchRecord &record, QProcess *process);
++        void captureExit(int code, QProcess::ExitStatus status);
++        void captureFailedToStart();
++        void publishTerminal();
++        AuthLaunchRecord m_record;
++        QPointer<QProcess> m_process;
++        std::function<void()> m_invalidate;
++        bool m_cancelled { false };
++        bool m_terminalPublished { false };
++        bool m_retained { false };
++        bool m_ownerGone { false };
++    };
++
+     /**
+     * \brief
+     * Main class triggering the authentication and handling all communication
+@@ -107,6 +149,7 @@ namespace SDDM {
+         AuthMethod method() const;
+         const QString &requestId() const;
+         quint64 launchGeneration() const;
++        AuthLaunchObservation *launchObservation() const;
+         bool isDeferredAuthorization() const;
+         bool isAwaitingAuthorization() const;
+         /**
+@@ -190,6 +233,7 @@ namespace SDDM {
+         void kill();
+ 
+     Q_SIGNALS:
++        void launchRecorded(SDDM::AuthLaunchObservation *observation);
+         void autologinChanged();
+         void greeterChanged();
+         void verboseChanged();
+@@ -236,8 +280,14 @@ namespace SDDM {
          *
          * @param success true if every underlying task went fine
          */
@@ -1408,6 +1657,14 @@ index 8cbbe77..dbf1be5 100644
          /**
          * Emitted on error
          *
+@@ -261,4 +311,7 @@ namespace SDDM {
+     };
+ }
+ 
++Q_DECLARE_METATYPE(SDDM::AuthLaunchRecord)
++Q_DECLARE_METATYPE(SDDM::AuthLaunchObservation *)
++
+ #endif // SDDM_AUTH_H
 diff --git a/src/auth/AuthMessages.h b/src/auth/AuthMessages.h
 index 9651ba3..79907bb 100644
 --- a/src/auth/AuthMessages.h
@@ -1503,10 +1760,10 @@ index 5ff5a71..d77f6c1 100644
          return EXIT_FAILURE;
 diff --git a/src/daemon/DiagnosticControl.cpp b/src/daemon/DiagnosticControl.cpp
 new file mode 100644
-index 0000000..1ff95f2
+index 0000000..2ccc233
 --- /dev/null
 +++ b/src/daemon/DiagnosticControl.cpp
-@@ -0,0 +1,330 @@
+@@ -0,0 +1,543 @@
 +#include "DiagnosticControl.h"
 +#include "Display.h"
 +#include "SocketServer.h"
@@ -1527,6 +1784,7 @@ index 0000000..1ff95f2
 +#include <sys/un.h>
 +#include <unistd.h>
 +
++
 +namespace SDDM {
 +namespace {
 +constexpr int MaxFrame = 4096;
@@ -1534,9 +1792,127 @@ index 0000000..1ff95f2
 +QString uuid() { return QUuid::createUuid().toString(QUuid::WithoutBraces); }
 +}
 +
++DiagnosticAbort::DiagnosticAbort(const QJsonObject &binding, QObject *parent)
++    : QObject(parent), m_binding(binding) {
++    m_binding.remove(QStringLiteral("type"));
++    m_timer.setSingleShot(true);
++    connect(&m_timer, &QTimer::timeout, this, &DiagnosticAbort::evaluate);
++}
++
++void DiagnosticAbort::observe(AuthLaunchObservation *observation) {
++    if (!observation || m_observations.contains(observation)) return;
++    observation->retainEvidence();
++    const auto record = observation->record();
++    const auto generationKey = record.method == AuthMethod::Password
++        ? QStringLiteral("passwordGeneration") : QStringLiteral("fingerprintGeneration");
++    bool conflict = record.requestId != m_binding.value(QStringLiteral("request")).toString()
++        || record.user != m_binding.value(QStringLiteral("user")).toString()
++        || (record.method != AuthMethod::Password && record.method != AuthMethod::Fingerprint)
++        || QString::number(record.generation) != m_binding.value(generationKey).toString();
++    for (const auto &existing : m_observations)
++        conflict |= existing && existing->record().method == record.method;
++    if (conflict) {
++        m_identityError = true; // Retain local fault; never cancel the foreign generation.
++        begin(QStringLiteral("identity_error"));
++        return;
++    }
++    m_observations.append(observation);
++    connect(observation, &AuthLaunchObservation::changed, this, [this] { evaluate(); });
++    if (m_started) observation->cancelExact(record);
++    evaluate();
++}
++
++QJsonArray DiagnosticAbort::launches() const {
++    QJsonArray entries;
++    for (const auto method : {AuthMethod::Password, AuthMethod::Fingerprint}) {
++        for (const auto &observation : m_observations) {
++            if (!observation) continue;
++            const auto r = observation->record();
++            if (r.method != method) continue;
++            const QString state = r.state == AuthLaunchRecord::Starting ? QStringLiteral("starting")
++                : r.state == AuthLaunchRecord::Running ? QStringLiteral("running")
++                : r.state == AuthLaunchRecord::Exited ? QStringLiteral("exited") : QStringLiteral("failed_to_start");
++            entries.append(QJsonObject {{QStringLiteral("method"), int(r.method)},
++                {QStringLiteral("generation"), QString::number(r.generation)},
++                {QStringLiteral("authId"), QString::number(r.authId)},
++                {QStringLiteral("pid"), r.pid > 0 ? QJsonValue(QString::number(r.pid)) : QJsonValue()},
++                {QStringLiteral("state"), state},
++                {QStringLiteral("exitStatus"), r.state != AuthLaunchRecord::Exited ? QStringLiteral("none")
++                    : r.exitStatus == QProcess::NormalExit ? QStringLiteral("normal") : QStringLiteral("crash")},
++                {QStringLiteral("exitCode"), r.state == AuthLaunchRecord::Exited ? QJsonValue(QString::number(r.exitCode)) : QJsonValue()}});
++        }
++    }
++    return entries;
++}
++
++QJsonObject DiagnosticAbort::status(const QString &phase) const {
++    if (terminal()) return m_result;
++    auto object = m_binding;
++    object.insert(QStringLiteral("type"), QStringLiteral("ABORT_STATUS"));
++    object.insert(QStringLiteral("phase"), phase);
++    object.insert(QStringLiteral("outcome"), QStringLiteral("pending"));
++    object.insert(QStringLiteral("reason"), QStringLiteral("none"));
++    object.insert(QStringLiteral("launches"), launches());
++    return object;
++}
++
++void DiagnosticAbort::begin(const QString &reason, qint64 acceptedAt) {
++    if (terminal()) return;
++    if (reason != QLatin1String("requested") && m_fatal.isEmpty()) m_fatal = reason;
++    if (!m_started) {
++        m_started = true;
++        m_ceiling = (acceptedAt < 0 ? AuthLaunchObservation::monotonicMs() : acceptedAt) + AbortTimeoutMs;
++        m_timer.setTimerType(Qt::PreciseTimer);
++        m_timer.start(qMax(qint64(1), m_ceiling - AuthLaunchObservation::monotonicMs()));
++        m_cancelling = true;
++        // Start every exact cancellation before a callback can freeze a partial ledger.
++        for (const auto &observation : m_observations)
++            if (observation && !observation->cancelExact(observation->record())) {
++                m_identityError = true;
++                if (m_fatal.isEmpty()) m_fatal = QStringLiteral("identity_error");
++            }
++        m_cancelling = false;
++    }
++    evaluate();
++}
++
++void DiagnosticAbort::evaluate() {
++    if (!m_started || terminal() || m_cancelling) return;
++    bool all = true, failedLaunch = false, late = false;
++    for (const auto &observation : m_observations) {
++        if (!observation) { all = false; continue; }
++        const auto r = observation->record();
++        const bool ended = r.state == AuthLaunchRecord::Exited || r.state == AuthLaunchRecord::FailedToStart;
++        all &= ended;
++        failedLaunch |= r.state == AuthLaunchRecord::FailedToStart;
++        late |= ended && r.terminalEntryMs >= m_ceiling;
++    }
++    const bool expired = AuthLaunchObservation::monotonicMs() >= m_ceiling;
++    if (!all && !expired) {
++        m_timer.start(qMax(qint64(1), m_ceiling - AuthLaunchObservation::monotonicMs()));
++        emit updated();
++        return;
++    }
++    const bool unreaped = !all || late;
++    auto result = status(QStringLiteral("aborting"));
++    result.insert(QStringLiteral("phase"), unreaped || failedLaunch || !m_fatal.isEmpty() || m_identityError
++        ? QStringLiteral("failed") : QStringLiteral("aborted"));
++    result.insert(QStringLiteral("outcome"), unreaped ? QStringLiteral("unreaped")
++        : failedLaunch ? QStringLiteral("launch_failed")
++        : m_observations.isEmpty() ? QStringLiteral("no_helper_launched") : QStringLiteral("exits_observed"));
++    result.insert(QStringLiteral("reason"), unreaped ? QStringLiteral("exit_timeout")
++        : !m_fatal.isEmpty() ? m_fatal
++        : failedLaunch ? QStringLiteral("launch_error") : QStringLiteral("requested"));
++    m_result = result; // Value snapshot: subsequent actual exit evidence cannot rewrite it.
++    m_timer.stop();
++    emit updated();
++}
++
 +DiagnosticControl::DiagnosticControl(QObject *parent) : QObject(parent) {
 +    m_timer.setSingleShot(true);
-+    connect(&m_timer, &QTimer::timeout, this, &DiagnosticControl::fail);
++    connect(&m_timer, &QTimer::timeout, this, [this] { invalidate(QStringLiteral("phase_timeout"), true); });
++    m_flushTimer.setSingleShot(true);
++    connect(&m_flushTimer, &QTimer::timeout, this, [this] { closeTransport(true); });
 +}
 +
 +DiagnosticControl *DiagnosticControl::forApplication() {
@@ -1645,7 +2021,13 @@ index 0000000..1ff95f2
 +}
 +
 +DiagnosticControl::~DiagnosticControl() {
-+    fail();
++    blockSignals(true);
++    if (m_abort) disconnect(m_abort, nullptr, this, nullptr);
++    if (m_supervisor) disconnect(m_supervisor, nullptr, this, nullptr);
++    m_state = State::Aborting;
++    if (m_display) m_display->failDiagnosticContext();
++    if (m_abort) m_abort->begin(m_fatalReason.isEmpty() ? QStringLiteral("transport_error") : m_fatalReason, m_abortStartedAt);
++    closeTransport();
 +    if (m_notifier)
 +        m_notifier->setEnabled(false);
 +    if (m_listenerFd >= 0) {
@@ -1667,7 +2049,7 @@ index 0000000..1ff95f2
 +    m_state = state;
 +    m_timer.stop();
 +    m_deadline = QDeadlineTimer(TimeoutMs, Qt::PreciseTimer);
-+    if (state != State::ReservedConfirmed && state != State::Failed)
++    if (state == State::WaitingSupervisor || state == State::WaitingContext || state == State::AwaitConfirm)
 +        m_timer.start(TimeoutMs);
 +}
 +
@@ -1701,8 +2083,15 @@ index 0000000..1ff95f2
 +        m_supervisor = socket;
 +        socket->setReadBufferSize(MaxFrame + 4);
 +        connect(socket, &QLocalSocket::readyRead, this, &DiagnosticControl::read);
-+        connect(socket, &QLocalSocket::disconnected, this, &DiagnosticControl::fail);
-+        connect(socket, &QLocalSocket::errorOccurred, this, [this] { fail(); });
++        connect(socket, &QLocalSocket::disconnected, this, [this] {
++            if (!m_closing) invalidate(QStringLiteral("supervisor_lost"), true);
++        });
++        connect(socket, &QLocalSocket::errorOccurred, this, [this] {
++            if (!m_closing) invalidate(QStringLiteral("transport_error"), true);
++        });
++        connect(socket, &QLocalSocket::bytesWritten, this, [this] {
++            if (terminal() && m_supervisor && !m_supervisor->bytesToWrite()) closeTransport();
++        });
 +        read();
 +    }
 +#endif
@@ -1712,22 +2101,26 @@ index 0000000..1ff95f2
 +    const auto payload = QJsonDocument(object).toJson(QJsonDocument::Compact);
 +    if (!m_supervisor || payload.isEmpty() || payload.size() > MaxFrame
 +        || m_supervisor->bytesToWrite() + payload.size() + 4 > MaxFrame + 4) {
-+        fail();
++        invalidate(QStringLiteral("transport_error"), true);
 +        return false;
 +    }
 +    QByteArray frame;
 +    QDataStream out(&frame, QIODevice::WriteOnly);
 +    out << quint32(payload.size());
 +    frame.append(payload);
-+    if (m_supervisor->write(frame) != frame.size()) {
-+        fail();
++    QPointer<DiagnosticControl> alive(this);
++    const auto written = m_supervisor->write(frame);
++    if (!alive) return false;
++    if (written != frame.size()) {
++        invalidate(QStringLiteral("transport_error"), true);
 +        return false;
 +    }
 +    return true;
 +}
 +
 +void DiagnosticControl::read() {
-+    if (!m_supervisor || m_state == State::Failed)
++    QPointer<DiagnosticControl> alive(this);
++    if (!m_supervisor || m_closing)
 +        return;
 +    m_input.append(m_supervisor->read(MaxFrame + 4 - m_input.size()));
 +    while (m_input.size() >= 4) {
@@ -1748,7 +2141,7 @@ index 0000000..1ff95f2
 +        if (error.error != QJsonParseError::NoError || !document.isObject()
 +            || document.toJson(QJsonDocument::Compact) != payload) { fail(); return; }
 +        process(document.object());
-+        if (m_state == State::Failed)
++        if (!alive || m_closing)
 +            return;
 +    }
 +    if (m_supervisor->bytesAvailable())
@@ -1756,7 +2149,9 @@ index 0000000..1ff95f2
 +}
 +
 +void DiagnosticControl::process(const QJsonObject &object) {
-+    if (m_state != State::ReservedConfirmed && m_deadline.hasExpired()) { fail(); return; }
++    if (terminal() && m_flushDeadline.hasExpired()) { closeTransport(); return; }
++    if ((m_state == State::WaitingSupervisor || m_state == State::WaitingContext || m_state == State::AwaitConfirm)
++        && m_deadline.hasExpired()) { invalidate(QStringLiteral("phase_timeout"), true); return; }
 +    if (m_state == State::WaitingSupervisor) {
 +        const QJsonObject hello {{QStringLiteral("version"), 1}, {QStringLiteral("type"), QStringLiteral("HELLO")},
 +                                 {QStringLiteral("boot"), m_boot}};
@@ -1764,6 +2159,16 @@ index 0000000..1ff95f2
 +        phase(State::WaitingContext);
 +        send({{QStringLiteral("version"), 1}, {QStringLiteral("type"), QStringLiteral("BOUND")},
 +              {QStringLiteral("boot"), m_boot}, {QStringLiteral("epoch"), m_epoch}});
++        return;
++    }
++    auto bound = m_binding;
++    const auto type = object.value(QStringLiteral("type")).toString();
++    bound.insert(QStringLiteral("type"), type);
++    if (m_abort && (type == QLatin1String("ABORT") || type == QLatin1String("STATUS")) && object == bound) {
++        if (type == QLatin1String("ABORT") && !m_abort->started())
++            invalidate(QStringLiteral("requested"), false);
++        else
++            report();
 +        return;
 +    }
 +    auto confirm = m_binding;
@@ -1781,25 +2186,27 @@ index 0000000..1ff95f2
 +    if (m_attached) { fail(); return; }
 +    m_attached = true;
 +    m_display = display;
-+    connect(display, &QObject::destroyed, this, &DiagnosticControl::fail);
++    connect(display, &QObject::destroyed, this, [this, display] { displayLost(display); });
 +}
 +
 +void DiagnosticControl::reject(QLocalSocket *socket, quint64 serial) {
++    QPointer<QLocalSocket> peer(socket);
 +    if (!socket)
 +        return;
 +    if (m_display)
 +        m_display->m_socketServer->authenticationContext(socket, serial, 0, QString(), QString(), Session(),
 +            quint32(AuthenticationAvailability::Unavailable), quint32(AuthenticationPhase::Idle),
 +            QStringLiteral("diagnostic_control_failed"));
-+    socket->disconnectFromServer();
++    if (peer) peer->disconnectFromServer();
 +}
 +
 +void DiagnosticControl::reserve(Display *display, QLocalSocket *socket, quint64 serial, bool hasContext,
 +                                const QString &user, const Session &session) {
 +    if (m_display != display || m_state != State::WaitingContext || m_deadline.hasExpired()
 +        || !hasContext || !m_supervisor || !display->reserveDiagnosticContext(socket, serial, user, session)) {
++        QPointer<DiagnosticControl> alive(this);
 +        fail();
-+        reject(socket, serial);
++        if (alive) reject(socket, serial);
 +        return;
 +    }
 +    m_greeter = socket;
@@ -1811,6 +2218,12 @@ index 0000000..1ff95f2
 +                 {QStringLiteral("sessionType"), int(session.type())}, {QStringLiteral("sessionFile"), session.fileName()},
 +                 {QStringLiteral("passwordGeneration"), QString::number(display->m_auth->launchGeneration() + 1)},
 +                 {QStringLiteral("fingerprintGeneration"), QString::number(display->m_fingerprintAuth->launchGeneration() + 1)}};
++    // This authority and its exact launch records survive control/Display destruction.
++    m_abort = new DiagnosticAbort(m_binding, QCoreApplication::instance());
++    for (Auth *auth : {display->m_auth, display->m_fingerprintAuth}) {
++        connect(auth, &Auth::launchRecorded, m_abort, &DiagnosticAbort::observe);
++    }
++    connect(m_abort, &DiagnosticAbort::updated, this, &DiagnosticControl::report);
 +    phase(State::AwaitConfirm);
 +    send(m_binding);
 +}
@@ -1821,28 +2234,85 @@ index 0000000..1ff95f2
 +}
 +
 +void DiagnosticControl::greeterDisconnected(QLocalSocket *socket) {
-+    if (socket == m_greeter)
-+        fail();
++    if (socket == m_greeter && !m_invalidating)
++        invalidate(QStringLiteral("greeter_lost"), true);
++}
++
++void DiagnosticControl::displayLost(Display *display) {
++    if (display != m_display) return;
++    // Detach while Display's members still exist, not from QObject base destruction.
++    disconnect(this, nullptr, display, nullptr);
++    m_display.clear();
++    invalidate(QStringLiteral("display_lost"), true);
++}
++
++void DiagnosticControl::closeTransport(bool force) {
++    m_closing = true;
++    m_input.clear();
++    if (m_supervisor) {
++        if (!force && !m_flushDeadline.hasExpired() && m_supervisor->bytesToWrite() > 0)
++            m_supervisor->disconnectFromServer();
++        else
++            m_supervisor->abort();
++    }
++}
++
++void DiagnosticControl::report() {
++    QPointer<DiagnosticControl> alive(this);
++    if (!m_abort || m_reporting || m_invalidating) return;
++    if (m_abort->started() && m_state != State::Aborting && !terminal()) {
++        invalidate(QStringLiteral("identity_error"), false);
++        return;
++    }
++    m_reporting = true;
++    if (m_abort->terminal() && !terminal()) {
++        const auto result = m_abort->result();
++        m_state = result.value(QStringLiteral("phase")) == QLatin1String("aborted") ? State::Aborted : State::Failed;
++        m_flushDeadline = QDeadlineTimer(ResultFlushMs, Qt::PreciseTimer);
++        m_flushTimer.start(ResultFlushMs);
++    }
++    if (!m_closing) {
++        const QString phaseName = m_state == State::AwaitConfirm ? QStringLiteral("await_confirm")
++            : m_state == State::ReservedConfirmed ? QStringLiteral("reserved_confirmed") : QStringLiteral("aborting");
++        send(m_abort->status(phaseName));
++    }
++    if (alive) m_reporting = false;
++}
++
++void DiagnosticControl::invalidate(const QString &reason, bool closePeer) {
++    if (terminal()) { if (closePeer) closeTransport(); return; }
++    if (reason != QLatin1String("requested") && m_fatalReason.isEmpty()) m_fatalReason = reason;
++    m_pendingClose |= closePeer;
++    if (m_abortStartedAt < 0) m_abortStartedAt = AuthLaunchObservation::monotonicMs();
++    if (m_invalidating) return;
++    QPointer<DiagnosticControl> alive(this);
++    m_invalidating = true;
++    m_timer.stop();
++    m_state = State::Aborting; // Eligibility is invalid before callbacks, drain or cancellation.
++    emit failed();
++    if (!alive) return;
++    reject(m_greeter, m_binding.value(QStringLiteral("serial")).toString().toULongLong());
++    if (!alive) return;
++    m_greeter.clear();
++    if (m_abort) m_abort->begin(m_fatalReason.isEmpty() ? reason : m_fatalReason, m_abortStartedAt);
++    else m_state = State::Failed;
++    if (!alive) return;
++    m_invalidating = false;
++    report();
++    if (!alive) return;
++    if (m_pendingClose) closeTransport();
 +}
 +
 +void DiagnosticControl::fail() {
-+    if (m_state == State::Failed)
-+        return;
-+    phase(State::Failed);
-+    m_input.clear();
-+    emit failed(); // Clear pending context before any disconnect or queued callback.
-+    reject(m_greeter, m_binding.value(QStringLiteral("serial")).toString().toULongLong());
-+    m_greeter.clear();
-+    if (m_supervisor)
-+        m_supervisor->abort();
++    invalidate(QStringLiteral("protocol_error"), true);
 +}
 +}
 diff --git a/src/daemon/DiagnosticControl.h b/src/daemon/DiagnosticControl.h
 new file mode 100644
-index 0000000..c1bb8f9
+index 0000000..5424aff
 --- /dev/null
 +++ b/src/daemon/DiagnosticControl.h
-@@ -0,0 +1,64 @@
+@@ -0,0 +1,106 @@
 +// Diagnostic-only pre-ACK reservation. Confirmation never permits a helper launch.
 +#ifndef SDDM_DIAGNOSTICCONTROL_H
 +#define SDDM_DIAGNOSTICCONTROL_H
@@ -1853,15 +2323,44 @@ index 0000000..c1bb8f9
 +#include <QTimer>
 +#include <QDeadlineTimer>
 +#include "Session.h"
++#include "Auth.h"
++#include <QJsonArray>
 +
 +class QLocalSocket;
 +class QSocketNotifier;
 +namespace SDDM {
 +class Display;
++// Separate application-owned authority: transport/Display destruction cannot erase cleanup.
++class DiagnosticAbort final : public QObject {
++    Q_OBJECT
++public:
++    static constexpr int AbortTimeoutMs = 8000;
++    explicit DiagnosticAbort(const QJsonObject &binding, QObject *parent);
++    void observe(AuthLaunchObservation *observation);
++    void begin(const QString &reason, qint64 acceptedAt = -1);
++    QJsonObject status(const QString &phase) const;
++    bool active() const { return m_started && m_result.isEmpty(); }
++    bool terminal() const { return !m_result.isEmpty(); }
++    bool started() const { return m_started; }
++    QJsonObject result() const { return m_result; }
++signals:
++    void updated();
++private:
++    friend class DaemonContextTest;
++    void evaluate();
++    QJsonArray launches() const;
++    QJsonObject m_binding, m_result;
++    QList<QPointer<AuthLaunchObservation>> m_observations;
++    QString m_fatal;
++    bool m_started = false, m_identityError = false, m_cancelling = false;
++    qint64 m_ceiling = 0;
++    QTimer m_timer;
++};
 +class DiagnosticControl final : public QObject {
 +    Q_OBJECT
 +public:
-+    enum class State { WaitingSupervisor, WaitingContext, AwaitConfirm, ReservedConfirmed, Failed };
++    enum class State { WaitingSupervisor, WaitingContext, AwaitConfirm, ReservedConfirmed, Aborting, Aborted, Failed };
++    static constexpr int ResultFlushMs = 1000;
 +    static constexpr int TimeoutMs = 3000;
 +    // Null means no option; an invalid opt-in returns Failed, never disabled.
 +    static DiagnosticControl *fromArguments(const QStringList &arguments, QObject *application);
@@ -1875,6 +2374,7 @@ index 0000000..c1bb8f9
 +                 const QString &user, const Session &session);
 +    bool confirmedFor(Display *display, QLocalSocket *socket, quint64 serial) const;
 +    void greeterDisconnected(QLocalSocket *socket);
++    void displayLost(Display *display);
 +    void fail();
 +
 +signals:
@@ -1889,6 +2389,18 @@ index 0000000..c1bb8f9
 +    bool send(const QJsonObject &object);
 +    void phase(State state);
 +    void reject(QLocalSocket *socket, quint64 serial);
++    void invalidate(const QString &reason, bool closeTransport);
++    void closeTransport(bool force = false);
++    void report();
++    bool terminal() const { return m_state == State::Aborted || m_state == State::Failed; }
++    DiagnosticAbort *m_abort = nullptr;
++    QTimer m_flushTimer;
++    QDeadlineTimer m_flushDeadline;
++    QString m_fatalReason;
++    qint64 m_abortStartedAt = -1;
++    bool m_pendingClose = false;
++    bool m_invalidating = false, m_closing = false, m_reporting = false;
++    friend class DaemonContextTest;
 +
 +    State m_state = State::Failed;
 +    int m_listenerFd = -1;
@@ -1908,7 +2420,7 @@ index 0000000..c1bb8f9
 +}
 +#endif
 diff --git a/src/daemon/Display.cpp b/src/daemon/Display.cpp
-index f70a3c6..e67c853 100644
+index f70a3c6..8622966 100644
 --- a/src/daemon/Display.cpp
 +++ b/src/daemon/Display.cpp
 @@ -20,6 +20,7 @@
@@ -1950,16 +2462,27 @@ index f70a3c6..e67c853 100644
          connect(m_fingerprintAuth, &Auth::authenticationMethodState,
                  this, &Display::slotAuthenticationMethodState);
          connect(m_fingerprintAuth, &Auth::info, this, &Display::slotAuthInfo);
-@@ -343,6 +351,8 @@ namespace SDDM {
+@@ -212,6 +220,10 @@ namespace SDDM {
+     }
+ 
+     Display::~Display() {
++        if (m_diagnosticControl) {
++            disconnect(m_diagnosticControl, nullptr, this, nullptr);
++            m_diagnosticControl->displayLost(this);
++        }
+         // Destruction can run after the main-thread event dispatcher is gone.
+         for (Auth *auth : {m_auth, m_fingerprintAuth})
+             disconnect(auth, nullptr, this, nullptr);
+@@ -343,6 +355,8 @@ namespace SDDM {
      }
  
      void Display::stopInternal(bool destroying) {
 +        if (m_diagnosticControl)
-+            m_diagnosticControl->fail();
++            m_diagnosticControl->displayLost(this);
          m_tearingDown = true;
          m_pendingPower = -1;
          m_pendingContext = false;
-@@ -366,7 +376,7 @@ namespace SDDM {
+@@ -366,7 +380,7 @@ namespace SDDM {
  
      void Display::login(QLocalSocket *socket, const QString &user, const QString &password,
                          const Session &session) {
@@ -1968,7 +2491,7 @@ index f70a3c6..e67c853 100644
              return;
          if (user.isEmpty() || user == QLatin1String("sddm") || !session.isValid()) {
              emit loginFailed(socket);
-@@ -431,10 +441,92 @@ namespace SDDM {
+@@ -431,10 +445,92 @@ namespace SDDM {
          }
      }
  
@@ -2061,7 +2584,7 @@ index f70a3c6..e67c853 100644
          const auto owner = m_pendingContext ? m_pendingContextSocket : m_contextSocket;
          if ((owner && owner != socket) || (m_methodAttemptActive && m_attemptSocket != socket)
              || (m_contextCommitted && m_contextSocket != socket)) {
-@@ -474,7 +566,7 @@ namespace SDDM {
+@@ -474,7 +570,7 @@ namespace SDDM {
      }
      void Display::setFingerprintAvailability(quint64 serial, const QString &requestId,
                                              bool available, const QString &detailCode) {
@@ -2070,7 +2593,7 @@ index f70a3c6..e67c853 100644
              || !m_contextSocket || m_contextCommitted || m_contextFinished || m_pendingContext || m_tearingDown)
              return;
          const char *reason = available ? "available"
-@@ -501,7 +593,7 @@ namespace SDDM {
+@@ -501,7 +597,7 @@ namespace SDDM {
      }
  
      void Display::probeFingerprintAvailability() {
@@ -2079,7 +2602,7 @@ index f70a3c6..e67c853 100644
              || m_contextCommitted || m_tearingDown)
              return;
          invalidateProbe();
-@@ -558,8 +650,9 @@ namespace SDDM {
+@@ -558,8 +654,9 @@ namespace SDDM {
                          QStringLiteral("/org/freedesktop/DBus"), QStringLiteral("org.freedesktop.DBus"),
                          QStringLiteral("StartServiceByName"));
                  activate << QStringLiteral("net.reactivated.Fprint") << quint32(0);
@@ -2090,7 +2613,7 @@ index f70a3c6..e67c853 100644
                  m_probeWatchers.insert(activationWatcher);
                  connect(activationWatcher, &QDBusPendingCallWatcher::finished, this,
                          [this, activationWatcher, generation, serial, requestId] {
-@@ -571,6 +664,11 @@ namespace SDDM {
+@@ -571,6 +668,11 @@ namespace SDDM {
                      qInfo().noquote().nospace() << "FPLOGIN_TRACE event=probe-activation-return request=" << requestId
                          << " serial=" << serial << " probe_generation=" << generation
                          << " success=" << (!activation.isError() && (activation.value() == 1 || activation.value() == 2));
@@ -2102,7 +2625,7 @@ index f70a3c6..e67c853 100644
                      if (activation.isError() || (activation.value() != 1 && activation.value() != 2)) {
                          setFingerprintAvailability(serial, requestId, false,
                                                     QStringLiteral("service_unavailable"));
-@@ -615,7 +713,7 @@ namespace SDDM {
+@@ -615,7 +717,7 @@ namespace SDDM {
      }
  
      void Display::startFingerprint(QLocalSocket *socket, quint64 serial) {
@@ -2111,7 +2634,7 @@ index f70a3c6..e67c853 100644
              return;
          if (m_pendingContext) {
              if (socket == m_pendingContextSocket && serial == m_pendingContextSerial && m_pendingHasContext) {
-@@ -664,7 +762,7 @@ namespace SDDM {
+@@ -664,7 +766,7 @@ namespace SDDM {
      }
  
      void Display::cancelFingerprint(QLocalSocket *socket, quint64 serial, const QString &requestId) {
@@ -2120,7 +2643,17 @@ index f70a3c6..e67c853 100644
              return;
          if (m_pendingContext) {
              if (socket == m_pendingContextSocket && serial == m_pendingContextSerial
-@@ -728,7 +826,7 @@ namespace SDDM {
+@@ -715,7 +817,8 @@ namespace SDDM {
+         m_methodWinnerChosen = false;
+         m_waitingForLoser = false;
+         for (Auth *auth : {m_auth, m_fingerprintAuth}) {
+-            if (auth != m_sessionAuth && auth->isActive())
++            // Diagnostic abort uses retained exact-generation authority, never current/foreign Auth reuse.
++            if (!m_diagnosticEnabled && auth != m_sessionAuth && auth->isActive())
+                 stopAuthenticationHelper(auth, destroying);
+         }
+         m_winnerAuth.clear();
+@@ -728,7 +831,7 @@ namespace SDDM {
      }
  
      void Display::authorizeWinner() {
@@ -2129,7 +2662,7 @@ index f70a3c6..e67c853 100644
              || !isCurrentHelper(m_winnerAuth) || !m_winnerAuth->isActive()
              || !m_winnerAuth->isAwaitingAuthorization() || m_waitingForLoser
              || !m_attemptGate.authorize(m_winnerAuth->method()))
-@@ -746,7 +844,7 @@ namespace SDDM {
+@@ -746,7 +849,7 @@ namespace SDDM {
      }
  
      void Display::startPendingLogin() {
@@ -2138,7 +2671,7 @@ index f70a3c6..e67c853 100644
              || m_methodWinnerChosen || m_auth->isActive())
              return;
          if (m_pendingPasswordGeneration) {
-@@ -904,6 +1002,9 @@ namespace SDDM {
+@@ -904,6 +1007,9 @@ namespace SDDM {
      }
  
      void Display::advancePendingContext() {
@@ -2148,7 +2681,7 @@ index f70a3c6..e67c853 100644
          if (!m_pendingContext || m_tearingDown || m_auth->isActive() || m_fingerprintAuth->isActive())
              return;
          const bool start = m_pendingFingerprintStart;
-@@ -913,7 +1014,8 @@ namespace SDDM {
+@@ -913,7 +1019,8 @@ namespace SDDM {
          m_contextOptedIn = m_pendingHasContext;
          m_contextUser = m_pendingContextUser;
          m_contextSession = m_pendingContextSession;
@@ -2158,7 +2691,7 @@ index f70a3c6..e67c853 100644
          m_contextCommitted = false;
          m_contextFinished = false;
          m_contextPhase = AuthenticationPhase::Idle;
-@@ -939,6 +1041,8 @@ namespace SDDM {
+@@ -939,6 +1046,8 @@ namespace SDDM {
              m_contextSocket.clear();
              return;
          }
@@ -2167,7 +2700,7 @@ index f70a3c6..e67c853 100644
          if (cancelled)
              publishMethodState(AuthenticationMethod::Fingerprint, FingerprintState::Cancelled,
                                 AuthenticationPhase::Idle, QStringLiteral("cancelled"));
-@@ -1002,6 +1106,8 @@ namespace SDDM {
+@@ -1002,6 +1111,8 @@ namespace SDDM {
                  || m_requestId != requestId || m_contextSerial != serial || m_contextSocket != socket
                  || auth->launchGeneration() != generation || m_pendingContext || m_tearingDown)
                  return;
@@ -2176,7 +2709,7 @@ index f70a3c6..e67c853 100644
              disarmFingerprintDeadline();
              m_attemptGate.cancel(AuthMethod::Fingerprint);
              m_fingerprintTerminal = true;
-@@ -1010,11 +1116,23 @@ namespace SDDM {
+@@ -1010,11 +1121,23 @@ namespace SDDM {
              stopAuthenticationHelper(auth);
          });
          // Bound invalid/overflowing configuration without an unbounded deadline.
@@ -2201,7 +2734,7 @@ index f70a3c6..e67c853 100644
          if (m_pendingContextSocket == socket) {
              m_pendingContext = false;
              m_pendingContextSocket.clear();
-@@ -1114,6 +1232,8 @@ namespace SDDM {
+@@ -1114,6 +1237,8 @@ namespace SDDM {
      }
  
      bool Display::startAuth(const QString &user, const QString &password, const Session &session, AuthMethod method) {
@@ -2536,7 +3069,7 @@ index 9ffc410..f440fbe 100644
              QTimer::singleShot(100, &app, &QCoreApplication::quit);
          });
 diff --git a/test/AuthTransportTest.cpp b/test/AuthTransportTest.cpp
-index 7ef2de3..7d46c53 100644
+index 7ef2de3..69d7db2 100644
 --- a/test/AuthTransportTest.cpp
 +++ b/test/AuthTransportTest.cpp
 @@ -1,4 +1,5 @@
@@ -2545,10 +3078,235 @@ index 7ef2de3..7d46c53 100644
  
  #include "Auth.h"
  
-@@ -7,6 +8,204 @@ using namespace SDDM;
+@@ -7,6 +8,456 @@ using namespace SDDM;
  class AuthTransportTest : public QObject {
      Q_OBJECT
  private slots:
++    void launchRecordCapturesBeforeProcessStart() {
++        Auth auth;
++        auth.setUser(QStringLiteral("coalesced"));
++        auth.setDeferredAuthorization(true);
++        auto *process = auth.findChild<QProcess *>();
++        QVERIFY(process);
++        bool captured = false;
++        connect(process, &QProcess::stateChanged, this, [&](QProcess::ProcessState state) {
++            if (state != QProcess::Starting)
++                return;
++            auto *observation = auth.launchObservation();
++            QVERIFY(observation);
++            const auto record = observation->record();
++            QCOMPARE(record.state, AuthLaunchRecord::Starting);
++            QCOMPARE(record.pid, qint64(0));
++            QCOMPARE(record.requestId, auth.requestId());
++            QCOMPARE(record.method, auth.method());
++            QCOMPARE(record.generation, auth.launchGeneration());
++            QVERIFY(record.authId > 0);
++            QCOMPARE(record.user, auth.user());
++            QCOMPARE(record.terminalEntryMs, qint64(-1));
++            captured = true;
++        });
++        auth.start();
++        QVERIFY(captured);
++        auto *observation = auth.launchObservation();
++        QTRY_COMPARE_WITH_TIMEOUT(observation->record().state, AuthLaunchRecord::Running, 2000);
++        QCOMPARE(observation->record().pid, process->processId());
++        auth.kill();
++        QTRY_COMPARE_WITH_TIMEOUT(observation->record().state, AuthLaunchRecord::Exited, 2000);
++    }
++
++    void launchTerminalOrder_data() {
++        QTest::addColumn<bool>("crash");
++        QTest::newRow("normal") << false;
++        QTest::newRow("crash") << true;
++    }
++
++    void launchTerminalOrder() {
++        QFETCH(bool, crash);
++        Auth auth;
++        auth.setUser(crash ? QStringLiteral("coalesced") : QStringLiteral("clean-exit"));
++        auth.setDeferredAuthorization(true);
++        QStringList order;
++        qint64 before = AuthLaunchObservation::monotonicMs();
++        connect(&auth, &Auth::authentication, this, [&](const QString &, bool success) {
++            QVERIFY(success);
++            order << QStringLiteral("authentication");
++            if (crash)
++                auth.kill();
++            else
++                auth.authorizeSession(true);
++        });
++        connect(&auth, &Auth::launchRecorded, this, [&](AuthLaunchObservation *observation) {
++            connect(observation, &AuthLaunchObservation::changed, this,
++                    [&](const AuthLaunchRecord &record) {
++                if (record.state == AuthLaunchRecord::Exited)
++                    order << QStringLiteral("observed-exit");
++            });
++        });
++        connect(&auth, &Auth::finished, this, [&] { order << QStringLiteral("legacy"); });
++        connect(&auth, &Auth::finishedDispatch, this, [&] { order << QStringLiteral("reuse"); });
++        auth.start();
++        auto *observation = auth.launchObservation();
++        QTRY_VERIFY_WITH_TIMEOUT(order.contains(QStringLiteral("reuse")), 3000);
++        QCOMPARE(order, QStringList({QStringLiteral("authentication"), QStringLiteral("observed-exit"),
++                                     QStringLiteral("legacy"), QStringLiteral("reuse")}));
++        const auto record = observation->record();
++        QCOMPARE(record.state, AuthLaunchRecord::Exited);
++        QVERIFY(record.pid > 0);
++        QCOMPARE(record.exitStatus, crash ? QProcess::CrashExit : QProcess::NormalExit);
++        if (!crash)
++            QCOMPARE(record.exitCode, 0);
++        QVERIFY(record.terminalEntryMs >= before);
++        QVERIFY(record.terminalEntryMs <= AuthLaunchObservation::monotonicMs());
++    }
++
++    void retainedObservationSurvivesDestruction_data() {
++        QTest::addColumn<QString>("boundary");
++        for (const char *boundary : {"drain", "launch-notification", "live-owner", "new-exit", "legacy", "error", "failed-to-start"})
++            QTest::newRow(boundary) << QString::fromLatin1(boundary);
++    }
++
++    void retainedObservationSurvivesDestruction() {
++        QFETCH(QString, boundary);
++        QPointer<Auth> auth = new Auth;
++        auth->setUser(QStringLiteral("coalesced"));
++        auth->setDeferredAuthorization(true);
++        auto *process = auth->findChild<QProcess *>();
++        QVERIFY(process);
++        QTemporaryDir directory;
++        QVERIFY(directory.isValid());
++        if (boundary == QLatin1String("failed-to-start"))
++            process->setWorkingDirectory(directory.path() + QStringLiteral("/absent"));
++        QPointer<AuthLaunchObservation> observation;
++        int outcomes = 0, launchNotifications = 0;
++        connect(auth, &Auth::launchRecorded, this, [&](AuthLaunchObservation *recorded) {
++            ++launchNotifications;
++            observation = recorded;
++            QVERIFY(observation);
++            QCOMPARE(observation->record().state, AuthLaunchRecord::Starting);
++            observation->retainEvidence();
++            connect(observation, &AuthLaunchObservation::changed, this,
++                    [&](const AuthLaunchRecord &record) {
++                if (record.terminalEntryMs < 0)
++                    return;
++                ++outcomes;
++                if (boundary == QLatin1String("new-exit"))
++                    delete auth.data();
++            });
++            if (boundary == QLatin1String("launch-notification"))
++                delete auth.data();
++        });
++        connect(auth, &Auth::authentication, this, [&] {
++            if (boundary == QLatin1String("live-owner")) {
++                delete auth.data();
++            } else if (boundary == QLatin1String("drain")) {
++                // Nested process exit while the outer terminal frame is dispatching.
++                auth->kill();
++                QTRY_COMPARE_WITH_TIMEOUT(outcomes, 1, 2000);
++                delete auth.data();
++            } else {
++                auth->kill();
++            }
++        });
++        if (boundary == QLatin1String("legacy"))
++            connect(auth, &Auth::finished, this, [&] { delete auth.data(); });
++        if (boundary == QLatin1String("error") || boundary == QLatin1String("failed-to-start"))
++            connect(auth, &Auth::error, this, [&] { delete auth.data(); });
++        auth->start();
++        QTRY_VERIFY_WITH_TIMEOUT(auth.isNull(), 3000);
++        QCOMPARE(launchNotifications, 1);
++        QVERIFY(observation);
++        QTRY_COMPARE_WITH_TIMEOUT(outcomes, 1, 2000);
++        const auto record = observation->record();
++        QCOMPARE(record.state, boundary == QLatin1String("failed-to-start")
++                 ? AuthLaunchRecord::FailedToStart : AuthLaunchRecord::Exited);
++        QVERIFY(record.terminalEntryMs >= 0);
++        if (boundary == QLatin1String("failed-to-start"))
++            QCOMPARE(record.pid, qint64(0));
++        else
++            QVERIFY(record.pid > 0);
++        QTest::qWait(30);
++        QCOMPARE(outcomes, 1);
++    }
++
++    void cancelAtLaunchNotificationCannotLoseCancellation() {
++        Auth auth;
++        auth.setUser(QStringLiteral("coalesced"));
++        auth.setDeferredAuthorization(true);
++        QSignalSpy authenticated(&auth, &Auth::authentication);
++        connect(&auth, &Auth::launchRecorded, this, [&](AuthLaunchObservation *observation) {
++            QCOMPARE(observation->record().state, AuthLaunchRecord::Starting);
++            QVERIFY(observation->cancelExact(observation->record()));
++        });
++        auth.start();
++        auto *observation = auth.launchObservation();
++        QTRY_VERIFY_WITH_TIMEOUT(observation->record().terminalEntryMs >= 0, 6000);
++        QCOMPARE(authenticated.count(), 0);
++        QVERIFY(observation->record().state == AuthLaunchRecord::Exited
++                || observation->record().state == AuthLaunchRecord::FailedToStart);
++    }
++
++    void exactCancellationRejectsLateSuccessAndKillsResistantChild() {
++        Auth auth;
++        auth.setUser(QStringLiteral("stop-late-success"));
++        auth.setDeferredAuthorization(true);
++        QSignalSpy authenticated(&auth, &Auth::authentication);
++        QSignalSpy information(&auth, &Auth::info);
++        QSignalSpy completed(&auth, &Auth::finishedDispatch);
++        auth.start();
++        auto *observation = auth.launchObservation();
++        QTRY_COMPARE_WITH_TIMEOUT(information.count(), 1, 2000);
++        QVERIFY(observation->cancelExact(observation->record()));
++        QTest::qWait(350); // The fixture emits success 200ms after ignoring TERM.
++        QCOMPARE(authenticated.count(), 0);
++        QVERIFY(auth.isActive());
++        QTRY_COMPARE_WITH_TIMEOUT(completed.count(), 1, 6000);
++        QCOMPARE(authenticated.count(), 0);
++        QCOMPARE(observation->record().state, AuthLaunchRecord::Exited);
++        QCOMPARE(observation->record().exitStatus, QProcess::CrashExit);
++    }
++
++    void exactCancellationAndReuseKeepOldRecord() {
++        Auth auth;
++        auth.setUser(QStringLiteral("coalesced"));
++        auth.setDeferredAuthorization(true);
++        QSignalSpy authenticated(&auth, &Auth::authentication);
++        QSignalSpy completed(&auth, &Auth::finishedDispatch);
++        auth.start();
++        auto *first = auth.launchObservation();
++        first->retainEvidence();
++        QTRY_COMPARE_WITH_TIMEOUT(authenticated.count(), 1, 2000);
++        const auto expected = first->record();
++        for (int field = 0; field < 5; ++field) {
++            auto foreign = expected;
++            if (field == 0) foreign.requestId += QStringLiteral("-foreign");
++            if (field == 1) foreign.method = AuthMethod::Fingerprint;
++            if (field == 2) ++foreign.generation;
++            if (field == 3) ++foreign.authId;
++            if (field == 4) foreign.user += QStringLiteral("-foreign");
++            QVERIFY(!first->cancelExact(foreign));
++            QVERIFY(auth.isActive());
++        }
++        QVERIFY(first->cancelExact(expected));
++        QVERIFY(!auth.isAwaitingAuthorization());
++        QVERIFY(first->cancelExact(expected));
++        QTRY_COMPARE_WITH_TIMEOUT(completed.count(), 1, 2000);
++        const auto terminal = first->record();
++        QCOMPARE(terminal.state, AuthLaunchRecord::Exited);
++        auth.start();
++        auto *second = auth.launchObservation();
++        QVERIFY(second != first);
++        QTRY_COMPARE_WITH_TIMEOUT(authenticated.count(), 2, 2000);
++        QCOMPARE(second->record().generation, terminal.generation + 1);
++        QVERIFY(first->cancelExact(expected));
++        QTest::qWait(30);
++        QVERIFY(auth.isActive());
++        QCOMPARE(first->record().pid, terminal.pid);
++        QCOMPARE(first->record().terminalEntryMs, terminal.terminalEntryMs);
++        QCOMPARE(first->record().exitCode, terminal.exitCode);
++        auth.kill();
++        QTRY_COMPARE_WITH_TIMEOUT(completed.count(), 2, 2000);
++    }
++
 +    void destructiveCallback_data() {
 +        QTest::addColumn<QString>("event");
 +        for (const char *event : {"authentication", "info", "error", "progress", "session", "display",
@@ -2684,6 +3442,33 @@ index 7ef2de3..7d46c53 100644
 +        QTRY_VERIFY_WITH_TIMEOUT(checked, 2000);
 +    }
 +
++    void runningDispatchRejectsMutation() {
++        Auth auth;
++        auth.setUser(QStringLiteral("coalesced"));
++        auth.setDeferredAuthorization(true);
++        bool checked = false;
++        connect(&auth, &Auth::launchRecorded, this, [&](AuthLaunchObservation *observation) {
++            connect(observation, &AuthLaunchObservation::changed, this, [&](const AuthLaunchRecord &record) {
++                if (record.state != AuthLaunchRecord::Running)
++                    return;
++                const auto generation = auth.launchGeneration();
++                auth.setUser(QStringLiteral("forbidden"));
++                auth.setSession(QStringLiteral("forbidden"));
++                auth.setMethod(AuthMethod::Fingerprint);
++                auth.start();
++                QCOMPARE(auth.user(), QStringLiteral("coalesced"));
++                QCOMPARE(auth.launchGeneration(), generation);
++                QCOMPARE(auth.method(), AuthMethod::Password);
++                checked = true;
++            });
++        });
++        auth.start();
++        QTRY_VERIFY_WITH_TIMEOUT(checked, 2000);
++        auth.kill();
++        auto *observation = auth.launchObservation();
++        QTRY_COMPARE(observation->record().state, AuthLaunchRecord::Exited);
++    }
++
 +    void completionWaitsForOutermostDispatchAndAllowsRetry() {
 +        Auth auth;
 +        auth.setUser(QStringLiteral("coalesced"));
@@ -2750,7 +3535,7 @@ index 7ef2de3..7d46c53 100644
      void handoff_data() {
          QTest::addColumn<QString>("user");
          QTest::addColumn<AuthMethod>("method");
-@@ -206,6 +405,37 @@ private slots:
+@@ -206,6 +657,37 @@ private slots:
          QTRY_COMPARE_WITH_TIMEOUT(finished.count(), 1, 2000);
      }
  
@@ -2871,7 +3656,7 @@ index e61bbeb..7f62fab 100644
                  app.exit(12);
                  return;
 diff --git a/test/DaemonContextTest.cpp b/test/DaemonContextTest.cpp
-index b721e43..7931915 100644
+index b721e43..513a50d 100644
 --- a/test/DaemonContextTest.cpp
 +++ b/test/DaemonContextTest.cpp
 @@ -1,5 +1,6 @@
@@ -2981,10 +3766,426 @@ index b721e43..7931915 100644
      }
      QString fixtureOwner() {
          const QDBusReply<QString> owner = QDBusConnection::systemBus().interface()->serviceOwner(
-@@ -258,6 +321,604 @@ class DaemonContextTest : public QObject {
+@@ -258,6 +321,1020 @@ class DaemonContextTest : public QObject {
          QTRY_VERIFY(client.state(FingerprintState::Scanning));
      }
  private slots:
++    void diagnosticAbortOrders_data() {
++        QTest::addColumn<QString>("order");
++        for (const auto *order : {"abort", "confirm-abort", "abort-confirm", "status-abort", "abort-status"})
++            QTest::newRow(order) << QString::fromLatin1(order);
++    }
++    void diagnosticAbortOrders() {
++        if (geteuid() || !QFile::exists(QStringLiteral("/.dockerenv"))) QSKIP("Offline root fixture only");
++        QFETCH(QString, order);
++        QTemporaryDir privateDirectory(QStringLiteral("/run/g05-abort-XXXXXX"));
++        QVERIFY(privateDirectory.isValid());
++        std::unique_ptr<DiagnosticControl> control(DiagnosticControl::fromArguments(
++            {QStringLiteral("sddm"), QStringLiteral("--g05-control-dir"), privateDirectory.path()}, qApp));
++        Harness display(directory->filePath(QStringLiteral("control")));
++        Supervisor supervisor;
++        bindSupervisor(*control, supervisor);
++        Client client;
++        connectClient(display, client);
++        select(client, 7, QStringLiteral("root"));
++        QTRY_COMPARE(supervisor.messages.size(), 2);
++        const auto reserved = supervisor.messages.last();
++        auto abort = reserved, status = reserved, confirm = reserved;
++        abort.insert(QStringLiteral("type"), QStringLiteral("ABORT"));
++        status.insert(QStringLiteral("type"), QStringLiteral("STATUS"));
++        confirm.insert(QStringLiteral("type"), QStringLiteral("CONFIRM"));
++        password(client, QStringLiteral("root"));
++        start(client, 7);
++        if (order == QLatin1String("status-abort")) {
++            const auto deadline = control->m_deadline.deadlineNSecs();
++            supervisor.send(status);
++            QTRY_COMPARE(supervisor.messages.size(), 3);
++            QCOMPARE(supervisor.messages.last().value(QStringLiteral("phase")).toString(), QStringLiteral("await_confirm"));
++            QCOMPARE(control->m_deadline.deadlineNSecs(), deadline);
++            QCOMPARE(client.count(DaemonMessages::AuthenticationContext), 0);
++        }
++        QByteArray frames;
++        if (order == QLatin1String("confirm-abort")) frames += Supervisor::frame(confirm);
++        frames += Supervisor::frame(abort);
++        if (order == QLatin1String("abort-confirm")) frames += Supervisor::frame(confirm);
++        if (order == QLatin1String("abort-status")) frames += Supervisor::frame(status);
++        supervisor.socket.write(frames);
++        supervisor.socket.flush();
++        QTRY_COMPARE(control->state(), DiagnosticControl::State::Aborted);
++        QTRY_VERIFY(supervisor.messages.size() >= 3);
++        const auto result = control->m_abort->result();
++        QCOMPARE(result.value(QStringLiteral("phase")).toString(), QStringLiteral("aborted"));
++        QCOMPARE(result.value(QStringLiteral("outcome")).toString(), QStringLiteral("no_helper_launched"));
++        QCOMPARE(result.value(QStringLiteral("reason")).toString(), QStringLiteral("requested"));
++        QCOMPARE(result.value(QStringLiteral("launches")).toArray().size(), 0);
++        auto returnedBinding = result;
++        for (const auto *field : {"phase", "outcome", "reason", "launches"}) returnedBinding.remove(QString::fromLatin1(field));
++        returnedBinding.insert(QStringLiteral("type"), QStringLiteral("RESERVED"));
++        QCOMPARE(returnedBinding, reserved);
++        if (order == QLatin1String("abort-status")) {
++            QTRY_COMPARE(supervisor.messages.size(), 4);
++            QCOMPARE(supervisor.messages.at(2), supervisor.messages.at(3));
++        }
++        QTRY_COMPARE(client.socket.state(), QLocalSocket::UnconnectedState);
++        int positive = 0;
++        for (const auto &event : client.events)
++            positive += event.message == DaemonMessages::AuthenticationContext && event.accepted == 1;
++        QCOMPARE(positive, order == QLatin1String("confirm-abort") ? 1 : 0);
++        QVERIFY(!display.m_pendingContext && !display.m_pendingLogin && display.m_pendingPassword.isEmpty());
++        QCOMPARE(display.probes, 0);
++        QCOMPARE(display.m_auth->launchGeneration(), quint64(0));
++        QCOMPARE(display.m_fingerprintAuth->launchGeneration(), quint64(0));
++        display.advancePendingContext();
++        QVERIFY(!display.m_contextOptedIn);
++        QTRY_COMPARE_WITH_TIMEOUT(supervisor.socket.state(), QLocalSocket::UnconnectedState, DiagnosticControl::ResultFlushMs + 500);
++        Client replacement;
++        connectClient(display, replacement);
++        select(replacement, 8, QStringLiteral("root"));
++        QTRY_COMPARE(replacement.socket.state(), QLocalSocket::UnconnectedState);
++        QCOMPARE(control->m_abort->result(), result);
++    }
++    void diagnosticAbortBinding_data() {
++        QTest::addColumn<QString>("field");
++        for (const auto *field : {"version", "boot", "epoch", "transaction", "socketId", "serial", "request", "user", "sessionType", "sessionFile", "passwordGeneration", "fingerprintGeneration", "extra", "numeric-serial"})
++            QTest::newRow(field) << QString::fromLatin1(field);
++    }
++    void diagnosticAbortBinding() {
++        if (geteuid() || !QFile::exists(QStringLiteral("/.dockerenv"))) QSKIP("Offline root fixture only");
++        QFETCH(QString, field);
++        QTemporaryDir privateDirectory(QStringLiteral("/run/g05-abort-XXXXXX"));
++        std::unique_ptr<DiagnosticControl> control(DiagnosticControl::fromArguments(
++            {QStringLiteral("sddm"), QStringLiteral("--g05-control-dir"), privateDirectory.path()}, qApp));
++        Harness display(directory->filePath(QStringLiteral("control")));
++        Supervisor supervisor;
++        bindSupervisor(*control, supervisor);
++        Client client;
++        connectClient(display, client);
++        select(client, 1, QStringLiteral("root"));
++        QTRY_COMPARE(supervisor.messages.size(), 2);
++        auto abort = supervisor.messages.last();
++        abort.insert(QStringLiteral("type"), QStringLiteral("ABORT"));
++        abort.insert(field == QLatin1String("numeric-serial") ? QStringLiteral("serial") : field,
++            field == QLatin1String("numeric-serial") ? QJsonValue(1) : QJsonValue(QStringLiteral("foreign")));
++        supervisor.send(abort);
++        QTRY_COMPARE(control->state(), DiagnosticControl::State::Failed);
++        QCOMPARE(control->m_abort->result().value(QStringLiteral("reason")).toString(), QStringLiteral("protocol_error"));
++        QCOMPARE(control->m_abort->result().value(QStringLiteral("outcome")).toString(), QStringLiteral("no_helper_launched"));
++        QTRY_COMPARE(client.socket.state(), QLocalSocket::UnconnectedState);
++        int positive = 0;
++        for (const auto &event : client.events)
++            positive += event.message == DaemonMessages::AuthenticationContext && event.accepted == 1;
++        QCOMPARE(positive, 0);
++    }
++    void diagnosticAbortHelpers_data() {
++        QTest::addColumn<QString>("mode");
++        for (const auto *mode : {"normal", "crash", "term-kill", "foreign", "control-loss", "display-loss", "supervisor-loss", "late-exit"})
++            QTest::newRow(mode) << QString::fromLatin1(mode);
++    }
++    void diagnosticAbortHelpers() {
++        if (geteuid() || !QFile::exists(QStringLiteral("/.dockerenv"))) QSKIP("Offline root fixture only");
++#ifdef G05_INTEGRATED
++        QSKIP("Only fake helper fault injection; never launch mock PAM below closed barrier");
++#endif
++        QFETCH(QString, mode);
++        QTemporaryDir privateDirectory(QStringLiteral("/run/g05-abort-XXXXXX"));
++        QVERIFY(privateDirectory.isValid());
++        std::unique_ptr<DiagnosticControl> control(DiagnosticControl::fromArguments(
++            {QStringLiteral("sddm"), QStringLiteral("--g05-control-dir"), privateDirectory.path()}, qApp));
++        auto display = std::make_unique<Harness>(directory->filePath(QStringLiteral("control")));
++        Supervisor supervisor;
++        bindSupervisor(*control, supervisor);
++        Client client;
++        connectClient(*display, client);
++        select(client, 1, QStringLiteral("root"));
++        QTRY_COMPARE(supervisor.messages.size(), 2);
++        auto abort = supervisor.messages.last();
++        abort.insert(QStringLiteral("type"), QStringLiteral("ABORT"));
++        auto *authority = control->m_abort;
++        // Test-only fault below Display's permanently closed live launch barrier.
++        auto *auth = display->m_auth;
++        auth->setMethod(AuthMethod::Password);
++        auth->setRequestId(abort.value(QStringLiteral("request")).toString());
++        auth->setUser(mode == QLatin1String("foreign") ? QStringLiteral("foreign") : QStringLiteral("root"));
++        auth->setSession(QStringLiteral("ignore-term"));
++        auth->setDeferredAuthorization(true);
++        auth->setDisplayServerCommand(display->controls.fullServerName());
++        auth->start();
++        auto *observation = auth->launchObservation();
++        QVERIFY(observation);
++        QTRY_VERIFY(display->peers.contains(int(AuthMethod::Password)));
++        QTRY_COMPARE(observation->record().state, AuthLaunchRecord::Running);
++        QVERIFY(observation->record().pid > 0);
++        if (mode == QLatin1String("foreign")) {
++            QTRY_COMPARE(control->state(), DiagnosticControl::State::Failed);
++            QCOMPARE(authority->result().value(QStringLiteral("reason")).toString(), QStringLiteral("identity_error"));
++            QTest::qWait(50);
++            QVERIFY(auth->isActive()); // Exact-bound ABORT must not target this foreign owner.
++            display->command(AuthMethod::Password, "E");
++            QTRY_VERIFY(!auth->isActive());
++            return;
++        }
++        if (mode == QLatin1String("normal")) {
++            display->command(AuthMethod::Password, "E");
++            QTRY_COMPARE(observation->record().state, AuthLaunchRecord::Exited);
++        } else if (mode == QLatin1String("crash")) {
++            auth->kill();
++            QTRY_COMPARE(observation->record().state, AuthLaunchRecord::Exited);
++        }
++        if (mode == QLatin1String("control-loss")) {
++            qint64 capturedAccepted = -1;
++            connect(control.get(), &DiagnosticControl::failed, this, [&] {
++                capturedAccepted = control->m_abortStartedAt;
++                control.reset();
++            });
++            supervisor.send(abort);
++            QTRY_VERIFY(control.get() == nullptr);
++            QVERIFY(capturedAccepted > 0);
++            QCOMPARE(authority->m_ceiling, capturedAccepted + DiagnosticAbort::AbortTimeoutMs);
++        }
++        else if (mode == QLatin1String("display-loss")) display.reset();
++        else if (mode == QLatin1String("supervisor-loss")) supervisor.socket.abort();
++        else supervisor.send(abort);
++        QTRY_VERIFY(authority->started());
++        if (mode == QLatin1String("late-exit")) {
++            // Deterministic expiry fault: original recorded clock, not wall/chat time.
++            authority->m_ceiling = AuthLaunchObservation::monotonicMs();
++            authority->evaluate();
++            const auto frozen = authority->result();
++            QCOMPARE(frozen.value(QStringLiteral("outcome")).toString(), QStringLiteral("unreaped"));
++            QCOMPARE(frozen.value(QStringLiteral("reason")).toString(), QStringLiteral("exit_timeout"));
++            auth->kill();
++            QTRY_COMPARE(observation->record().state, AuthLaunchRecord::Exited);
++            QCOMPARE(authority->result(), frozen);
++        }
++        QTRY_VERIFY_WITH_TIMEOUT(authority->terminal(), DiagnosticAbort::AbortTimeoutMs + 1000);
++        const auto result = authority->result();
++        if (mode != QLatin1String("late-exit"))
++            QCOMPARE(result.value(QStringLiteral("outcome")).toString(), QStringLiteral("exits_observed"));
++        const auto entries = result.value(QStringLiteral("launches")).toArray();
++        QCOMPARE(entries.size(), 1);
++        if (mode != QLatin1String("late-exit")) {
++            const auto entry = entries.first().toObject();
++            QCOMPARE(entry.value(QStringLiteral("state")).toString(), QStringLiteral("exited"));
++            QVERIFY(entry.value(QStringLiteral("pid")).toString().toLongLong() > 0);
++            QCOMPARE(entry.value(QStringLiteral("exitStatus")).toString(), mode == QLatin1String("normal") ? QStringLiteral("normal") : QStringLiteral("crash"));
++        }
++        QVERIFY(!display || !display->peers.value(int(AuthMethod::Password)).authorized);
++        QCOMPARE(authority->result(), result);
++    }
++    void diagnosticAbortExactCeiling_data() {
++        QTest::addColumn<int>("delta");
++        QTest::newRow("strictly-before") << 1;
++        QTest::newRow("at-ceiling") << 0;
++        QTest::newRow("after-ceiling") << -1;
++    }
++    void diagnosticAbortExactCeiling() {
++#ifdef G05_INTEGRATED
++        QSKIP("Fake helper only");
++#endif
++        QFETCH(int, delta);
++        Harness display(directory->filePath(QStringLiteral("control")));
++        auto *auth = display.m_auth;
++        auth->setUser(QStringLiteral("root"));
++        auth->setSession(QStringLiteral("ignore-term"));
++        auth->setDeferredAuthorization(true);
++        auth->setDisplayServerCommand(display.controls.fullServerName());
++        auth->start();
++        QTRY_VERIFY(display.peers.contains(int(AuthMethod::Password)));
++        auto *observation = auth->launchObservation();
++        display.command(AuthMethod::Password, "E");
++        QTRY_COMPARE(observation->record().state, AuthLaunchRecord::Exited);
++        const auto record = observation->record();
++        const QJsonObject binding {{QStringLiteral("request"), record.requestId}, {QStringLiteral("user"), record.user},
++            {QStringLiteral("passwordGeneration"), QString::number(record.generation)}};
++        DiagnosticAbort authority(binding, nullptr);
++        authority.observe(observation);
++        authority.m_started = true;
++        authority.m_ceiling = record.terminalEntryMs + delta; // Boundary injection around actual captured entry.
++        authority.evaluate();
++        QCOMPARE(authority.result().value(QStringLiteral("outcome")).toString(),
++            delta > 0 ? QStringLiteral("exits_observed") : QStringLiteral("unreaped"));
++    }
++    void diagnosticAbortAggregate_data() {
++        QTest::addColumn<QString>("scenario");
++        for (const auto *scenario : {"both-exited", "mixed-failed-launch", "unreaped-timeout"})
++            QTest::newRow(scenario) << QString::fromLatin1(scenario);
++    }
++    void diagnosticAbortAggregate() {
++#ifdef G05_INTEGRATED
++        QSKIP("Fake helper only");
++#endif
++        QFETCH(QString, scenario);
++        Harness display(directory->filePath(QStringLiteral("control")));
++        auto *passAuth = display.m_auth;
++        passAuth->setUser(QStringLiteral("root"));
++        passAuth->setSession(QStringLiteral("ignore-term"));
++        passAuth->setDeferredAuthorization(true);
++        passAuth->setDisplayServerCommand(display.controls.fullServerName());
++        passAuth->start();
++        QTRY_VERIFY(display.peers.contains(int(AuthMethod::Password)));
++        auto *passObs = passAuth->launchObservation();
++        QVERIFY(passObs);
++
++        auto *fpAuth = display.m_fingerprintAuth;
++        fpAuth->setMethod(AuthMethod::Fingerprint);
++        fpAuth->setRequestId(passAuth->requestId());
++        fpAuth->setUser(QStringLiteral("root"));
++        fpAuth->setSession(QStringLiteral("ignore-term"));
++        fpAuth->setDeferredAuthorization(true);
++        fpAuth->setDisplayServerCommand(display.controls.fullServerName());
++        fpAuth->setDisplayServerCommand(display.controls.fullServerName());
++        if (scenario == QLatin1String("mixed-failed-launch"))
++            fpAuth->findChild<QProcess *>()->setWorkingDirectory(QStringLiteral("/run/absent-g05-dir"));
++        fpAuth->start();
++        auto *fpObs = fpAuth->launchObservation();
++        QVERIFY(fpObs);
++        if (scenario != QLatin1String("mixed-failed-launch"))
++            QTRY_VERIFY(display.peers.contains(int(AuthMethod::Fingerprint)));
++
++        const QJsonObject binding {{QStringLiteral("request"), passObs->record().requestId},
++            {QStringLiteral("user"), QStringLiteral("root")},
++            {QStringLiteral("passwordGeneration"), QString::number(passObs->record().generation)},
++            {QStringLiteral("fingerprintGeneration"), QString::number(fpObs->record().generation)}};
++        DiagnosticAbort authority(binding, nullptr);
++        authority.observe(passObs);
++        authority.observe(fpObs);
++
++        if (scenario == QLatin1String("both-exited")) {
++            display.command(AuthMethod::Password, "E");
++            display.command(AuthMethod::Fingerprint, "E");
++            QTRY_COMPARE(passObs->record().state, AuthLaunchRecord::Exited);
++            QTRY_COMPARE(fpObs->record().state, AuthLaunchRecord::Exited);
++            authority.begin(QStringLiteral("requested"));
++            QCOMPARE(authority.result().value(QStringLiteral("phase")).toString(), QStringLiteral("aborted"));
++            QCOMPARE(authority.result().value(QStringLiteral("outcome")).toString(), QStringLiteral("exits_observed"));
++            QCOMPARE(authority.result().value(QStringLiteral("reason")).toString(), QStringLiteral("requested"));
++            QCOMPARE(authority.result().value(QStringLiteral("launches")).toArray().size(), 2);
++        } else if (scenario == QLatin1String("mixed-failed-launch")) {
++            // Password helper is still running when abort begins.
++            authority.begin(QStringLiteral("requested"));
++            // Authority must remain nonterminal while waiting for the live password helper to exit.
++            QVERIFY(!authority.terminal());
++            QCOMPARE(fpObs->record().state, AuthLaunchRecord::FailedToStart);
++            QCOMPARE(passObs->record().state, AuthLaunchRecord::Running);
++            display.command(AuthMethod::Password, "E");
++            QTRY_COMPARE(passObs->record().state, AuthLaunchRecord::Exited);
++            QTRY_VERIFY(authority.terminal());
++            QCOMPARE(authority.result().value(QStringLiteral("phase")).toString(), QStringLiteral("failed"));
++            QCOMPARE(authority.result().value(QStringLiteral("outcome")).toString(), QStringLiteral("launch_failed"));
++            QCOMPARE(authority.result().value(QStringLiteral("reason")).toString(), QStringLiteral("launch_error"));
++            QCOMPARE(authority.result().value(QStringLiteral("launches")).toArray().size(), 2);
++        } else if (scenario == QLatin1String("unreaped-timeout")) {
++            authority.begin(QStringLiteral("requested"));
++            authority.m_ceiling = AuthLaunchObservation::monotonicMs();
++            authority.evaluate();
++            QCOMPARE(authority.result().value(QStringLiteral("phase")).toString(), QStringLiteral("failed"));
++            QCOMPARE(authority.result().value(QStringLiteral("outcome")).toString(), QStringLiteral("unreaped"));
++            QCOMPARE(authority.result().value(QStringLiteral("reason")).toString(), QStringLiteral("exit_timeout"));
++            passAuth->kill();
++            fpAuth->kill();
++        }
++    }
++    void diagnosticAbortMaximalFrame() {
++        if (geteuid() || !QFile::exists(QStringLiteral("/.dockerenv"))) QSKIP("Offline root fixture only");
++        QTemporaryDir privateDirectory(QStringLiteral("/run/g05-abort-XXXXXX"));
++        std::unique_ptr<DiagnosticControl> control(DiagnosticControl::fromArguments(
++            {QStringLiteral("sddm"), QStringLiteral("--g05-control-dir"), privateDirectory.path()}, qApp));
++        Harness display(directory->filePath(QStringLiteral("control")));
++        Supervisor supervisor;
++        bindSupervisor(*control, supervisor);
++        Client client;
++        connectClient(display, client);
++        // Select with maximal legal username (256 bytes) and valid session
++        const QString maxUser(250, QLatin1Char('u'));
++        select(client, 1, maxUser);
++        QTRY_COMPARE(supervisor.messages.size(), 2);
++        auto reserved = supervisor.messages.last();
++        QCOMPARE(reserved.value(QStringLiteral("user")).toString(), maxUser);
++
++        const auto req = reserved.value(QStringLiteral("request")).toString();
++        // Also register both helper observations to exercise maximal legal two-entry ledger
++        auto *passAuth = display.m_auth;
++        passAuth->setRequestId(req);
++        passAuth->setUser(maxUser);
++        passAuth->setSession(QStringLiteral("ignore-term"));
++        passAuth->setDeferredAuthorization(true);
++        passAuth->setDisplayServerCommand(display.controls.fullServerName());
++        passAuth->start();
++        QTRY_VERIFY(display.peers.contains(int(AuthMethod::Password)));
++
++        auto *fpAuth = display.m_fingerprintAuth;
++        fpAuth->setMethod(AuthMethod::Fingerprint);
++        fpAuth->setRequestId(req);
++        fpAuth->setUser(maxUser);
++        fpAuth->setSession(QStringLiteral("ignore-term"));
++        fpAuth->setDeferredAuthorization(true);
++        fpAuth->setDisplayServerCommand(display.controls.fullServerName());
++        fpAuth->start();
++        QTRY_VERIFY(display.peers.contains(int(AuthMethod::Fingerprint)));
++
++        display.command(AuthMethod::Password, "E");
++        display.command(AuthMethod::Fingerprint, "E");
++        QTRY_COMPARE(passAuth->launchObservation()->record().state, AuthLaunchRecord::Exited);
++        QTRY_COMPARE(fpAuth->launchObservation()->record().state, AuthLaunchRecord::Exited);
++
++        auto abort = reserved;
++        abort.insert(QStringLiteral("type"), QStringLiteral("ABORT"));
++        const auto payload = QJsonDocument(abort).toJson(QJsonDocument::Compact);
++        QVERIFY(payload.size() >= 400 && payload.size() <= 4096);
++
++        // Large legal frame: valid payload with 250-character username and 2 launch entries
++        supervisor.send(abort);
++        QTRY_COMPARE(supervisor.messages.size(), 3);
++        const auto status = supervisor.messages.last();
++        QCOMPARE(status.value(QStringLiteral("type")).toString(), QStringLiteral("ABORT_STATUS"));
++        QCOMPARE(status.value(QStringLiteral("phase")).toString(), QStringLiteral("aborted"));
++        QCOMPARE(status.value(QStringLiteral("outcome")).toString(), QStringLiteral("exits_observed"));
++        const auto statusPayload = QJsonDocument(status).toJson(QJsonDocument::Compact);
++        QVERIFY(statusPayload.size() >= 500 && statusPayload.size() <= 4096);
++        const auto launches = status.value(QStringLiteral("launches")).toArray();
++        QCOMPARE(launches.size(), 2);
++
++        // Oversized frame > 4096 bytes: in terminal state, must close transport without rewriting frozen result
++        supervisor.socket.write(packet([](QDataStream &out) { out << quint32(4097); }));
++        supervisor.socket.flush();
++        QCOMPARE(control->state(), DiagnosticControl::State::Aborted);
++        QTRY_COMPARE(supervisor.socket.state(), QLocalSocket::UnconnectedState);
++    }
++    void diagnosticAbortStalledFlushAndBackpressure() {
++        if (geteuid() || !QFile::exists(QStringLiteral("/.dockerenv"))) QSKIP("Offline root fixture only");
++        QTemporaryDir privateDirectory(QStringLiteral("/run/g05-abort-XXXXXX"));
++        std::unique_ptr<DiagnosticControl> control(DiagnosticControl::fromArguments(
++            {QStringLiteral("sddm"), QStringLiteral("--g05-control-dir"), privateDirectory.path()}, qApp));
++        Harness display(directory->filePath(QStringLiteral("control")));
++        Supervisor supervisor;
++        bindSupervisor(*control, supervisor);
++        Client client;
++        connectClient(display, client);
++        select(client, 1, QStringLiteral("root"));
++        QTRY_COMPARE(supervisor.messages.size(), 2);
++        auto abort = supervisor.messages.last();
++        abort.insert(QStringLiteral("type"), QStringLiteral("ABORT"));
++
++        // Test backpressure: payload is small and legal (<= MaxFrame), but queued output causes
++        // bytesToWrite() + payload.size() + 4 > MaxFrame + 4, failing send() with transport_error
++        const auto payload = QJsonDocument(abort).toJson(QJsonDocument::Compact);
++        QVERIFY(!payload.isEmpty() && payload.size() <= 4096);
++        control->m_supervisor->write(QByteArray(4096 - payload.size() + 10, 'p'));
++        QVERIFY(control->m_supervisor->bytesToWrite() > 0);
++        QVERIFY(control->m_supervisor->bytesToWrite() + payload.size() + 4 > 4096 + 4);
++        QVERIFY(!control->send(abort));
++        QCOMPARE(control->state(), DiagnosticControl::State::Failed);
++        QCOMPARE(control->m_abort->result().value(QStringLiteral("reason")).toString(), QStringLiteral("transport_error"));
++
++        // Stalled peer forced flush: arm flush deadline as expired, queue unread bytes, then fire
++        // the flush timer callback to verify that forced close aborts despite bytesToWrite() > 0
++        control->m_supervisor->write(QByteArray(100, 'q'));
++        QVERIFY(control->m_supervisor->bytesToWrite() > 0);
++        control->m_flushDeadline.setRemainingTime(0);
++        QVERIFY(control->m_flushDeadline.hasExpired());
++        control->m_flushTimer.start(0);
++        QTRY_COMPARE(supervisor.socket.state(), QLocalSocket::UnconnectedState);
++    }
 +    void diagnosticControlTwoConnections() {
 +        if (geteuid() || !QFile::exists(QStringLiteral("/.dockerenv")))
 +            QSKIP("Root-only control test runs only in the disposable offline container");
@@ -3586,7 +4787,7 @@ index b721e43..7931915 100644
      void initTestCase() {
          busDirectory = std::make_unique<QTemporaryDir>(QDir::currentPath() + QStringLiteral("/availability-bus-XXXXXX"));
          QVERIFY(busDirectory->isValid());
-@@ -280,6 +941,9 @@ private slots:
+@@ -280,6 +1357,9 @@ private slots:
          QVERIFY(QDBusConnection::systemBus().isConnected());
      }
      void cleanup() {
@@ -3596,7 +4797,7 @@ index b721e43..7931915 100644
          const auto current = fixtureOwner();
          Q_UNUSED(current);
          for (const auto &owner : qAsConst(fixtureOwners))
-@@ -320,6 +984,13 @@ private slots:
+@@ -320,6 +1400,13 @@ private slots:
      }
      void activationDeadlineRejectsLateOwnerAcquisition() {
          const auto gate = directory->filePath(QStringLiteral("late-start"));
