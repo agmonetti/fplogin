@@ -1,11 +1,11 @@
 {
-  "status": "offline-abort-wire-and-retained-exit-authority-verified-not-READY-no-recovery-no-deployment",
+  "status": "offline-focused-real-mock-PAM-races-passed-not-READY-no-physical-acceptance",
   "base_traced_source": "c9cf9b7f28eabd4d190059ce4e55815921c071e5",
   "diagnostic_source": ".work/labs/sprint2/g05-diagnostic-source/",
-  "source_commit": "d024c4024538681c6559e5a9e852714724a763b2",
+  "source_commit": "8a6c0b46016573e34ba81ac9d8a8074e0604d4f4",
   "diagnostic_build": ".work/build/sddm-sprint2/g05-diagnostic/",
   "overlay_patch": "tests/integration/sddm-lab-g05-diagnostic.patch",
-  "overlay_sha256": "52913a707abd936f822869274db5dbcbb07f624b58b1419514960a52c6ed67e6",
+  "overlay_sha256": "16089fc93e0e144832b980da4e9ae07e6233531cde386e7966518f977ad32157",
   "source_sha256": {
     "src/auth/Auth.cpp": "9462291c48159425d58061c6bc7c72a9802faf464343e4bc9fc73be94f0ff44d",
     "src/auth/Auth.h": "2d5d7d49ebb1519d1b0c583f0130610d392d0b36463277e257542f8a28b6ae79",
@@ -22,11 +22,11 @@
     "test/AuthTransportHelper.cpp": "216493c7fd5c38dc906bc4158ba98e058dc4faa3bc78be7ba7b003e8159870ca",
     "test/AuthTransportTest.cpp": "6af87d956ba0d7fe13b23c61fcda28defcab4056d97551f6a49a84aa495705fb",
     "test/CMakeLists.txt": "e092d6d61da217e797d23f70cc11e3d37d9b706407c9e295a88c6cac84b89262",
-    "test/DaemonContextTest.cpp": "06f668537d03a6bc8259745bf97487bda6dd7e00f39f02c656bcae33757dc4ba",
+    "test/DaemonContextTest.cpp": "853d05e7aa8cece599a18f33f58f51b68eab34fb73b12fa7bc1bf383235dfffc",
     "test/DaemonContextHelper.cpp": "6fdd5d3b8cb96dadb8fc9722204f053e56db952b097e28032256547d445d22dc",
     "test/DiagnosticCredentialClient.cpp": "bf954d0971dea451dbf5cfa3dc573aa7fc5a60e5d510d801a05a3fc417e941a3",
     "lab/collect_sddm_g05.py": "58a9ed7d3a91ed2bb9a7973b2a72d30c5d097586461226def61a45f411f301d9",
-    "lab/g05-offline-selfcheck.py": "a1cddb4297bef2d43db701bf1b4a776f6f85c45691e86d544d19f06d27eb3d57",
+    "lab/g05-offline-selfcheck.py": "084301d12088bcb1b3364641dec5a6a6cb30fbe15771063d02a36c94a6179fb2",
     "lab/g05-success-first-controller.py": "8de58222704fd58aa8341d49186110e71651abb0cb051e6b613f55ed681bfeac",
     "lab/test_success_first_controller.py": "42fd8cda7b5c253509ef5174487c203c52de0c67400c23813fd9378bfb2dd455",
     "lab/test_success_first_negative.py": "e94d20203476cace60a1c976a07e94530eb38919261fe84111026f22be151804"
@@ -35,17 +35,18 @@
     "src/daemon/sddm": "d6054d3da79d8d851c8e50e25a608bf3c3042e0fed24810a177c7e90498b0cdd",
     "src/helper/sddm-helper": "2df6047d813f894188a3ec920f610f490e5820cf9fe4e6ce1b415fe4783ba79b"
   },
-  "bundle": ".work/checkpoints/sddm-g05-abort-d024c40.bundle",
-  "bundle_sha256": "02cd47952c85fac3c63ef37f1c9312ab685477ac642bb1aa84e7d14cc940ef59",
+  "bundle": ".work/checkpoints/sddm-g05-focused-races-8a6c0b4.bundle",
+  "bundle_sha256": "e594dc402b365e4b5cd61b95a9bd85b1a12def39892abbb6a5077a12adac89eb",
   "verification": {
-    "scope": "Bounded offline no-launch ABORT/STATUS wire protocol, exact cancellation, and retained exit authority. All diagnostic launch/probe/autologin/positive authorization blocks remain closed; no READY, armed recovery or guest deployment.",
-    "build_and_ctest": "abort-slice-all-verified-5.log exit 0: isolated build, AuthTransport 61 passed/0 failed/0 skipped, DaemonContext 37 passed/0 failed/0 skipped (including abort orders, B-field bindings, fake helper exits, ceiling injection, live mixed launch aggregate, large legal frame, backpressure, and forced flush timeout), complete CTest 9/9 passed 100%. No integrated real mock-PAM run",
+    "scope": "Retain prior no-launch ABORT slice. Add two focused offline tests using real Display/Auth/helper and disposable mock PAM; no diagnostic READY or armed recovery.",
+    "focused_races": "focused-races-final-2.log exit 0: real mock-PAM return after fired deadline rejected without session authorization; fingerprint PAM rc0 selected before nominal 4s deadline, precreated password gate and still-active loser across nominal deadline, exact password PID/auth ID/generation exit observed then exactly one fingerprint authorization; mock account denial means no session opened. Gate held/released events and normal PAM cleanup are not asserted. Controlled scheduling, not physical acceptance.",
+    "build_and_ctest": "focused-races-final-2.log exit 0: isolated build, offline mock-PAM selfcheck including three integrated cases, complete CTest 9/9 passed. Previous abort-slice-all-verified-5.log independently recorded 61 AuthTransport and 37 DaemonContext passing cases; not rerun as standalone focused binaries here",
     "environment": "fplogin-sddm-lab:171b39cfc2c645c2adcebc01fb1ccccb; source /src:ro, persistent build /build; cap-drop ALL + DAC_OVERRIDE/CHOWN/SETUID/SETGID for private credential fixtures; no host changes",
-    "independent_review": "Independent permitted GPT-6.1 Sol architect read-only review of source and logs confirmed no remaining blockers for bounded offline slice. Final review corroborated AuthLaunchObservation reparenting, Starting signal notification, Running guard mutation rejection, DiagnosticAbort ceiling and exact-bound cancellation, clean Display detachment on displayLost before Display::~Display member destruction, and forced-flush timer handling. docs/reviews/g05-abort-wire-spec-2026-11-05.md",
-    "restoration": "Full-history bundle verification and overlay reverse-check passed; clean traced-base application in .work/labs/sprint2/g05-abort-restoration-d024c40 matches all 23 source hashes. Historical whitespace warnings on patch headers; new source diff whitespace clean",
+    "independent_review": "Historical ABORT slice peer review: docs/reviews/g05-abort-wire-spec-2026-11-05.md. This focused-test continuation obtained read-only permitted GPT-6.1 Sol advice after repeated fixture failures (interrupted sleep, incorrect gate directory mode, loser hitting kill grace); no independent final diff/evidence acceptance or physical acceptance",
+    "restoration": "New full-history source bundle verify and overlay reverse-check passed; new clean traced-base restoration not independently rerun. Historical clean application at d024c40 is not proof of current overlay reconstruction. Source diff --check passed",
     "failures_preserved": "abort-slice-focused-1.log caught QFATAL in Display during display-loss because QObject::destroyed called invalidate() which emitted failed() reentering half-destroyed Display; fixed by explicit displayLost() detachment before Display member destruction. abort-slice-focused-2.log caught missing requestId synchronization in two-helper aggregate and backpressure short-circuit; fixed and verified.",
     "controller_negatives": "Controller unchanged; historical 1 green/9 red not rerun or claimed fixed",
-    "limits": "No ASan/stress/flood, new integrated mock-PAM, valid executable/seat end-to-end, guest, reader, deployment or physical acceptance. Large legal frame tested, not mathematically maximal B or sustained kernel backpressure."
+    "limits": "No ASan/stress/flood, actual seat/session, guest, reader, deployment or physical acceptance. The earlier 4s integrated late-delivery case remains distinct from the new 1s actual late-PAM-return case. Password loser termination is controlled; exit status and pam_end are not asserted, so normal PAM cleanup is unproven. The Qt timer callback may fire slightly before 1000ms on this test platform; the test checks observed callback-before-PAM-return, not strict absolute-deadline enforcement. Large legal frame was tested historically, not mathematically maximal B or sustained kernel backpressure."
   },
   "historical_verification": {
     "isolated_no_network_build": "Baseline 49995bf rebuilt after reverting unsafe draft; offline no-network image sha256:56a91f43cf9f...; /build/g05-baseline-restore-build.log. Draft control-focused run failed 2/4 cases because private-directory mode validation rejected valid 0700; control-build-focused.log. No authenticated daemon caller, READY or recovery test passed.",
@@ -67,9 +68,9 @@
   ],
   "limits": [
     "Corrected independent review retracts complete offline readiness and helper-deadlock safety; see docs/reviews/g05-offline-2026-10-28.md",
-    "Controller is unchanged: historical nine negatives remain red. Pre-ACK reservation now has a live executable opt-in and authenticated separate endpoint; positive two-connection verification uses production objects plus the executable's common bootstrap factory. Executable subprocess test checks invalid opt-in rejection before seats, not a valid daemon/seat end-to-end. No READY, armed HELLO_ACK, checked gates, exact abort/exit or recovery authority. Never treat as READY",
+    "Controller is unchanged: historical nine negatives remain red. Pre-ACK reservation and diagnostic no-launch ABORT/STATUS/retained-exit authority are verified within their offline slices, but diagnostic launches remain blocked and executable/seat end-to-end was not tested. No READY, armed HELLO_ACK, supervised recovery or guest physical test. Never treat as READY",
     "Not deployed; no real fingerprint, guest PAM, or G05 physical verdict",
-    "Late AUTHENTICATED proves delivery of pre-deadline genuine PAM success, not a PAM return after deadline",
+    "The historical late AUTHENTICATED case proves late delivery of pre-deadline PAM success only; the new focused case separately measures actual mock-PAM return after the fired deadline, not a physical-reader or strict wall-clock boundary result",
     "Controlled delay of SIGTERM processing occurs while helper event loop is blocked on gate",
     "Do not deploy this overlay without a separate owner-approved install/rollback plan and exact guest backup verification",
     "Neither production checkpoint nor accepted 0001 nor patches/series was changed"

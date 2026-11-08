@@ -265,10 +265,10 @@ index 0000000..2d62be6
 +    sys.exit(main())
 diff --git a/lab/g05-offline-selfcheck.py b/lab/g05-offline-selfcheck.py
 new file mode 100644
-index 0000000..0d8d384
+index 0000000..c483bdc
 --- /dev/null
 +++ b/lab/g05-offline-selfcheck.py
-@@ -0,0 +1,230 @@
+@@ -0,0 +1,250 @@
 +#!/usr/bin/env python3
 +"""Offline-only G05 check: real helper, real mock PAM rc=0, pending SIGTERM, late frame.
 +
@@ -299,11 +299,25 @@ index 0000000..0d8d384
 +#include <security/pam_modules.h>
 +#include <stdio.h>
 +#include <unistd.h>
++#include <time.h>
++#include <errno.h>
++#include <string.h>
 +PAM_EXTERN int pam_sm_authenticate(pam_handle_t *p, int f, int n, const char **a) {
-+    (void)p; (void)f; (void)n; (void)a;
-+    sleep(2); /* allow the controller to create the PID-bound gate before rc=0 */
++    (void)p; (void)f;
++    if (n == 1 && a[0] && !strcmp(a[0], "immediate-deny")) return PAM_AUTH_ERR;
++    struct timespec end;
++    if (clock_gettime(CLOCK_MONOTONIC, &end) != 0) return PAM_SYSTEM_ERR;
++    end.tv_sec += 2;
++    int rc;
++    while ((rc = clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &end, NULL)) == EINTR) { }
++    if (rc != 0) return PAM_SYSTEM_ERR;
 +    FILE *out = fopen("/lab/g05-pam-phases", "w");
 +    if (out) { fputs("authenticate-rc0\n", out); fclose(out); }
++    struct timespec now;
++    if (clock_gettime(CLOCK_MONOTONIC, &now) == 0) {
++        out = fopen("/lab/g05-pam-return-ms", "w");
++        if (out) { fprintf(out, "%lld\n", (long long)now.tv_sec * 1000 + now.tv_nsec / 1000000); fclose(out); }
++    }
 +    return PAM_SUCCESS;
 +}
 +PAM_EXTERN int pam_sm_acct_mgmt(pam_handle_t *p, int f, int n, const char **a) {
@@ -491,13 +505,19 @@ index 0000000..0d8d384
 +    Path('/etc/pam.d/sddm-fingerprint').write_text(
 +        'auth required /lab/g05-pam.so\naccount required /lab/g05-pam.so\n')
 +    phases.unlink(missing_ok=True)
-+    res = subprocess.run([str(integrated_test), 'diagnosticRealPamTimeoutFirst'],
-+                         capture_output=True, text=True)
-+    assert res.returncode == 0, f'G05IntegratedTest failed: {res.stdout}\n{res.stderr}'
++    for case in ('diagnosticRealPamTimeoutFirst', 'realPamReturnAfterDeadline',
++                 'realPamSuccessBeforeDeadlineLoserExitsAfter'):
++        if case == 'realPamSuccessBeforeDeadlineLoserExitsAfter':
++            Path('/etc/pam.d/sddm').write_text('auth required /lab/g05-pam.so immediate-deny\n')
++        phases.unlink(missing_ok=True)
++        Path('/lab/g05-pam-return-ms').unlink(missing_ok=True)
++        res = subprocess.run([str(integrated_test), case], capture_output=True, text=True)
++        assert res.returncode == 0, f'{case} failed: {res.stdout}\n{res.stderr}'
++        print(json.dumps({'status': case + '-passed'}))
 +    module.unlink(missing_ok=True)
 +    source.unlink(missing_ok=True)
 +    phases.unlink(missing_ok=True)
-+    print(json.dumps({'status': 'real-daemon-and-helper-integrated-deadline-discard-passed'}))
++    Path('/lab/g05-pam-return-ms').unlink(missing_ok=True)
 +
 diff --git a/lab/g05-success-first-controller.py b/lab/g05-success-first-controller.py
 new file mode 100755
@@ -3656,7 +3676,7 @@ index e61bbeb..7f62fab 100644
                  app.exit(12);
                  return;
 diff --git a/test/DaemonContextTest.cpp b/test/DaemonContextTest.cpp
-index b721e43..513a50d 100644
+index b721e43..9941138 100644
 --- a/test/DaemonContextTest.cpp
 +++ b/test/DaemonContextTest.cpp
 @@ -1,5 +1,6 @@
@@ -3666,7 +3686,7 @@ index b721e43..513a50d 100644
  #include "SocketServer.h"
  #include "Configuration.h"
  #include "GreeterProxy.h"
-@@ -17,6 +18,13 @@
+@@ -17,8 +18,16 @@
  #include <QDBusMessage>
  #include <QDBusReply>
  #include <QProcess>
@@ -3679,8 +3699,11 @@ index b721e43..513a50d 100644
 +#include <unistd.h>
  #include <memory>
  #include <functional>
++#include <algorithm>
  
-@@ -95,6 +103,49 @@ class DaemonContextTest : public QObject {
+ namespace SDDM {
+ class DaemonContextTest : public QObject {
+@@ -95,6 +104,49 @@ class DaemonContextTest : public QObject {
              return false;
          }
      };
@@ -3730,7 +3753,7 @@ index b721e43..513a50d 100644
      struct Control {
          QPointer<QLocalSocket> socket;
          QString request;
-@@ -146,6 +197,8 @@ class DaemonContextTest : public QObject {
+@@ -146,6 +198,8 @@ class DaemonContextTest : public QObject {
              m_fingerprintAvailability = AuthenticationAvailability::Unknown;
          }
          bool startAuth(const QString &user, const QString &password, const Session &, AuthMethod method) override {
@@ -3739,7 +3762,7 @@ index b721e43..513a50d 100644
              Auth *auth = method == AuthMethod::Fingerprint ? m_fingerprintAuth : m_auth;
              if (auth->isActive())
                  return false;
-@@ -153,7 +206,11 @@ class DaemonContextTest : public QObject {
+@@ -153,7 +207,11 @@ class DaemonContextTest : public QObject {
              auth->setRequestId(m_requestId);
              auth->setDeferredAuthorization(true);
              auth->setUser(user);
@@ -3751,7 +3774,7 @@ index b721e43..513a50d 100644
              auth->setDisplayServerCommand(controls.fullServerName());
              if (method == AuthMethod::Password)
                  m_passPhrase = password;
-@@ -185,7 +242,13 @@ class DaemonContextTest : public QObject {
+@@ -185,7 +243,13 @@ class DaemonContextTest : public QObject {
                        .arg(executable, args.join(QLatin1Char(' '))).toUtf8());
          service.close();
          const auto reply = QDBusConnection::systemBus().interface()->call(QStringLiteral("ReloadConfig"));
@@ -3766,7 +3789,7 @@ index b721e43..513a50d 100644
      }
      QString fixtureOwner() {
          const QDBusReply<QString> owner = QDBusConnection::systemBus().interface()->serviceOwner(
-@@ -258,6 +321,1020 @@ class DaemonContextTest : public QObject {
+@@ -258,6 +322,1170 @@ class DaemonContextTest : public QObject {
          QTRY_VERIFY(client.state(FingerprintState::Scanning));
      }
  private slots:
@@ -4710,6 +4733,156 @@ index b721e43..513a50d 100644
 +        QTRY_COMPARE(client.count(DaemonMessages::AuthenticationContext, QStringLiteral("cleared")), 1);
 +        QVERIFY(!display.reserveDiagnosticContext(serverSocket, 3, QStringLiteral("root"), session));
 +    }
++    void realPamSuccessBeforeDeadlineLoserExitsAfter() {
++#ifndef G05_INTEGRATED
++        QSKIP("Requires disposable-container PAM and real helper");
++#else
++        QVERIFY(QFile::exists(QStringLiteral("/.dockerenv")));
++        QVERIFY(QFile::exists(QStringLiteral("/lab/g05-pam.so")));
++        mainConfig.FingerprintAuthTimeout.set(4);
++        static QList<QPair<QString, qint64>> events;
++        events.clear();
++        const auto previous = qInstallMessageHandler([](QtMsgType, const QMessageLogContext &, const QString &message) {
++            if (message.contains(QStringLiteral("FPLOGIN_TRACE")))
++                events.append({message, AuthLaunchObservation::monotonicMs()});
++        });
++        struct Restore {
++            QtMessageHandler previous;
++            QString gate;
++            ~Restore() { qInstallMessageHandler(previous); QFile::remove(gate); QDir().rmdir(QStringLiteral("/run/fplogin-g05")); }
++        } restore { previous, {} };
++        Harness display(directory->filePath(QStringLiteral("control")));
++        Client client;
++        connectClient(display, client);
++        select(client, 1, QStringLiteral("root"));
++        QTRY_COMPARE(display.m_contextUser, QStringLiteral("root"));
++        QVERIFY(QDir().mkdir(QStringLiteral("/run/fplogin-g05")));
++        QVERIFY(QFile::setPermissions(QStringLiteral("/run/fplogin-g05"),
++                                      QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner));
++        restore.gate = QStringLiteral("/run/fplogin-g05/hold-password-") + display.m_requestId;
++        QFile gate(restore.gate);
++        QVERIFY(gate.open(QIODevice::WriteOnly | QIODevice::NewOnly));
++        gate.close();
++        QVERIFY(gate.setPermissions(QFile::ReadOwner | QFile::WriteOwner));
++        display.setFingerprintAvailability(1, display.m_requestId, true, QStringLiteral("available"));
++        start(client, 1);
++        password(client, QStringLiteral("root"));
++        QTRY_VERIFY_WITH_TIMEOUT(display.m_waitingForLoser, 3500);
++        auto at = [&](const QString &name, const QString &role = {}) {
++            for (const auto &event : events)
++                if (event.first.contains(QStringLiteral("event=") + name + QLatin1Char(' '))
++                    && event.first.contains(QStringLiteral("request=") + display.m_requestId + QLatin1Char(' '))
++                    && (role.isEmpty() || event.first.contains(QStringLiteral(" role=") + role))) return event.second;
++            return qint64(-1);
++        };
++        const qint64 armed = at(QStringLiteral("deadline-armed"));
++        const qint64 selected = at(QStringLiteral("winner-selected"));
++        QVERIFY(armed > 0 && selected > armed && selected < armed + 4000);
++        const auto passwordStarted = std::find_if(events.cbegin(), events.cend(), [&](const auto &event) {
++            return event.first.contains(QStringLiteral("event=helper-start "))
++                && event.first.contains(QStringLiteral("request=") + display.m_requestId + QLatin1Char(' '))
++                && event.first.contains(QStringLiteral(" method=0 role=password"));
++        });
++        QVERIFY(passwordStarted != events.cend());
++        const auto passwordIdentity = QRegularExpression(QStringLiteral("helper_pid=(\\d+) auth_id=(\\d+) generation=(\\d+)"))
++                                          .match(passwordStarted->first);
++        QVERIFY(passwordIdentity.hasMatch() && passwordIdentity.captured(3) == QStringLiteral("1"));
++        auto passwordEvent = [&](const QString &name) {
++            for (const auto &event : events)
++                if (event.first.contains(QStringLiteral("event=") + name + QLatin1Char(' '))
++                    && event.first.contains(QStringLiteral("request=") + display.m_requestId + QLatin1Char(' '))
++                    && event.first.contains(QStringLiteral("helper_pid=") + passwordIdentity.captured(1) + QLatin1Char(' '))
++                    && event.first.contains(QStringLiteral("auth_id=") + passwordIdentity.captured(2) + QLatin1Char(' '))
++                    && event.first.contains(QStringLiteral("generation=1 "))
++                    && event.first.contains(QStringLiteral(" role=password"))) return event.second;
++            return qint64(-1);
++        };
++        QVERIFY(passwordEvent(QStringLiteral("helper-exit")) < 0);
++        QFile returnTime(QStringLiteral("/lab/g05-pam-return-ms"));
++        QVERIFY(returnTime.open(QIODevice::ReadOnly));
++        bool valid = false;
++        const qint64 pamReturned = returnTime.readAll().trimmed().toLongLong(&valid);
++        QVERIFY(valid && pamReturned <= selected);
++        QVERIFY(!display.m_contextCommitted && !display.m_fingerprintDeadline);
++        while (AuthLaunchObservation::monotonicMs() <= armed + 4200)
++            QTest::qWait(25);
++        QVERIFY(gate.exists() && display.m_waitingForLoser && !display.m_contextCommitted);
++        QVERIFY(QFile::remove(restore.gate));
++        QTRY_VERIFY_WITH_TIMEOUT(at(QStringLiteral("winner-authorize")) > 0, 6500);
++        const qint64 exited = passwordEvent(QStringLiteral("helper-exit"));
++        const qint64 authorized = at(QStringLiteral("winner-authorize"));
++        QVERIFY2(exited > armed + 4000 && authorized >= exited, "loser must exit after nominal deadline and before authorization");
++        QVERIFY(passwordEvent(QStringLiteral("terminate-intent")) > 0);
++        QCOMPARE(passwordEvent(QStringLiteral("kill-intent")), qint64(-1));
++        QCOMPARE(at(QStringLiteral("deadline-fired")), qint64(-1));
++        QVERIFY(std::any_of(events.cbegin(), events.cend(), [&](const auto &event) {
++            return event.first.contains(QStringLiteral("event=winner-selected request=") + display.m_requestId)
++                && event.first.contains(QStringLiteral(" method=1 generation=1"));
++        }));
++        QVERIFY(client.state(FingerprintState::Matched) && !client.state(FingerprintState::TimedOut));
++        int permits = 0;
++        for (const auto &event : events)
++            permits += event.first.contains(QStringLiteral("event=authorization-permit "))
++                && event.first.contains(display.m_requestId);
++        QCOMPARE(permits, 1);
++        QTRY_VERIFY_WITH_TIMEOUT(!display.m_fingerprintAuth->isActive(), 4000);
++        QCOMPARE(at(QStringLiteral("session-open-success")), qint64(-1)); // mock PAM denies account
++#endif
++    }
++    void realPamReturnAfterDeadline() {
++#ifndef G05_INTEGRATED
++        QSKIP("Requires disposable-container PAM and real helper");
++#else
++        QVERIFY(QFile::exists(QStringLiteral("/.dockerenv")));
++        QVERIFY(QFile::exists(QStringLiteral("/lab/g05-pam.so")));
++        mainConfig.FingerprintAuthTimeout.set(1);
++        static QList<QPair<QString, qint64>> events;
++        events.clear();
++        const auto previous = qInstallMessageHandler([](QtMsgType, const QMessageLogContext &, const QString &message) {
++            if (message.contains(QStringLiteral("FPLOGIN_TRACE")))
++                events.append({message, AuthLaunchObservation::monotonicMs()});
++        });
++        struct Restore {
++            QtMessageHandler previous;
++            ~Restore() { qInstallMessageHandler(previous); }
++        } restore { previous };
++        Harness display(directory->filePath(QStringLiteral("control")));
++        Client client;
++        connectClient(display, client);
++        select(client, 1, QStringLiteral("root"));
++        QTRY_COMPARE(display.m_contextUser, QStringLiteral("root"));
++        display.setFingerprintAvailability(1, display.m_requestId, true, QStringLiteral("available"));
++        start(client, 1);
++        QTRY_VERIFY_WITH_TIMEOUT(client.state(FingerprintState::TimedOut), 8000);
++        QTRY_VERIFY_WITH_TIMEOUT(!display.m_fingerprintAuth->isActive(), 8000);
++        auto at = [&](const QString &name, bool helper) {
++            for (const auto &event : events)
++                if (event.first.contains(QStringLiteral("event=") + name + QLatin1Char(' '))
++                    && event.first.contains(QStringLiteral("request=") + display.m_requestId + QLatin1Char(' '))
++                    && (!helper || (event.first.contains(QStringLiteral(" role=fingerprint"))
++                        && event.first.contains(QStringLiteral(" generation=1 "))))) return event.second;
++            return qint64(-1);
++        };
++        const qint64 armed = at(QStringLiteral("deadline-armed"), false);
++        const qint64 fired = at(QStringLiteral("deadline-fired"), false);
++        const qint64 discarded = at(QStringLiteral("late-auth-discard"), true);
++        const qint64 exited = at(QStringLiteral("helper-exit"), true);
++        QFile returnTime(QStringLiteral("/lab/g05-pam-return-ms"));
++        QVERIFY(returnTime.open(QIODevice::ReadOnly));
++        bool valid = false;
++        const qint64 pamReturned = returnTime.readAll().trimmed().toLongLong(&valid);
++        QVERIFY(valid);
++        const auto timeline = QStringLiteral("armed=%1 fired=%2 PAM-return=%3 discarded=%4 exited=%5")
++                                  .arg(armed).arg(fired).arg(pamReturned).arg(discarded).arg(exited);
++        QVERIFY2(armed > 0 && fired > armed && pamReturned > fired
++                 && discarded >= pamReturned && exited >= discarded, qPrintable(timeline));
++        QCOMPARE(at(QStringLiteral("winner-selected"), false), qint64(-1));
++        QCOMPARE(at(QStringLiteral("winner-authorize"), false), qint64(-1));
++        QCOMPARE(at(QStringLiteral("session-open-success"), true), qint64(-1));
++        QVERIFY(!display.m_contextCommitted && !display.m_methodWinnerChosen);
++        QVERIFY(!client.state(FingerprintState::Matched));
++#endif
++    }
 +    void diagnosticRealPamTimeoutFirst() {
 +#ifndef G05_INTEGRATED
 +        QSKIP("Run the separately compiled offline real-helper target");
@@ -4787,7 +4960,7 @@ index b721e43..513a50d 100644
      void initTestCase() {
          busDirectory = std::make_unique<QTemporaryDir>(QDir::currentPath() + QStringLiteral("/availability-bus-XXXXXX"));
          QVERIFY(busDirectory->isValid());
-@@ -280,6 +1357,9 @@ private slots:
+@@ -280,6 +1508,9 @@ private slots:
          QVERIFY(QDBusConnection::systemBus().isConnected());
      }
      void cleanup() {
@@ -4797,7 +4970,7 @@ index b721e43..513a50d 100644
          const auto current = fixtureOwner();
          Q_UNUSED(current);
          for (const auto &owner : qAsConst(fixtureOwners))
-@@ -320,6 +1400,13 @@ private slots:
+@@ -320,6 +1551,13 @@ private slots:
      }
      void activationDeadlineRejectsLateOwnerAcquisition() {
          const auto gate = directory->filePath(QStringLiteral("late-start"));
