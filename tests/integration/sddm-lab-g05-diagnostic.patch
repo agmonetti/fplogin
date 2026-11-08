@@ -265,10 +265,10 @@ index 0000000..2d62be6
 +    sys.exit(main())
 diff --git a/lab/g05-offline-selfcheck.py b/lab/g05-offline-selfcheck.py
 new file mode 100644
-index 0000000..c483bdc
+index 0000000..c779644
 --- /dev/null
 +++ b/lab/g05-offline-selfcheck.py
-@@ -0,0 +1,250 @@
+@@ -0,0 +1,255 @@
 +#!/usr/bin/env python3
 +"""Offline-only G05 check: real helper, real mock PAM rc=0, pending SIGTERM, late frame.
 +
@@ -513,6 +513,11 @@ index 0000000..c483bdc
 +        Path('/lab/g05-pam-return-ms').unlink(missing_ok=True)
 +        res = subprocess.run([str(integrated_test), case], capture_output=True, text=True)
 +        assert res.returncode == 0, f'{case} failed: {res.stdout}\n{res.stderr}'
++        if case in ('realPamReturnAfterDeadline', 'realPamSuccessBeforeDeadlineLoserExitsAfter'):
++            marker = 'G05-4.3 ' if case == 'realPamReturnAfterDeadline' else 'G05-4.2 '
++            timeline = [line for line in res.stderr.splitlines() if line.startswith(marker)]
++            assert len(timeline) == 1, f'{case} missing unique monotonic timeline'
++            print(timeline[0])
 +        print(json.dumps({'status': case + '-passed'}))
 +    module.unlink(missing_ok=True)
 +    source.unlink(missing_ok=True)
@@ -3676,7 +3681,7 @@ index e61bbeb..7f62fab 100644
                  app.exit(12);
                  return;
 diff --git a/test/DaemonContextTest.cpp b/test/DaemonContextTest.cpp
-index b721e43..9941138 100644
+index b721e43..d3fd16a 100644
 --- a/test/DaemonContextTest.cpp
 +++ b/test/DaemonContextTest.cpp
 @@ -1,5 +1,6 @@
@@ -3789,7 +3794,7 @@ index b721e43..9941138 100644
      }
      QString fixtureOwner() {
          const QDBusReply<QString> owner = QDBusConnection::systemBus().interface()->serviceOwner(
-@@ -258,6 +322,1170 @@ class DaemonContextTest : public QObject {
+@@ -258,6 +322,1175 @@ class DaemonContextTest : public QObject {
          QTRY_VERIFY(client.state(FingerprintState::Scanning));
      }
  private slots:
@@ -4811,7 +4816,11 @@ index b721e43..9941138 100644
 +        QTRY_VERIFY_WITH_TIMEOUT(at(QStringLiteral("winner-authorize")) > 0, 6500);
 +        const qint64 exited = passwordEvent(QStringLiteral("helper-exit"));
 +        const qint64 authorized = at(QStringLiteral("winner-authorize"));
-+        QVERIFY2(exited > armed + 4000 && authorized >= exited, "loser must exit after nominal deadline and before authorization");
++        const auto timeline = QStringLiteral("G05-4.2 request=%1 armed=%2 PAM-return=%3 selected=%4 nominal=%5 loser-exit=%6 authorized=%7")
++                                  .arg(display.m_requestId).arg(armed).arg(pamReturned).arg(selected)
++                                  .arg(armed + 4000).arg(exited).arg(authorized);
++        QVERIFY2(exited > armed + 4000 && authorized >= exited, qPrintable(timeline));
++        fprintf(stderr, "%s\n", qPrintable(timeline));
 +        QVERIFY(passwordEvent(QStringLiteral("terminate-intent")) > 0);
 +        QCOMPARE(passwordEvent(QStringLiteral("kill-intent")), qint64(-1));
 +        QCOMPARE(at(QStringLiteral("deadline-fired")), qint64(-1));
@@ -4876,6 +4885,7 @@ index b721e43..9941138 100644
 +                                  .arg(armed).arg(fired).arg(pamReturned).arg(discarded).arg(exited);
 +        QVERIFY2(armed > 0 && fired > armed && pamReturned > fired
 +                 && discarded >= pamReturned && exited >= discarded, qPrintable(timeline));
++        fprintf(stderr, "G05-4.3 request=%s %s\n", qPrintable(display.m_requestId), qPrintable(timeline));
 +        QCOMPARE(at(QStringLiteral("winner-selected"), false), qint64(-1));
 +        QCOMPARE(at(QStringLiteral("winner-authorize"), false), qint64(-1));
 +        QCOMPARE(at(QStringLiteral("session-open-success"), true), qint64(-1));
@@ -4960,7 +4970,7 @@ index b721e43..9941138 100644
      void initTestCase() {
          busDirectory = std::make_unique<QTemporaryDir>(QDir::currentPath() + QStringLiteral("/availability-bus-XXXXXX"));
          QVERIFY(busDirectory->isValid());
-@@ -280,6 +1508,9 @@ private slots:
+@@ -280,6 +1513,9 @@ private slots:
          QVERIFY(QDBusConnection::systemBus().isConnected());
      }
      void cleanup() {
@@ -4970,7 +4980,7 @@ index b721e43..9941138 100644
          const auto current = fixtureOwner();
          Q_UNUSED(current);
          for (const auto &owner : qAsConst(fixtureOwners))
-@@ -320,6 +1551,13 @@ private slots:
+@@ -320,6 +1556,13 @@ private slots:
      }
      void activationDeadlineRejectsLateOwnerAcquisition() {
          const auto gate = directory->filePath(QStringLiteral("late-start"));
