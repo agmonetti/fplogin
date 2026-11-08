@@ -263,6 +263,156 @@ index 0000000..2d62be6
 +
 +if __name__ == "__main__":
 +    sys.exit(main())
+diff --git a/lab/g05-armed-selfcheck.py b/lab/g05-armed-selfcheck.py
+new file mode 100755
+index 0000000..308ced2
+--- /dev/null
++++ b/lab/g05-armed-selfcheck.py
+@@ -0,0 +1,144 @@
++#!/usr/bin/env python3
++"""Container-only HELD/release regressions, including interception of pam_start itself."""
++import os
++from pathlib import Path
++import signal
++import socket
++import struct
++import subprocess
++import sys
++import uuid
++
++assert Path('/.dockerenv').is_file() and os.geteuid() == 0 and Path('/lab').is_dir()
++preload = Path('/etc/ld.so.preload')
++assert not preload.exists(), 'refuse replacing container preload configuration'
++source = Path('/lab/g05-armed-pam.c')
++module = Path('/lab/g05-pam.so')
++calls = Path('/lab/g05-pam-calls')
++source.write_text(r'''
++#define _GNU_SOURCE
++#include <security/pam_appl.h>
++#include <security/pam_modules.h>
++#include <dlfcn.h>
++#include <stdio.h>
++#include <unistd.h>
++#include <time.h>
++#include <errno.h>
++static void record(const char *file, const char *phase) {
++    FILE *out = fopen(file, "a");
++    if (!out) _exit(120);
++    fprintf(out, "%s %ld\n", phase, (long)getpid());
++    if (fclose(out)) _exit(121);
++}
++int pam_start(const char *service, const char *user, const struct pam_conv *conv, pam_handle_t **p) {
++    int (*real)(const char *, const char *, const struct pam_conv *, pam_handle_t **) = dlsym(RTLD_NEXT, "pam_start");
++    if (!real) _exit(122);
++    record("/lab/g05-pam-calls", "start");
++    return real(service, user, conv, p);
++}
++int pam_authenticate(pam_handle_t *p, int flags) {
++    int (*real)(pam_handle_t *, int) = dlsym(RTLD_NEXT, "pam_authenticate");
++    if (!real) _exit(123);
++    const int rc = real(p, flags);
++    struct timespec now;
++    if (clock_gettime(CLOCK_MONOTONIC, &now)) _exit(124);
++    FILE *out = fopen("/lab/g05-pam-auth-return", "w");
++    if (!out) _exit(125);
++    fprintf(out, "%ld %lld %d\n", (long)getpid(), (long long)now.tv_sec * 1000 + now.tv_nsec / 1000000, rc);
++    fclose(out);
++    return rc;
++}
++PAM_EXTERN int pam_sm_authenticate(pam_handle_t *p, int f, int n, const char **a) {
++    (void)p; (void)f; (void)n; (void)a;
++    struct timespec end;
++    if (clock_gettime(CLOCK_MONOTONIC, &end)) return PAM_SYSTEM_ERR;
++    end.tv_sec += 2;
++    int rc;
++    while ((rc = clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &end, NULL)) == EINTR) {}
++    if (rc) return PAM_SYSTEM_ERR;
++    if (clock_gettime(CLOCK_MONOTONIC, &end)) return PAM_SYSTEM_ERR;
++    FILE *out = fopen("/lab/g05-pam-return-ms", "w");
++    if (!out) return PAM_SYSTEM_ERR;
++    fprintf(out, "%lld\n", (long long)end.tv_sec * 1000 + end.tv_nsec / 1000000);
++    fclose(out);
++    return PAM_SUCCESS;
++}
++PAM_EXTERN int pam_sm_acct_mgmt(pam_handle_t *p, int f, int n, const char **a) {
++    (void)p; (void)f; (void)n; (void)a;
++    record("/lab/g05-session-pam", "account"); return PAM_SUCCESS;
++}
++PAM_EXTERN int pam_sm_setcred(pam_handle_t *p, int f, int n, const char **a) {
++    (void)p; (void)f; (void)n; (void)a; return PAM_SUCCESS;
++}
++PAM_EXTERN int pam_sm_open_session(pam_handle_t *p, int f, int n, const char **a) {
++    (void)p; (void)f; (void)n; (void)a;
++    record("/lab/g05-session-pam", "open"); return PAM_SUCCESS;
++}
++PAM_EXTERN int pam_sm_close_session(pam_handle_t *p, int f, int n, const char **a) {
++    (void)p; (void)f; (void)n; (void)a;
++    record("/lab/g05-session-pam", "close"); return PAM_SUCCESS;
++}
++''')
++subprocess.run(['cc', '-shared', '-fPIC', str(source), '-ldl', '-o', str(module)], check=True)
++Path('/etc/pam.d/sddm-fingerprint').write_text(
++    'auth required /lab/g05-pam.so\naccount required /lab/g05-pam.so\nsession required /lab/g05-pam.so\n')
++Path('/lab/g05-session.sh').write_text('#!/bin/sh\nprintf "executed\\n" >> /lab/g05-session-executions\nsleep 1\n')
++Path('/lab/g05-session.sh').chmod(0o700)
++
++def qstring(text):
++    data = text.encode('utf-16-be')
++    return struct.pack('>I', len(data)) + data
++
++def receive(peer):
++    def exact(size):
++        result = b''
++        while len(result) < size:
++            part = peer.recv(size - len(result))
++            assert part, 'EOF in frame'
++            result += part
++        return result
++    size = struct.unpack('=q', exact(8))[0]
++    assert 0 < size <= 512
++    return exact(size)
++
++try:
++    preload.write_text(str(module) + '\n')
++    subprocess.run(['/build/test/G05IntegratedTest', 'realArmedPrePam'], check=True)
++    # Test the helper's own event-loop wait independently of the daemon's watchdog.
++    for action in ('term', 'eof', 'partial-eof', 'timeout'):
++        calls.unlink(missing_ok=True)
++        address = Path('/lab/g05-helper-held.socket')
++        address.unlink(missing_ok=True)
++        request, transaction = str(uuid.uuid4()), str(uuid.uuid4())
++        child = None
++        with socket.socket(socket.AF_UNIX) as server:
++            server.bind(str(address)); server.listen(1); server.settimeout(5)
++            try:
++                child = subprocess.Popen(['/build/src/helper/sddm-helper', '--socket', str(address),
++                    '--id', '42', '--request-id', request, '--method', '1', '--generation', '1',
++                    '--user', 'root', '--defer-auth'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
++                peer, _ = server.accept()
++                with peer:
++                    peer.settimeout(5)
++                    assert struct.unpack_from('>I', receive(peer))[0] == 1
++                    ack = struct.pack('>Iq', 10, 42) + qstring(request) + struct.pack('>IQB', 1, 1, 1) + qstring(transaction)
++                    peer.sendall(struct.pack('=q', len(ack)) + ack)
++                    held = receive(peer)
++                    assert held == struct.pack('>I', 11) + qstring(request) + struct.pack('>IQq', 1, 1, 42) + qstring(transaction)
++                    assert not calls.exists(), 'pam_start was invoked in HELD'
++                    if action == 'term': child.send_signal(signal.SIGTERM)
++                    elif action in ('eof', 'partial-eof'):
++                        if action == 'partial-eof': peer.sendall(struct.pack('=q', 100) + b'partial')
++                        peer.shutdown(socket.SHUT_RDWR)
++                    result = child.wait(timeout=38 if action == 'timeout' else 3)
++                    assert result != 0 and not calls.exists(), f'{action} entered PAM or did not fail'
++                    print(f'G05-HELPER case={action} pid={child.pid} exit={result} PAM-starts=0', flush=True)
++            finally:
++                if child and child.poll() is None:
++                    child.kill(); child.wait(timeout=3)
++                address.unlink(missing_ok=True)
++finally:
++    preload.unlink(missing_ok=True)
++    for path in (source, module, calls, Path('/lab/g05-session.sh'), Path('/lab/g05-session-executions'),
++                 Path('/lab/g05-session-pam'), Path('/lab/g05-pam-return-ms'), Path('/lab/g05-pam-auth-return')):
++        path.unlink(missing_ok=True)
 diff --git a/lab/g05-offline-selfcheck.py b/lab/g05-offline-selfcheck.py
 new file mode 100644
 index 0000000..43c55c9
@@ -1084,7 +1234,7 @@ index 0000000..f0a5aef
 +if __name__ == "__main__":
 +    unittest.main()
 diff --git a/src/auth/Auth.cpp b/src/auth/Auth.cpp
-index d05eca7..c675807 100644
+index d05eca7..95d8587 100644
 --- a/src/auth/Auth.cpp
 +++ b/src/auth/Auth.cpp
 @@ -24,6 +24,7 @@
@@ -1205,7 +1355,17 @@ index d05eca7..c675807 100644
          QLocalSocket *socket { nullptr };
          QString displayServerCmd;
          QString sessionPath { };
-@@ -145,7 +235,8 @@ namespace SDDM {
+@@ -90,6 +180,9 @@ namespace SDDM {
+         bool hasMethodState { false };
+         FingerprintState lastMethodState { FingerprintState::Unavailable };
+         QString launchUser;
++        QString diagnosticTransaction;
++        AuthLaunchRecord diagnosticExpected;
++        bool diagnosticHeld = false, diagnosticReleased = false;
+         quint64 launchGeneration { 0 };
+         qint64 launchPid { 0 };
+         AuthMethod method { AuthMethod::Password };
+@@ -145,7 +238,8 @@ namespace SDDM {
                  qint64 id = 0;
                  QString requestId;
                  AuthMethod method = AuthMethod::Password;
@@ -1215,7 +1375,7 @@ index d05eca7..c675807 100644
                  if (str.status() != QDataStream::Ok || !str.atEnd() || message != Msg::HELLO || !id
                      || !helpers.contains(id) || !helpers[id]->acceptHello(socket)) {
                      socket->setProperty("sddm-auth-handshake-pending", false);
-@@ -155,7 +246,8 @@ namespace SDDM {
+@@ -155,7 +249,8 @@ namespace SDDM {
                      return;
                  }
                  Auth::Private *helper = helpers[id];
@@ -1225,12 +1385,13 @@ index d05eca7..c675807 100644
                      socket->setProperty("sddm-auth-handshake-pending", false);
                      --pendingHandshakes;
                      socket->abort();
-@@ -168,6 +260,14 @@ namespace SDDM {
+@@ -168,6 +263,15 @@ namespace SDDM {
                  --pendingHandshakes;
                  QObject::disconnect(socket, &QLocalSocket::readyRead, this, nullptr);
                  helper->setSocket(socket);
 +                SafeDataStream ack(socket);
-+                ack << Msg::HELLO_ACK << id << requestId << method << generation << false << QString();
++                ack << Msg::HELLO_ACK << id << requestId << method << generation
++                    << !helper->diagnosticTransaction.isEmpty() << helper->diagnosticTransaction;
 +                ack.send();
 +                if (socket->state() != QLocalSocket::ConnectedState) {
 +                    helper->helloAccepted = false;
@@ -1240,7 +1401,7 @@ index d05eca7..c675807 100644
                  helper->dataPending();
              });
              connect(socket, &QLocalSocket::disconnected, this, [this, socket] {
-@@ -218,10 +318,12 @@ namespace SDDM {
+@@ -218,10 +322,12 @@ namespace SDDM {
              launchPid = child->processId();
              trace("helper-start");
          });
@@ -1255,7 +1416,7 @@ index d05eca7..c675807 100644
      }
  
      Auth::Private::~Private()
-@@ -265,11 +367,13 @@ namespace SDDM {
+@@ -265,11 +371,13 @@ namespace SDDM {
      }
  
      void Auth::Private::dataPending() {
@@ -1271,7 +1432,7 @@ index d05eca7..c675807 100644
              qint64 length = -1;
              if (socket->peek(reinterpret_cast<char *>(&length), sizeof(length)) != sizeof(length)
                  || length < 0 || length > 1024 * 1024) {
-@@ -289,6 +393,16 @@ namespace SDDM {
+@@ -289,7 +397,41 @@ namespace SDDM {
                  auth->kill();
                  return;
              }
@@ -1285,10 +1446,35 @@ index d05eca7..c675807 100644
 +                }
 +                continue; // Diagnostic receipt only: never emit authentication after cancellation.
 +            }
++            if (!diagnosticTransaction.isEmpty() && !diagnosticReleased && m != DIAGNOSTIC_HELD) {
++                auth->kill();
++                Q_EMIT auth->diagnosticFault();
++                return;
++            }
              switch (m) {
++                case DIAGNOSTIC_HELD: {
++                    quint64 generation = 0;
++                    qint64 authId = 0;
++                    QString transaction;
++                    str >> generation >> authId >> transaction;
++                    if (str.status() != QDataStream::Ok || !str.atEnd() || diagnosticTransaction.isEmpty()
++                        || diagnosticHeld || diagnosticReleased || generation != launchGeneration || authId != id
++                        || transaction != diagnosticTransaction || !observation
++                        || observation->record().state != AuthLaunchRecord::Running
++                        || observation->record().pid != child->processId() || !acceptHello(socket)) {
++                        auth->kill();
++                        Q_EMIT auth->diagnosticFault();
++                        return;
++                    }
++                    diagnosticHeld = true;
++                    trace("held-pre-pam");
++                    Q_EMIT auth->diagnosticHeld(observation->record());
++                    break;
++                }
                  case ERROR: {
                      QString message;
-@@ -327,8 +441,17 @@ namespace SDDM {
+                     Error type = ERROR_NONE;
+@@ -327,8 +469,17 @@ namespace SDDM {
                      authenticationDecided = true;
                      if (!authenticatedUser.isEmpty()) {
                          awaitingAuthorization = true;
@@ -1307,7 +1493,7 @@ index d05eca7..c675807 100644
                          if (!deferredAuthorization)
                              auth->authorizeSession(true);
                      } else {
-@@ -342,6 +465,8 @@ namespace SDDM {
+@@ -342,6 +493,8 @@ namespace SDDM {
                      if (str.status() != QDataStream::Ok || !str.atEnd()) { auth->kill(); return; }
                      trace(status ? "session-open-success" : "session-open-failure");
                      Q_EMIT auth->sessionStarted(status);
@@ -1316,7 +1502,7 @@ index d05eca7..c675807 100644
                      SafeDataStream reply(socket);
                      reply << SESSION_STATUS << this->requestId << this->method;
                      reply.send();
-@@ -352,6 +477,8 @@ namespace SDDM {
+@@ -352,6 +505,8 @@ namespace SDDM {
                      str >> displayName;
                      if (str.status() != QDataStream::Ok || !str.atEnd()) { auth->kill(); return; }
                      Q_EMIT auth->displayServerReady(displayName);
@@ -1325,7 +1511,7 @@ index d05eca7..c675807 100644
                      SafeDataStream reply(socket);
                      reply << DISPLAY_SERVER_STARTED << this->requestId << this->method;
                      reply.send();
-@@ -384,10 +511,16 @@ namespace SDDM {
+@@ -384,10 +539,16 @@ namespace SDDM {
                      return;
                  }
              }
@@ -1342,7 +1528,7 @@ index d05eca7..c675807 100644
          trace("helper-exit");
          qInfo().noquote().nospace() << "FPLOGIN_TRACE event=helper-exit-result request=" << requestId
              << " helper_pid=" << launchPid << " generation=" << launchGeneration
-@@ -397,7 +530,15 @@ namespace SDDM {
+@@ -397,7 +558,15 @@ namespace SDDM {
          // buffered terminal evidence before the consumer observes helper exit.
          if (socket && !socket->bytesAvailable())
              socket->waitForReadyRead(0);
@@ -1358,7 +1544,7 @@ index d05eca7..c675807 100644
          helloAccepted = false;
          awaitingAuthorization = false;
          authorizationSent = false;
-@@ -415,6 +556,8 @@ namespace SDDM {
+@@ -415,6 +584,8 @@ namespace SDDM {
          } else {
              qWarning("Auth: sddm-helper exited abnormally (exit code %d)", exitCode);
              Q_EMIT qobject_cast<Auth*>(parent())->error(child->errorString(), ERROR_INTERNAL);
@@ -1367,7 +1553,7 @@ index d05eca7..c675807 100644
          }
  
          if (status == Auth::HELPER_SUCCESS)
-@@ -422,10 +565,20 @@ namespace SDDM {
+@@ -422,10 +593,20 @@ namespace SDDM {
          else
              qWarning() << "Auth: sddm-helper exited with status" << status;
  
@@ -1388,7 +1574,7 @@ index d05eca7..c675807 100644
          trace("helper-process-error");
          qInfo().noquote().nospace() << "FPLOGIN_TRACE event=process-error process_error=" << int(error)
              << " helper_pid=" << launchPid << " request=" << requestId;
-@@ -433,13 +586,16 @@ namespace SDDM {
+@@ -433,13 +614,16 @@ namespace SDDM {
      }
  
      void Auth::Private::requestFinished() {
@@ -1406,7 +1592,7 @@ index d05eca7..c675807 100644
      }
  
  
-@@ -458,6 +614,16 @@ namespace SDDM {
+@@ -458,6 +642,16 @@ namespace SDDM {
      }
  
      Auth::~Auth() {
@@ -1423,7 +1609,7 @@ index d05eca7..c675807 100644
          stop();
          // Destruction cannot leave callbacks referring to Private. Normal stop()
          // is asynchronous; only final object disposal waits for a bounded reap.
-@@ -465,6 +631,19 @@ namespace SDDM {
+@@ -465,6 +659,19 @@ namespace SDDM {
              d->child->kill();
              d->child->waitForFinished(1000);
          }
@@ -1443,7 +1629,7 @@ index d05eca7..c675807 100644
          delete d;
      }
  
-@@ -507,6 +686,10 @@ namespace SDDM {
+@@ -507,6 +714,10 @@ namespace SDDM {
          return d->launchGeneration;
      }
  
@@ -1454,7 +1640,7 @@ index d05eca7..c675807 100644
      AuthMethod Auth::method() const {
          return d->method;
      }
-@@ -535,6 +718,7 @@ namespace SDDM {
+@@ -535,6 +746,7 @@ namespace SDDM {
      }
  
      void Auth::setCookie(const QByteArray& cookie) {
@@ -1462,7 +1648,7 @@ index d05eca7..c675807 100644
          if (cookie != d->cookie) {
              d->cookie = cookie;
              Q_EMIT cookieChanged();
-@@ -542,6 +726,8 @@ namespace SDDM {
+@@ -542,6 +754,8 @@ namespace SDDM {
      }
  
      void Auth::setUser(const QString &user) {
@@ -1471,7 +1657,7 @@ index d05eca7..c675807 100644
          if (user != d->user) {
              d->user = user;
              Q_EMIT userChanged();
-@@ -549,6 +735,8 @@ namespace SDDM {
+@@ -549,6 +763,8 @@ namespace SDDM {
      }
  
      void Auth::setAutologin(bool on) {
@@ -1480,7 +1666,7 @@ index d05eca7..c675807 100644
          if (on != d->autologin) {
              d->autologin = on;
              Q_EMIT autologinChanged();
-@@ -557,6 +745,8 @@ namespace SDDM {
+@@ -557,6 +773,8 @@ namespace SDDM {
  
      void Auth::setGreeter(bool on)
      {
@@ -1489,7 +1675,7 @@ index d05eca7..c675807 100644
          if (on != d->greeter) {
              d->greeter = on;
              Q_EMIT greeterChanged();
-@@ -565,6 +755,8 @@ namespace SDDM {
+@@ -565,6 +783,8 @@ namespace SDDM {
  
      void Auth::setDisplayServerCommand(const QString &command)
      {
@@ -1498,7 +1684,7 @@ index d05eca7..c675807 100644
          if (d->displayServerCmd != command) {
              d->displayServerCmd = command;
              Q_EMIT displayServerCommandChanged();
-@@ -572,6 +764,8 @@ namespace SDDM {
+@@ -572,6 +792,8 @@ namespace SDDM {
      }
  
      void Auth::setSession(const QString& path) {
@@ -1507,7 +1693,7 @@ index d05eca7..c675807 100644
          if (path != d->sessionPath) {
              d->sessionPath = path;
              Q_EMIT sessionChanged();
-@@ -579,7 +773,7 @@ namespace SDDM {
+@@ -579,7 +801,7 @@ namespace SDDM {
      }
  
      void Auth::setMethod(AuthMethod method) {
@@ -1516,7 +1702,7 @@ index d05eca7..c675807 100644
              || (method != AuthMethod::Password && method != AuthMethod::Fingerprint))
              return;
          if (d->method != method) {
-@@ -589,7 +783,7 @@ namespace SDDM {
+@@ -589,7 +811,7 @@ namespace SDDM {
      }
  
      void Auth::setRequestId(const QString &requestId) {
@@ -1525,7 +1711,7 @@ index d05eca7..c675807 100644
              return;
          if (d->requestId != requestId) {
              d->requestId = requestId;
-@@ -598,7 +792,7 @@ namespace SDDM {
+@@ -598,10 +820,40 @@ namespace SDDM {
      }
  
      void Auth::setDeferredAuthorization(bool deferred) {
@@ -1534,7 +1720,40 @@ index d05eca7..c675807 100644
              d->deferredAuthorization = deferred;
      }
  
-@@ -617,6 +811,8 @@ namespace SDDM {
++    bool Auth::armDiagnostic(const QString &transaction, const QString &request, const QString &user,
++                             AuthMethod method, quint64 generation) {
++        if (d->dispatchDepth || isActive() || !d->diagnosticTransaction.isEmpty()
++            || QUuid(transaction).isNull() || QUuid(request).isNull() || user.isEmpty()
++            || generation != d->launchGeneration + 1) return false;
++        d->diagnosticTransaction = transaction;
++        d->diagnosticExpected.requestId = request;
++        d->diagnosticExpected.user = user;
++        d->diagnosticExpected.method = method;
++        d->diagnosticExpected.generation = generation;
++        return true;
++    }
++
++    bool Auth::releaseDiagnostic(const AuthLaunchRecord &expected, const QString &transaction) {
++        if (d->diagnosticTransaction != transaction || transaction.isEmpty() || !d->diagnosticHeld
++            || d->diagnosticReleased || d->stopping || !d->observation || !d->socket
++            || d->socket->state() != QLocalSocket::ConnectedState) return false;
++        const auto actual = d->observation->record();
++        if (actual.state != AuthLaunchRecord::Running || actual.pid != expected.pid
++            || actual.authId != expected.authId || actual.generation != expected.generation
++            || actual.requestId != expected.requestId || actual.method != expected.method
++            || actual.user != expected.user || !d->acceptHello(d->socket)) return false;
++        d->diagnosticReleased = true;
++        SafeDataStream release(d->socket);
++        release << DIAGNOSTIC_RELEASE << actual.requestId << actual.method << actual.generation
++                << actual.authId << transaction;
++        release.send();
++        return d->socket && d->socket->state() == QLocalSocket::ConnectedState;
++    }
++
+     void Auth::authorizeSession(bool proceed) {
+         if (!d->awaitingAuthorization || d->authorizationSent || d->stopping || !d->socket
+             || d->socket->state() != QLocalSocket::ConnectedState)
+@@ -617,6 +869,8 @@ namespace SDDM {
      }
  
      void Auth::setVerbose(bool on) {
@@ -1543,19 +1762,26 @@ index d05eca7..c675807 100644
          if (on != verbose()) {
              if (on)
                  d->child->setProcessChannelMode(QProcess::ForwardedChannels);
-@@ -627,8 +823,10 @@ namespace SDDM {
+@@ -627,8 +881,17 @@ namespace SDDM {
      }
  
      void Auth::start() {
 -        if (d->child->state() != QProcess::NotRunning)
 +        if (d->dispatchDepth || d->child->state() != QProcess::NotRunning)
              return;
++        if (!d->diagnosticTransaction.isEmpty()
++            && (d->diagnosticExpected.requestId != d->requestId || d->diagnosticExpected.user != d->user
++                || d->diagnosticExpected.method != d->method
++                || d->diagnosticExpected.generation != d->launchGeneration + 1)) {
++            Q_EMIT diagnosticFault();
++            return;
++        }
 +        Private::DispatchScope dispatch(d);
 +        QPointer<Private> alive(d);
          const quint64 generation = ++d->launchGeneration;
          d->launchPid = 0;
          d->trace("helper-launch");
-@@ -651,6 +849,7 @@ namespace SDDM {
+@@ -651,6 +914,7 @@ namespace SDDM {
          args << QStringLiteral("--id") << QString::number(d->id);
          args << QStringLiteral("--request-id") << d->requestId;
          args << QStringLiteral("--method") << QString::number(qint32(d->method));
@@ -1563,7 +1789,7 @@ index d05eca7..c675807 100644
          if (d->deferredAuthorization)
              args << QStringLiteral("--defer-auth");
          if (!d->sessionPath.isEmpty())
-@@ -663,7 +862,57 @@ namespace SDDM {
+@@ -663,7 +927,57 @@ namespace SDDM {
              args << QStringLiteral("--display-server") << d->displayServerCmd;
          if (d->greeter)
              args << QStringLiteral("--greeter");
@@ -1622,7 +1848,7 @@ index d05eca7..c675807 100644
              if (privateData->launchGeneration == generation
                  && privateData->child->state() != QProcess::NotRunning && !privateData->helloAccepted) {
 diff --git a/src/auth/Auth.h b/src/auth/Auth.h
-index 8cbbe77..ea9d716 100644
+index 8cbbe77..7b51068 100644
 --- a/src/auth/Auth.h
 +++ b/src/auth/Auth.h
 @@ -24,6 +24,9 @@
@@ -1681,23 +1907,28 @@ index 8cbbe77..ea9d716 100644
      /**
      * \brief
      * Main class triggering the authentication and handling all communication
-@@ -107,6 +149,7 @@ namespace SDDM {
+@@ -107,6 +149,10 @@ namespace SDDM {
          AuthMethod method() const;
          const QString &requestId() const;
          quint64 launchGeneration() const;
 +        AuthLaunchObservation *launchObservation() const;
++        bool armDiagnostic(const QString &transaction, const QString &request, const QString &user,
++                           AuthMethod method, quint64 generation);
++        bool releaseDiagnostic(const AuthLaunchRecord &expected, const QString &transaction);
          bool isDeferredAuthorization() const;
          bool isAwaitingAuthorization() const;
          /**
-@@ -190,6 +233,7 @@ namespace SDDM {
+@@ -190,6 +236,9 @@ namespace SDDM {
          void kill();
  
      Q_SIGNALS:
 +        void launchRecorded(SDDM::AuthLaunchObservation *observation);
++        void diagnosticHeld(const SDDM::AuthLaunchRecord &record);
++        void diagnosticFault();
          void autologinChanged();
          void greeterChanged();
          void verboseChanged();
-@@ -236,8 +280,14 @@ namespace SDDM {
+@@ -236,8 +285,14 @@ namespace SDDM {
          *
          * @param success true if every underlying task went fine
          */
@@ -1712,7 +1943,7 @@ index 8cbbe77..ea9d716 100644
          /**
          * Emitted on error
          *
-@@ -261,4 +311,7 @@ namespace SDDM {
+@@ -261,4 +316,7 @@ namespace SDDM {
      };
  }
  
@@ -1721,17 +1952,21 @@ index 8cbbe77..ea9d716 100644
 +
  #endif // SDDM_AUTH_H
 diff --git a/src/auth/AuthMessages.h b/src/auth/AuthMessages.h
-index 9651ba3..79907bb 100644
+index 9651ba3..92ee782 100644
 --- a/src/auth/AuthMessages.h
 +++ b/src/auth/AuthMessages.h
-@@ -100,6 +100,7 @@ namespace SDDM {
+@@ -100,7 +100,10 @@ namespace SDDM {
          DISPLAY_SERVER_STARTED,
          METHOD_STATE = 8,
          SESSION_AUTHORIZATION,
+-        MSG_LAST,
 +        HELLO_ACK,
-         MSG_LAST,
++        DIAGNOSTIC_HELD = 11,
++        DIAGNOSTIC_RELEASE = 12,
++        MSG_LAST = 13,
      };
  
+     // These are advisories and failures only. PAM success is AUTHENTICATED;
 diff --git a/src/auth/AuthRequest.cpp b/src/auth/AuthRequest.cpp
 index 9ccc2d2..2897d30 100644
 --- a/src/auth/AuthRequest.cpp
@@ -1815,10 +2050,10 @@ index 5ff5a71..d77f6c1 100644
          return EXIT_FAILURE;
 diff --git a/src/daemon/DiagnosticControl.cpp b/src/daemon/DiagnosticControl.cpp
 new file mode 100644
-index 0000000..2ccc233
+index 0000000..c823949
 --- /dev/null
 +++ b/src/daemon/DiagnosticControl.cpp
-@@ -0,0 +1,543 @@
+@@ -0,0 +1,664 @@
 +#include "DiagnosticControl.h"
 +#include "Display.h"
 +#include "SocketServer.h"
@@ -1908,11 +2143,21 @@ index 0000000..2ccc233
 +    object.insert(QStringLiteral("outcome"), QStringLiteral("pending"));
 +    object.insert(QStringLiteral("reason"), QStringLiteral("none"));
 +    object.insert(QStringLiteral("launches"), launches());
++    if (m_committed) {
++        object.insert(QStringLiteral("phase"), QStringLiteral("committed"));
++        object.insert(QStringLiteral("outcome"), QStringLiteral("committed_not_revocable"));
++    }
 +    return object;
 +}
 +
++bool DiagnosticAbort::commit() {
++    if (m_started || m_identityError || terminal() || m_committed) return false;
++    m_committed = true;
++    return true;
++}
++
 +void DiagnosticAbort::begin(const QString &reason, qint64 acceptedAt) {
-+    if (terminal()) return;
++    if (terminal() || m_committed) return;
 +    if (reason != QLatin1String("requested") && m_fatal.isEmpty()) m_fatal = reason;
 +    if (!m_started) {
 +        m_started = true;
@@ -1965,6 +2210,7 @@ index 0000000..2ccc233
 +
 +DiagnosticControl::DiagnosticControl(QObject *parent) : QObject(parent) {
 +    m_timer.setSingleShot(true);
++    m_timer.setTimerType(Qt::PreciseTimer);
 +    connect(&m_timer, &QTimer::timeout, this, [this] { invalidate(QStringLiteral("phase_timeout"), true); });
 +    m_flushTimer.setSingleShot(true);
 +    connect(&m_flushTimer, &QTimer::timeout, this, [this] { closeTransport(true); });
@@ -2080,7 +2326,7 @@ index 0000000..2ccc233
 +    if (m_abort) disconnect(m_abort, nullptr, this, nullptr);
 +    if (m_supervisor) disconnect(m_supervisor, nullptr, this, nullptr);
 +    m_state = State::Aborting;
-+    if (m_display) m_display->failDiagnosticContext();
++    if (m_display && !m_display->m_contextCommitted) m_display->failDiagnosticContext();
 +    if (m_abort) m_abort->begin(m_fatalReason.isEmpty() ? QStringLiteral("transport_error") : m_fatalReason, m_abortStartedAt);
 +    closeTransport();
 +    if (m_notifier)
@@ -2226,6 +2472,62 @@ index 0000000..2ccc233
 +            report();
 +        return;
 +    }
++    const qint64 now = AuthLaunchObservation::monotonicMs();
++    if ((m_state == State::ReservedConfirmed && now >= m_confirmMs + TimeoutMs)
++        || (m_state == State::Prepared && now >= m_readyMs + TimeoutMs)
++        || (m_state == State::ArmedReady && now >= m_readyMs + 35000)) {
++        invalidate(QStringLiteral("phase_timeout"), true); return;
++    }
++    if (type == QLatin1String("ARM_READY") && m_state == State::ReservedConfirmed && object == bound
++        && m_display && m_greeter && m_launched.isEmpty()
++        && !m_display->m_auth->launchGeneration() && !m_display->m_fingerprintAuth->launchGeneration()) {
++        m_readyMs = now;
++        m_state = State::Prepared;
++        m_timer.start(TimeoutMs);
++        bound.insert(QStringLiteral("type"), QStringLiteral("ARM_PREPARED"));
++        bound.insert(QStringLiteral("readyMs"), QString::number(m_readyMs));
++        send(bound);
++        return;
++    }
++    auto ready = bound;
++    ready.insert(QStringLiteral("readyMs"), QString::number(m_readyMs));
++    if (type == QLatin1String("READY_ACK") && m_state == State::Prepared && object == ready
++        && m_display && m_greeter) {
++        for (Auth *auth : {m_display->m_auth, m_display->m_fingerprintAuth}) {
++            const auto method = auth == m_display->m_auth ? AuthMethod::Password : AuthMethod::Fingerprint;
++            const auto key = method == AuthMethod::Password ? QStringLiteral("passwordGeneration")
++                                                            : QStringLiteral("fingerprintGeneration");
++            if (!auth->armDiagnostic(m_binding.value(QStringLiteral("transaction")).toString(),
++                    m_binding.value(QStringLiteral("request")).toString(), m_binding.value(QStringLiteral("user")).toString(),
++                    method, m_binding.value(key).toString().toULongLong())) { fail(); return; }
++        }
++        m_state = State::ArmedReady;
++        m_timer.start(qMax(qint64(1), m_readyMs + 35000 - AuthLaunchObservation::monotonicMs()));
++        ready.insert(QStringLiteral("type"), QStringLiteral("ARMED_READY"));
++        if (send(ready) && m_display) m_display->probeFingerprintAvailability();
++        return;
++    }
++    if (type == QLatin1String("RELEASE") && m_state == State::ArmedReady && m_display) {
++        const int method = object.value(QStringLiteral("method")).toInt(-1);
++        if (!m_held.contains(method)) { fail(); return; }
++        const auto record = m_held.value(method);
++        auto expected = bound;
++        expected.insert(QStringLiteral("method"), method);
++        expected.insert(QStringLiteral("helperGeneration"), QString::number(record.generation));
++        expected.insert(QStringLiteral("authId"), QString::number(record.authId));
++        expected.insert(QStringLiteral("helperPid"), QString::number(record.pid));
++        if (object != expected) { fail(); return; }
++        if (m_releases.contains(method)) { send(m_releases.value(method)); return; }
++        auto *auth = method == int(AuthMethod::Password) ? m_display->m_auth : m_display->m_fingerprintAuth;
++        if (!auth->releaseDiagnostic(record, m_binding.value(QStringLiteral("transaction")).toString())) {
++            fail(); return;
++        }
++        expected.insert(QStringLiteral("type"), QStringLiteral("RELEASED"));
++        expected.insert(QStringLiteral("releasedMs"), QString::number(now));
++        m_releases.insert(method, expected);
++        send(expected);
++        return;
++    }
 +    auto confirm = m_binding;
 +    confirm.insert(QStringLiteral("type"), QStringLiteral("CONFIRM"));
 +    if (m_state != State::AwaitConfirm || object != confirm || !m_display || !m_greeter) {
@@ -2233,6 +2535,8 @@ index 0000000..2ccc233
 +        return;
 +    }
 +    phase(State::ReservedConfirmed);
++    m_confirmMs = now;
++    m_timer.start(TimeoutMs);
 +    m_display->stageAuthenticationContext(m_greeter, m_display->m_diagnosticSerial, true,
 +                                         m_display->m_diagnosticUser, m_display->m_diagnosticSession);
 +}
@@ -2277,6 +2581,22 @@ index 0000000..2ccc233
 +    m_abort = new DiagnosticAbort(m_binding, QCoreApplication::instance());
 +    for (Auth *auth : {display->m_auth, display->m_fingerprintAuth}) {
 +        connect(auth, &Auth::launchRecorded, m_abort, &DiagnosticAbort::observe);
++        connect(auth, &Auth::diagnosticFault, this, &DiagnosticControl::fail);
++        connect(auth, &Auth::diagnosticHeld, this, [this, auth](const AuthLaunchRecord &record) { held(auth, record); });
++        connect(auth, &Auth::launchRecorded, this, [this](AuthLaunchObservation *observation) {
++            if (m_state != State::ArmedReady) return; // Existing no-launch fault fixtures remain observable.
++            const auto record = observation->record();
++            const int method = int(record.method);
++            if (m_launched.contains(method)) { fail(); return; }
++            m_launched.insert(method);
++            const qint64 ceiling = AuthLaunchObservation::monotonicMs() + TimeoutMs;
++            m_heldCeilings.insert(method, ceiling);
++            QTimer::singleShot(TimeoutMs, Qt::PreciseTimer, this, [this, method, ceiling] {
++                if (m_state == State::ArmedReady && !m_held.contains(method)
++                    && AuthLaunchObservation::monotonicMs() >= ceiling)
++                    invalidate(QStringLiteral("phase_timeout"), true);
++            });
++        });
 +    }
 +    connect(m_abort, &DiagnosticAbort::updated, this, &DiagnosticControl::report);
 +    phase(State::AwaitConfirm);
@@ -2286,6 +2606,38 @@ index 0000000..2ccc233
 +bool DiagnosticControl::confirmedFor(Display *display, QLocalSocket *socket, quint64 serial) const {
 +    return m_state == State::ReservedConfirmed && display == m_display && socket && socket == m_greeter
 +        && QString::number(serial) == m_binding.value(QStringLiteral("serial")).toString();
++}
++
++bool DiagnosticControl::armedFor(const Display *display, QLocalSocket *socket) const {
++    return m_state == State::ArmedReady && display == m_display && socket && socket == m_greeter
++        && AuthLaunchObservation::monotonicMs() < m_readyMs + 35000;
++}
++
++void DiagnosticControl::held(Auth *auth, const AuthLaunchRecord &record) {
++    const int method = int(record.method);
++    if (!armedFor(m_display, m_greeter) || m_held.contains(method) || !m_launched.contains(method)
++        || AuthLaunchObservation::monotonicMs() >= m_heldCeilings.value(method)
++        || !auth->launchObservation() || auth->launchObservation()->record().pid != record.pid) {
++        fail(); return;
++    }
++    m_held.insert(method, record);
++    auto message = m_binding;
++    message.insert(QStringLiteral("type"), QStringLiteral("HELD"));
++    message.insert(QStringLiteral("method"), method);
++    message.insert(QStringLiteral("helperGeneration"), QString::number(record.generation));
++    message.insert(QStringLiteral("authId"), QString::number(record.authId));
++    message.insert(QStringLiteral("helperPid"), QString::number(record.pid));
++    message.insert(QStringLiteral("heldMs"), QString::number(AuthLaunchObservation::monotonicMs()));
++    send(message);
++}
++
++bool DiagnosticControl::commit(Auth *winner) {
++    if (!m_display || !armedFor(m_display, m_greeter) || !winner
++        || winner != m_display->m_winnerAuth || !m_releases.contains(int(winner->method()))
++        || !m_abort || !m_abort->commit()) { fail(); return false; }
++    m_state = State::Committed; // Irrevocable before any authorization callback.
++    m_timer.stop();
++    return true;
 +}
 +
 +void DiagnosticControl::greeterDisconnected(QLocalSocket *socket) {
@@ -2335,6 +2687,10 @@ index 0000000..2ccc233
 +}
 +
 +void DiagnosticControl::invalidate(const QString &reason, bool closePeer) {
++    if (m_state == State::Committed) {
++        if (closePeer) closeTransport(); else report();
++        return;
++    }
 +    if (terminal()) { if (closePeer) closeTransport(); return; }
 +    if (reason != QLatin1String("requested") && m_fatalReason.isEmpty()) m_fatalReason = reason;
 +    m_pendingClose |= closePeer;
@@ -2364,11 +2720,11 @@ index 0000000..2ccc233
 +}
 diff --git a/src/daemon/DiagnosticControl.h b/src/daemon/DiagnosticControl.h
 new file mode 100644
-index 0000000..5424aff
+index 0000000..77286c9
 --- /dev/null
 +++ b/src/daemon/DiagnosticControl.h
-@@ -0,0 +1,106 @@
-+// Diagnostic-only pre-ACK reservation. Confirmation never permits a helper launch.
+@@ -0,0 +1,117 @@
++// Diagnostic-only supervised pre-PAM barrier; never part of the production overlay.
 +#ifndef SDDM_DIAGNOSTICCONTROL_H
 +#define SDDM_DIAGNOSTICCONTROL_H
 +
@@ -2380,6 +2736,8 @@ index 0000000..5424aff
 +#include "Session.h"
 +#include "Auth.h"
 +#include <QJsonArray>
++#include <QMap>
++#include <QSet>
 +
 +class QLocalSocket;
 +class QSocketNotifier;
@@ -2393,6 +2751,7 @@ index 0000000..5424aff
 +    explicit DiagnosticAbort(const QJsonObject &binding, QObject *parent);
 +    void observe(AuthLaunchObservation *observation);
 +    void begin(const QString &reason, qint64 acceptedAt = -1);
++    bool commit();
 +    QJsonObject status(const QString &phase) const;
 +    bool active() const { return m_started && m_result.isEmpty(); }
 +    bool terminal() const { return !m_result.isEmpty(); }
@@ -2407,14 +2766,14 @@ index 0000000..5424aff
 +    QJsonObject m_binding, m_result;
 +    QList<QPointer<AuthLaunchObservation>> m_observations;
 +    QString m_fatal;
-+    bool m_started = false, m_identityError = false, m_cancelling = false;
++    bool m_started = false, m_identityError = false, m_cancelling = false, m_committed = false;
 +    qint64 m_ceiling = 0;
 +    QTimer m_timer;
 +};
 +class DiagnosticControl final : public QObject {
 +    Q_OBJECT
 +public:
-+    enum class State { WaitingSupervisor, WaitingContext, AwaitConfirm, ReservedConfirmed, Aborting, Aborted, Failed };
++    enum class State { WaitingSupervisor, WaitingContext, AwaitConfirm, ReservedConfirmed, Prepared, ArmedReady, Committed, Aborting, Aborted, Failed };
 +    static constexpr int ResultFlushMs = 1000;
 +    static constexpr int TimeoutMs = 3000;
 +    // Null means no option; an invalid opt-in returns Failed, never disabled.
@@ -2428,6 +2787,8 @@ index 0000000..5424aff
 +    void reserve(Display *display, QLocalSocket *socket, quint64 serial, bool hasContext,
 +                 const QString &user, const Session &session);
 +    bool confirmedFor(Display *display, QLocalSocket *socket, quint64 serial) const;
++    bool armedFor(const Display *display, QLocalSocket *socket) const;
++    bool commit(Auth *winner);
 +    void greeterDisconnected(QLocalSocket *socket);
 +    void displayLost(Display *display);
 +    void fail();
@@ -2447,6 +2808,12 @@ index 0000000..5424aff
 +    void invalidate(const QString &reason, bool closeTransport);
 +    void closeTransport(bool force = false);
 +    void report();
++    void held(Auth *auth, const AuthLaunchRecord &record);
++    qint64 m_confirmMs = -1, m_readyMs = -1;
++    QMap<int, AuthLaunchRecord> m_held;
++    QMap<int, QJsonObject> m_releases;
++    QSet<int> m_launched;
++    QMap<int, qint64> m_heldCeilings;
 +    bool terminal() const { return m_state == State::Aborted || m_state == State::Failed; }
 +    DiagnosticAbort *m_abort = nullptr;
 +    QTimer m_flushTimer;
@@ -2475,7 +2842,7 @@ index 0000000..5424aff
 +}
 +#endif
 diff --git a/src/daemon/Display.cpp b/src/daemon/Display.cpp
-index f70a3c6..8622966 100644
+index f70a3c6..23e169a 100644
 --- a/src/daemon/Display.cpp
 +++ b/src/daemon/Display.cpp
 @@ -20,6 +20,7 @@
@@ -2546,7 +2913,7 @@ index f70a3c6..8622966 100644
              return;
          if (user.isEmpty() || user == QLatin1String("sddm") || !session.isValid()) {
              emit loginFailed(socket);
-@@ -431,10 +445,92 @@ namespace SDDM {
+@@ -431,10 +445,95 @@ namespace SDDM {
          }
      }
  
@@ -2569,10 +2936,13 @@ index f70a3c6..8622966 100644
 +    }
 +
 +    bool Display::diagnosticLaunchBlocked(QLocalSocket *socket) const {
-+        return m_diagnosticEnabled || m_diagnosticSocket || (socket && m_diagnosticRejectedSockets.contains(socket));
++        if (m_diagnosticEnabled)
++            return !m_diagnosticControl || !m_diagnosticControl->armedFor(this, socket);
++        return m_diagnosticSocket || (socket && m_diagnosticRejectedSockets.contains(socket));
 +    }
 +
 +    void Display::failDiagnosticContext() {
++        if (m_diagnosticEnabled && m_contextCommitted) return;
 +        m_pendingContext = false;
 +        m_pendingHasContext = false;
 +        m_pendingContextSocket.clear();
@@ -2639,25 +3009,25 @@ index f70a3c6..8622966 100644
          const auto owner = m_pendingContext ? m_pendingContextSocket : m_contextSocket;
          if ((owner && owner != socket) || (m_methodAttemptActive && m_attemptSocket != socket)
              || (m_contextCommitted && m_contextSocket != socket)) {
-@@ -474,7 +570,7 @@ namespace SDDM {
+@@ -474,7 +573,7 @@ namespace SDDM {
      }
      void Display::setFingerprintAvailability(quint64 serial, const QString &requestId,
                                              bool available, const QString &detailCode) {
 -        if (serial != m_contextSerial || requestId != m_requestId || !m_contextOptedIn
-+        if (m_diagnosticEnabled || serial != m_contextSerial || requestId != m_requestId || !m_contextOptedIn
++        if ((m_diagnosticEnabled && diagnosticLaunchBlocked(m_contextSocket)) || serial != m_contextSerial || requestId != m_requestId || !m_contextOptedIn
              || !m_contextSocket || m_contextCommitted || m_contextFinished || m_pendingContext || m_tearingDown)
              return;
          const char *reason = available ? "available"
-@@ -501,7 +597,7 @@ namespace SDDM {
+@@ -501,7 +600,7 @@ namespace SDDM {
      }
  
      void Display::probeFingerprintAvailability() {
 -        if (!m_contextOptedIn || !m_contextSocket || m_pendingContext || m_contextFinished
-+        if (m_diagnosticEnabled || !m_contextOptedIn || !m_contextSocket || m_pendingContext || m_contextFinished
++        if ((m_diagnosticEnabled && diagnosticLaunchBlocked(m_contextSocket)) || !m_contextOptedIn || !m_contextSocket || m_pendingContext || m_contextFinished
              || m_contextCommitted || m_tearingDown)
              return;
          invalidateProbe();
-@@ -558,8 +654,9 @@ namespace SDDM {
+@@ -558,8 +657,9 @@ namespace SDDM {
                          QStringLiteral("/org/freedesktop/DBus"), QStringLiteral("org.freedesktop.DBus"),
                          QStringLiteral("StartServiceByName"));
                  activate << QStringLiteral("net.reactivated.Fprint") << quint32(0);
@@ -2668,7 +3038,7 @@ index f70a3c6..8622966 100644
                  m_probeWatchers.insert(activationWatcher);
                  connect(activationWatcher, &QDBusPendingCallWatcher::finished, this,
                          [this, activationWatcher, generation, serial, requestId] {
-@@ -571,6 +668,11 @@ namespace SDDM {
+@@ -571,6 +671,11 @@ namespace SDDM {
                      qInfo().noquote().nospace() << "FPLOGIN_TRACE event=probe-activation-return request=" << requestId
                          << " serial=" << serial << " probe_generation=" << generation
                          << " success=" << (!activation.isError() && (activation.value() == 1 || activation.value() == 2));
@@ -2680,7 +3050,7 @@ index f70a3c6..8622966 100644
                      if (activation.isError() || (activation.value() != 1 && activation.value() != 2)) {
                          setFingerprintAvailability(serial, requestId, false,
                                                     QStringLiteral("service_unavailable"));
-@@ -615,7 +717,7 @@ namespace SDDM {
+@@ -615,7 +720,7 @@ namespace SDDM {
      }
  
      void Display::startFingerprint(QLocalSocket *socket, quint64 serial) {
@@ -2689,7 +3059,7 @@ index f70a3c6..8622966 100644
              return;
          if (m_pendingContext) {
              if (socket == m_pendingContextSocket && serial == m_pendingContextSerial && m_pendingHasContext) {
-@@ -664,7 +766,7 @@ namespace SDDM {
+@@ -664,7 +769,7 @@ namespace SDDM {
      }
  
      void Display::cancelFingerprint(QLocalSocket *socket, quint64 serial, const QString &requestId) {
@@ -2698,7 +3068,7 @@ index f70a3c6..8622966 100644
              return;
          if (m_pendingContext) {
              if (socket == m_pendingContextSocket && serial == m_pendingContextSerial
-@@ -715,7 +817,8 @@ namespace SDDM {
+@@ -715,7 +820,8 @@ namespace SDDM {
          m_methodWinnerChosen = false;
          m_waitingForLoser = false;
          for (Auth *auth : {m_auth, m_fingerprintAuth}) {
@@ -2708,7 +3078,7 @@ index f70a3c6..8622966 100644
                  stopAuthenticationHelper(auth, destroying);
          }
          m_winnerAuth.clear();
-@@ -728,7 +831,7 @@ namespace SDDM {
+@@ -728,7 +834,7 @@ namespace SDDM {
      }
  
      void Display::authorizeWinner() {
@@ -2717,7 +3087,16 @@ index f70a3c6..8622966 100644
              || !isCurrentHelper(m_winnerAuth) || !m_winnerAuth->isActive()
              || !m_winnerAuth->isAwaitingAuthorization() || m_waitingForLoser
              || !m_attemptGate.authorize(m_winnerAuth->method()))
-@@ -746,7 +849,7 @@ namespace SDDM {
+@@ -738,6 +844,8 @@ namespace SDDM {
+             << " generation=" << m_winnerAuth->launchGeneration();
+         if (auto *server = qobject_cast<XorgDisplayServer *>(m_displayServer))
+             m_winnerAuth->setCookie(server->cookie());
++        if (m_diagnosticEnabled && (!m_diagnosticControl || !m_diagnosticControl->commit(m_winnerAuth)))
++            return;
+         m_contextCommitted = true;
+         m_contextPhase = AuthenticationPhase::SessionAuthorized;
+         publishMethodState(AuthenticationMethod(m_winnerAuth->method()), FingerprintState::Matched,
+@@ -746,7 +854,7 @@ namespace SDDM {
      }
  
      void Display::startPendingLogin() {
@@ -2726,7 +3105,7 @@ index f70a3c6..8622966 100644
              || m_methodWinnerChosen || m_auth->isActive())
              return;
          if (m_pendingPasswordGeneration) {
-@@ -904,6 +1007,9 @@ namespace SDDM {
+@@ -904,6 +1012,9 @@ namespace SDDM {
      }
  
      void Display::advancePendingContext() {
@@ -2736,7 +3115,7 @@ index f70a3c6..8622966 100644
          if (!m_pendingContext || m_tearingDown || m_auth->isActive() || m_fingerprintAuth->isActive())
              return;
          const bool start = m_pendingFingerprintStart;
-@@ -913,7 +1019,8 @@ namespace SDDM {
+@@ -913,7 +1024,8 @@ namespace SDDM {
          m_contextOptedIn = m_pendingHasContext;
          m_contextUser = m_pendingContextUser;
          m_contextSession = m_pendingContextSession;
@@ -2746,7 +3125,7 @@ index f70a3c6..8622966 100644
          m_contextCommitted = false;
          m_contextFinished = false;
          m_contextPhase = AuthenticationPhase::Idle;
-@@ -939,6 +1046,8 @@ namespace SDDM {
+@@ -939,6 +1051,8 @@ namespace SDDM {
              m_contextSocket.clear();
              return;
          }
@@ -2755,7 +3134,7 @@ index f70a3c6..8622966 100644
          if (cancelled)
              publishMethodState(AuthenticationMethod::Fingerprint, FingerprintState::Cancelled,
                                 AuthenticationPhase::Idle, QStringLiteral("cancelled"));
-@@ -1002,6 +1111,8 @@ namespace SDDM {
+@@ -1002,6 +1116,8 @@ namespace SDDM {
                  || m_requestId != requestId || m_contextSerial != serial || m_contextSocket != socket
                  || auth->launchGeneration() != generation || m_pendingContext || m_tearingDown)
                  return;
@@ -2764,7 +3143,7 @@ index f70a3c6..8622966 100644
              disarmFingerprintDeadline();
              m_attemptGate.cancel(AuthMethod::Fingerprint);
              m_fingerprintTerminal = true;
-@@ -1010,11 +1121,23 @@ namespace SDDM {
+@@ -1010,11 +1126,23 @@ namespace SDDM {
              stopAuthenticationHelper(auth);
          });
          // Bound invalid/overflowing configuration without an unbounded deadline.
@@ -2789,7 +3168,7 @@ index f70a3c6..8622966 100644
          if (m_pendingContextSocket == socket) {
              m_pendingContext = false;
              m_pendingContextSocket.clear();
-@@ -1114,6 +1237,8 @@ namespace SDDM {
+@@ -1114,6 +1242,8 @@ namespace SDDM {
      }
  
      bool Display::startAuth(const QString &user, const QString &password, const Session &session, AuthMethod method) {
@@ -2855,14 +3234,15 @@ index e4528e4..1e02674 100644
          bool m_contextOptedIn { false };
          bool m_contextCommitted { false };
 diff --git a/src/helper/HelperApp.cpp b/src/helper/HelperApp.cpp
-index bdcb93f..afbc733 100644
+index bdcb93f..45fe71c 100644
 --- a/src/helper/HelperApp.cpp
 +++ b/src/helper/HelperApp.cpp
-@@ -32,12 +32,15 @@
+@@ -32,12 +32,16 @@
  #include <QtCore/QUuid>
  #include <QtCore/QFile>
  #include <QtCore/QDebug>
 +#include <QtCore/QElapsedTimer>
++#include <QtCore/QDeadlineTimer>
 +#include <QtCore/QThread>
  #include <QtNetwork/QLocalSocket>
  
@@ -2874,7 +3254,7 @@ index bdcb93f..afbc733 100644
  
  #if defined(Q_OS_LINUX)
  #include <utmp.h>
-@@ -47,6 +50,36 @@
+@@ -47,6 +51,36 @@
  #include <signal.h>
  
  namespace SDDM {
@@ -2911,7 +3291,17 @@ index bdcb93f..afbc733 100644
      HelperApp::HelperApp(int& argc, char** argv)
              : QCoreApplication(argc, argv)
              , m_backend(Backend::get(this))
-@@ -86,6 +119,14 @@ namespace SDDM {
+@@ -54,7 +88,8 @@ namespace SDDM {
+             , m_socket(new QLocalSocket(this)) {
+         qInstallMessageHandler(HelperMessageHandler);
+         SignalHandler *s = new SignalHandler(this);
+-        QObject::connect(s, &SignalHandler::sigtermReceived, m_session, [] {
++        QObject::connect(s, &SignalHandler::sigtermReceived, this, [this] {
++            m_terminated = true;
+             QCoreApplication::instance()->exit(-1);
+         });
+ 
+@@ -86,6 +121,14 @@ namespace SDDM {
  
          if ((pos = args.indexOf(QStringLiteral("--request-id"))) >= 0 && pos < args.length() - 1)
              m_requestId = args[pos + 1];
@@ -2926,7 +3316,7 @@ index bdcb93f..afbc733 100644
          if ((pos = args.indexOf(QStringLiteral("--method"))) >= 0 && pos < args.length() - 1) {
              bool ok = false;
              const int method = args[pos + 1].toInt(&ok);
-@@ -134,7 +175,7 @@ namespace SDDM {
+@@ -134,7 +177,7 @@ namespace SDDM {
              m_backend->setGreeter(true);
          }
  
@@ -2935,7 +3325,7 @@ index bdcb93f..afbc733 100644
              || (m_method == AuthMethod::Fingerprint && (m_user.isEmpty() || m_backend->isGreeter() || m_backend->isAutologin()))) {
              qCritical() << "Invalid authentication helper request";
              exit(Auth::HELPER_OTHER_ERROR);
-@@ -165,11 +206,46 @@ namespace SDDM {
+@@ -165,12 +208,110 @@ namespace SDDM {
  
      void HelperApp::doAuth() {
          SafeDataStream str(m_socket);
@@ -2944,9 +3334,8 @@ index bdcb93f..afbc733 100644
          str.send();
 -        if (str.status() != QDataStream::Ok)
 -            qCritical() << "Couldn't write initial message:" << str.status();
--
-+        // The diagnostic helper never starts a backend on an absent, malformed or
-+        // armed ACK until a daemon-owned reservation can validate armed mode.
++        bool accepted = false, armed = false;
++        QString transaction;
 +        QElapsedTimer clock;
 +        clock.start();
 +        qint64 length = -1;
@@ -2964,44 +3353,108 @@ index bdcb93f..afbc733 100644
 +                    QString request;
 +                    AuthMethod method = AuthMethod::Password;
 +                    quint64 generation = 0;
-+                    bool armed = true;
-+                    QString transaction;
 +                    reply >> opcode >> id >> request >> method >> generation >> armed >> transaction;
 +                    if (reply.status() == QDataStream::Ok && reply.atEnd() && opcode == Msg::HELLO_ACK
 +                        && id == m_id && request == m_requestId && method == m_method
-+                        && generation == m_generation && !armed && transaction.isEmpty())
++                        && generation == m_generation
++                        && (armed ? !QUuid(transaction).isNull() : transaction.isEmpty())) {
++                        accepted = true;
 +                        break;
++                    }
 +                    length = -1;
 +                    break;
 +                }
 +            }
 +            m_socket->waitForReadyRead(qMax(1, int(3000 - clock.elapsed())));
 +        }
-+        if (length < 0 || m_socket->state() != QLocalSocket::ConnectedState
++        if (!accepted || m_socket->state() != QLocalSocket::ConnectedState
 +            || clock.elapsed() >= 3000) {
 +            qCritical() << "Invalid or missing diagnostic HELLO_ACK";
 +            exit(Auth::HELPER_AUTH_ERROR);
 +            return;
 +        }
  
++        if (!armed) {
++            startBackend();
++            return;
++        }
++        m_diagnosticArmed = m_diagnosticWaiting = true;
++        const QDeadlineTimer deadline(35000, Qt::PreciseTimer);
++        auto *timeout = new QTimer(this);
++        timeout->setSingleShot(true);
++        timeout->setTimerType(Qt::PreciseTimer);
++        connect(timeout, &QTimer::timeout, this, [this] {
++            if (m_diagnosticWaiting) {
++                m_diagnosticWaiting = false;
++                exit(Auth::HELPER_AUTH_ERROR);
++            }
++        });
++        connect(m_socket, &QLocalSocket::disconnected, this, [this] {
++            if (m_diagnosticWaiting) {
++                m_diagnosticWaiting = false;
++                exit(Auth::HELPER_AUTH_ERROR);
++            }
++        });
++        const auto receive = [this, deadline, timeout, transaction] {
++            if (!m_diagnosticWaiting) return;
++            auto fail = [this, timeout] {
++                m_diagnosticWaiting = false;
++                timeout->stop();
++                exit(Auth::HELPER_AUTH_ERROR);
++            };
++            if (m_terminated || deadline.hasExpired()
++                || m_socket->state() != QLocalSocket::ConnectedState) { fail(); return; }
++            qint64 size = -1;
++            if (m_socket->bytesAvailable() < qint64(sizeof(size))) return;
++            if (m_socket->peek(reinterpret_cast<char *>(&size), sizeof(size)) != sizeof(size)
++                || size <= 0 || size > 512) { fail(); return; }
++            if (m_socket->bytesAvailable() < qint64(sizeof(size)) + size) return;
++            m_socket->read(reinterpret_cast<char *>(&size), sizeof(size));
++            QDataStream input(m_socket->read(size));
++            Msg opcode = MSG_UNKNOWN;
++            QString request, ticket;
++            AuthMethod method = AuthMethod::Password;
++            quint64 generation = 0;
++            qint64 id = 0;
++            input >> opcode >> request >> method >> generation >> id >> ticket;
++            if (input.status() != QDataStream::Ok || !input.atEnd() || opcode != DIAGNOSTIC_RELEASE
++                || request != m_requestId || method != m_method || generation != m_generation
++                || id != m_id || ticket != transaction || deadline.hasExpired() || m_terminated) {
++                fail(); return;
++            }
++            m_diagnosticWaiting = false; // One continuation, before any backend callback.
++            timeout->stop();
++            startBackend();
++        };
++        connect(m_socket, &QLocalSocket::readyRead, this, receive);
++        timeout->start(35000);
++        SafeDataStream held(m_socket);
++        held << DIAGNOSTIC_HELD << m_requestId << m_method << m_generation << m_id << transaction;
++        held.send();
++        QTimer::singleShot(0, this, receive);
++    }
+ 
++    void HelperApp::startBackend() {
++        if (m_terminated) { exit(Auth::HELPER_AUTH_ERROR); return; }
          if (!m_backend->start(m_user)) {
              QProcessEnvironment ignored;
-@@ -186,6 +262,10 @@ namespace SDDM {
+             authenticated(QString(), ignored);
+@@ -186,6 +327,10 @@ namespace SDDM {
          }
  
          Q_ASSERT(getuid() == 0);
-+        if (m_method == AuthMethod::Password && !waitForG05Gate(m_requestId, m_method, true)) {
++        if (!m_diagnosticArmed && m_method == AuthMethod::Password && !waitForG05Gate(m_requestId, m_method, true)) {
 +            exit(Auth::HELPER_AUTH_ERROR);
 +            return;
 +        }
          if (!m_backend->authenticate()) {
              QProcessEnvironment ignored;
              authenticated(QString(), ignored);
-@@ -200,6 +280,11 @@ namespace SDDM {
+@@ -200,6 +345,11 @@ namespace SDDM {
              return;
          }
  
-+        if (m_method == AuthMethod::Fingerprint && !waitForG05Gate(m_requestId, m_method, false)) {
++        if (!m_diagnosticArmed && m_method == AuthMethod::Fingerprint && !waitForG05Gate(m_requestId, m_method, false)) {
 +            exit(Auth::HELPER_AUTH_ERROR);
 +            return;
 +        }
@@ -3010,7 +3463,7 @@ index bdcb93f..afbc733 100644
          if (m_user.isEmpty() || (!m_requestedUser.isEmpty() && m_user != m_requestedUser)) {
              error(QStringLiteral("Authentication user mismatch"), Auth::ERROR_AUTHENTICATION);
 diff --git a/src/helper/HelperApp.h b/src/helper/HelperApp.h
-index 9c5bcf5..85c268d 100644
+index 9c5bcf5..2ce8889 100644
 --- a/src/helper/HelperApp.h
 +++ b/src/helper/HelperApp.h
 @@ -59,6 +59,7 @@ namespace SDDM {
@@ -3021,6 +3474,17 @@ index 9c5bcf5..85c268d 100644
          Backend *m_backend { nullptr };
          UserSession *m_session { nullptr };
          QLocalSocket *m_socket { nullptr };
+@@ -67,6 +68,10 @@ namespace SDDM {
+         QString m_requestId { };
+         AuthMethod m_method { AuthMethod::Password };
+         bool m_deferredAuthorization { false };
++        bool m_terminated { false };
++        bool m_diagnosticArmed { false };
++        bool m_diagnosticWaiting { false };
++        void startBackend();
+         // TODO: get rid of this in a nice clean way along the way with moving to user session X server
+         QByteArray m_cookie { };
+ 
 diff --git a/test/AuthTransportHelper.cpp b/test/AuthTransportHelper.cpp
 index 9ffc410..f440fbe 100644
 --- a/test/AuthTransportHelper.cpp
@@ -3711,7 +4175,7 @@ index e61bbeb..7f62fab 100644
                  app.exit(12);
                  return;
 diff --git a/test/DaemonContextTest.cpp b/test/DaemonContextTest.cpp
-index b721e43..35b6fd8 100644
+index b721e43..189d90d 100644
 --- a/test/DaemonContextTest.cpp
 +++ b/test/DaemonContextTest.cpp
 @@ -1,5 +1,6 @@
@@ -3837,7 +4301,7 @@ index b721e43..35b6fd8 100644
      }
      QString fixtureOwner() {
          const QDBusReply<QString> owner = QDBusConnection::systemBus().interface()->serviceOwner(
-@@ -258,6 +328,1214 @@ class DaemonContextTest : public QObject {
+@@ -258,6 +328,1379 @@ class DaemonContextTest : public QObject {
          QTRY_VERIFY(client.state(FingerprintState::Scanning));
      }
  private slots:
@@ -4781,6 +5245,171 @@ index b721e43..35b6fd8 100644
 +        QTRY_COMPARE(client.count(DaemonMessages::AuthenticationContext, QStringLiteral("cleared")), 1);
 +        QVERIFY(!display.reserveDiagnosticContext(serverSocket, 3, QStringLiteral("root"), session));
 +    }
++    void realArmedPrePam_data() {
++        QTest::addColumn<QString>("action");
++        for (const char *action : {"release", "duplicate", "abort", "disconnect", "bad-release",
++                                   "expired-release", "expired-ack", "abort-first", "release-first", "late-pam"})
++            QTest::newRow(action) << QString::fromLatin1(action);
++    }
++    void realArmedPrePam() {
++#ifndef G05_INTEGRATED
++        QSKIP("Requires container-only real helper and PAM call interception");
++#else
++        QFETCH(QString, action);
++        QVERIFY(QFile::exists(QStringLiteral("/.dockerenv")));
++        QVERIFY(QFile::exists(QStringLiteral("/lab/g05-pam.so")));
++        for (const auto &path : {"/lab/g05-pam-calls", "/lab/g05-session-executions", "/lab/g05-session-pam", "/lab/g05-pam-return-ms"})
++            QFile::remove(QString::fromLatin1(path));
++        auto contents = [](const QString &path) {
++            QFile file(path);
++            return file.open(QIODevice::ReadOnly) ? file.readAll() : QByteArray();
++        };
++        mainConfig.FingerprintAuthTimeout.set(action == QLatin1String("late-pam") ? 1 : 30);
++        mainConfig.Wayland.SessionCommand.set(QStringLiteral("/usr/bin/env"));
++        static QList<QPair<QString, qint64>> events;
++        events.clear();
++        const auto previous = qInstallMessageHandler([](QtMsgType, const QMessageLogContext &, const QString &message) {
++            if (message.contains(QStringLiteral("FPLOGIN_TRACE")))
++                events.append({message, AuthLaunchObservation::monotonicMs()});
++        });
++        struct Restore { QtMessageHandler previous; ~Restore() { qInstallMessageHandler(previous); } } restore {previous};
++        QTemporaryDir privateDirectory(QStringLiteral("/run/g05-armed-XXXXXX"));
++        QVERIFY(privateDirectory.isValid());
++        std::unique_ptr<DiagnosticControl> control(DiagnosticControl::fromArguments(
++            {QStringLiteral("sddm"), QStringLiteral("--g05-control-dir"), privateDirectory.path()}, qApp));
++        Harness display(directory->filePath(QStringLiteral("control")));
++        display.realTestSession = true;
++        Supervisor supervisor;
++        bindSupervisor(*control, supervisor);
++        Client client;
++        connectClient(display, client);
++        select(client, 1, QStringLiteral("root"));
++        QTRY_COMPARE(supervisor.messages.size(), 2);
++        auto binding = supervisor.messages.last();
++        binding.remove(QStringLiteral("type"));
++        auto command = [&](const QString &type) {
++            auto result = binding; result.insert(QStringLiteral("type"), type); return result;
++        };
++        supervisor.send(command(QStringLiteral("CONFIRM")));
++        QTRY_COMPARE(client.count(DaemonMessages::AuthenticationContext), 1);
++        supervisor.send(command(QStringLiteral("ARM_READY")));
++        QTRY_COMPARE(control->state(), DiagnosticControl::State::Prepared);
++        QTRY_COMPARE(supervisor.messages.size(), 3);
++        QCOMPARE(supervisor.messages.last().value(QStringLiteral("type")).toString(), QStringLiteral("ARM_PREPARED"));
++        start(client, 1);
++        password(client, QStringLiteral("root"));
++        QTest::qWait(30);
++        QCOMPARE(display.m_auth->launchGeneration(), quint64(0));
++        QCOMPARE(display.m_fingerprintAuth->launchGeneration(), quint64(0));
++        auto ack = command(QStringLiteral("READY_ACK"));
++        ack.insert(QStringLiteral("readyMs"), supervisor.messages.last().value(QStringLiteral("readyMs")));
++        if (action == QLatin1String("expired-ack")) {
++            control->m_readyMs = AuthLaunchObservation::monotonicMs() - 3000;
++            ack.insert(QStringLiteral("readyMs"), QString::number(control->m_readyMs));
++            control->process(ack); // Timer has not dispatched: consumption-time check must reject.
++            QCOMPARE(control->state(), DiagnosticControl::State::Failed);
++            QCOMPARE(display.m_fingerprintAuth->launchGeneration(), quint64(0));
++            QVERIFY(contents(QStringLiteral("/lab/g05-pam-calls")).isEmpty());
++            return;
++        }
++        supervisor.send(ack);
++        QTRY_COMPARE(control->state(), DiagnosticControl::State::ArmedReady);
++        QTRY_COMPARE(supervisor.messages.size(), 4);
++        QCOMPARE(supervisor.messages.last().value(QStringLiteral("type")).toString(), QStringLiteral("ARMED_READY"));
++        display.setFingerprintAvailability(1, display.m_requestId, true, QStringLiteral("available"));
++        start(client, 1);
++        QTRY_VERIFY(control->m_held.contains(int(AuthMethod::Fingerprint)));
++        QTRY_COMPARE(supervisor.messages.last().value(QStringLiteral("type")).toString(), QStringLiteral("HELD"));
++        const auto held = supervisor.messages.last();
++        const auto record = display.m_fingerprintAuth->launchObservation()->record();
++        QCOMPARE(held.value(QStringLiteral("helperPid")).toString(), QString::number(record.pid));
++        QCOMPARE(held.value(QStringLiteral("authId")).toString(), QString::number(record.authId));
++        QVERIFY(record.pid > 0 && record.state == AuthLaunchRecord::Running);
++        QTest::qWait(50);
++        QVERIFY2(contents(QStringLiteral("/lab/g05-pam-calls")).isEmpty(), "HELD invoked pam_start");
++        auto release = held;
++        release.remove(QStringLiteral("heldMs"));
++        release.insert(QStringLiteral("type"), QStringLiteral("RELEASE"));
++        const auto abort = command(QStringLiteral("ABORT"));
++        if (action == QLatin1String("abort")) supervisor.send(abort);
++        else if (action == QLatin1String("disconnect")) supervisor.socket.abort();
++        else if (action == QLatin1String("bad-release")) {
++            release.insert(QStringLiteral("helperPid"), QString::number(record.pid + 1));
++            supervisor.send(release);
++        } else if (action == QLatin1String("expired-release")) {
++            control->m_readyMs = AuthLaunchObservation::monotonicMs() - 35000;
++            control->process(release);
++        } else if (action == QLatin1String("abort-first")) {
++            supervisor.socket.write(Supervisor::frame(abort) + Supervisor::frame(release));
++            supervisor.socket.flush();
++        } else {
++            supervisor.send(release);
++            if (action == QLatin1String("duplicate")) supervisor.send(release);
++            if (action == QLatin1String("release-first")) supervisor.send(abort);
++        }
++        const bool success = action == QLatin1String("release") || action == QLatin1String("duplicate");
++        if (success) {
++            QTRY_VERIFY_WITH_TIMEOUT(display.m_contextCommitted, 5000);
++            QCOMPARE(control->state(), DiagnosticControl::State::Committed);
++            // A committed grant is irrevocable even through the retained authority directly.
++            control->m_abort->begin(QStringLiteral("supervisor_lost"));
++            QVERIFY(!control->m_abort->started());
++            supervisor.send(abort);
++            QTRY_COMPARE(supervisor.messages.last().value(QStringLiteral("outcome")).toString(),
++                         QStringLiteral("committed_not_revocable"));
++            supervisor.socket.abort();
++        }
++        QTRY_VERIFY_WITH_TIMEOUT(!display.m_fingerprintAuth->isActive(), 8500);
++        const auto exit = display.m_fingerprintAuth->launchObservation()->record();
++        QCOMPARE(exit.state, AuthLaunchRecord::Exited);
++        QCOMPARE(exit.pid, record.pid);
++        QCOMPARE(exit.authId, record.authId);
++        int permits = 0, opens = 0;
++        qint64 discarded = -1, fired = -1;
++        for (const auto &event : events) {
++            if (!event.first.contains(QStringLiteral("request=") + record.requestId + QLatin1Char(' '))) continue;
++            permits += event.first.contains(QStringLiteral("event=authorization-permit "));
++            opens += event.first.contains(QStringLiteral("event=session-open-success "));
++            if (event.first.contains(QStringLiteral("event=late-auth-discard "))) discarded = event.second;
++            if (event.first.contains(QStringLiteral("event=deadline-fired "))) fired = event.second;
++        }
++        const auto calls = contents(QStringLiteral("/lab/g05-pam-calls"));
++        if (success) {
++            QCOMPARE(calls, QByteArray("start ") + QByteArray::number(record.pid) + '\n');
++            QCOMPARE(permits, 1);
++            QCOMPARE(opens, 1);
++            QCOMPARE(contents(QStringLiteral("/lab/g05-session-executions")), QByteArray("executed\n"));
++            QCOMPARE(contents(QStringLiteral("/lab/g05-session-pam")),
++                     QByteArray("account ") + QByteArray::number(record.pid) + "\nopen "
++                     + QByteArray::number(record.pid) + "\nclose " + QByteArray::number(record.pid) + '\n');
++            QCOMPARE(exit.exitStatus, QProcess::NormalExit);
++            QCOMPARE(exit.exitCode, 0);
++        } else {
++            QCOMPARE(permits, 0);
++            QCOMPARE(opens, 0);
++            QVERIFY(contents(QStringLiteral("/lab/g05-session-executions")).isEmpty());
++            if (action != QLatin1String("late-pam") && action != QLatin1String("release-first")) {
++                QVERIFY(calls.isEmpty());
++                QVERIFY(control->m_abort->terminal());
++                QCOMPARE(control->m_abort->result().value(QStringLiteral("outcome")).toString(), QStringLiteral("exits_observed"));
++                const auto result = control->m_abort->result().value(QStringLiteral("launches")).toArray().first().toObject();
++                QCOMPARE(result.value(QStringLiteral("pid")).toString(), QString::number(record.pid));
++                QCOMPARE(result.value(QStringLiteral("exitCode")).toString(), QString::number(exit.exitCode));
++            }
++            if (action == QLatin1String("late-pam")) {
++                bool valid = false;
++                const auto returned = contents(QStringLiteral("/lab/g05-pam-return-ms")).trimmed().toLongLong(&valid);
++                QVERIFY(valid && fired > 0 && returned > fired && discarded >= returned);
++                QCOMPARE(calls, QByteArray("start ") + QByteArray::number(record.pid) + '\n');
++            }
++        }
++        fprintf(stderr, "G05-ARMED case=%s request=%s pid=%lld authId=%lld heldMs=%s PAM-starts=%d permits=%d opens=%d fired=%lld discard=%lld exitMs=%lld exitStatus=%d exitCode=%d\n",
++            qPrintable(action), qPrintable(record.requestId), static_cast<long long>(record.pid),
++            static_cast<long long>(record.authId), qPrintable(held.value(QStringLiteral("heldMs")).toString()),
++            int(calls.count('\n')), permits, opens, static_cast<long long>(fired), static_cast<long long>(discarded),
++            static_cast<long long>(exit.terminalEntryMs), int(exit.exitStatus), exit.exitCode);
++#endif
++    }
 +    void realPamSuccessBeforeDeadlineLoserExitsAfter() {
 +#ifndef G05_INTEGRATED
 +        QSKIP("Requires disposable-container PAM and real helper");
@@ -5052,7 +5681,7 @@ index b721e43..35b6fd8 100644
      void initTestCase() {
          busDirectory = std::make_unique<QTemporaryDir>(QDir::currentPath() + QStringLiteral("/availability-bus-XXXXXX"));
          QVERIFY(busDirectory->isValid());
-@@ -280,6 +1558,9 @@ private slots:
+@@ -280,6 +1723,9 @@ private slots:
          QVERIFY(QDBusConnection::systemBus().isConnected());
      }
      void cleanup() {
@@ -5062,7 +5691,7 @@ index b721e43..35b6fd8 100644
          const auto current = fixtureOwner();
          Q_UNUSED(current);
          for (const auto &owner : qAsConst(fixtureOwners))
-@@ -320,6 +1601,13 @@ private slots:
+@@ -320,6 +1766,13 @@ private slots:
      }
      void activationDeadlineRejectsLateOwnerAcquisition() {
          const auto gate = directory->filePath(QStringLiteral("late-start"));
