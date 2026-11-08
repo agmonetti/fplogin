@@ -3681,7 +3681,7 @@ index e61bbeb..7f62fab 100644
                  app.exit(12);
                  return;
 diff --git a/test/DaemonContextTest.cpp b/test/DaemonContextTest.cpp
-index b721e43..d3fd16a 100644
+index b721e43..64712bb 100644
 --- a/test/DaemonContextTest.cpp
 +++ b/test/DaemonContextTest.cpp
 @@ -1,5 +1,6 @@
@@ -3794,7 +3794,7 @@ index b721e43..d3fd16a 100644
      }
      QString fixtureOwner() {
          const QDBusReply<QString> owner = QDBusConnection::systemBus().interface()->serviceOwner(
-@@ -258,6 +322,1175 @@ class DaemonContextTest : public QObject {
+@@ -258,6 +322,1184 @@ class DaemonContextTest : public QObject {
          QTRY_VERIFY(client.state(FingerprintState::Scanning));
      }
  private slots:
@@ -4885,9 +4885,18 @@ index b721e43..d3fd16a 100644
 +                                  .arg(armed).arg(fired).arg(pamReturned).arg(discarded).arg(exited);
 +        QVERIFY2(armed > 0 && fired > armed && pamReturned > fired
 +                 && discarded >= pamReturned && exited >= discarded, qPrintable(timeline));
-+        fprintf(stderr, "G05-4.3 request=%s %s\n", qPrintable(display.m_requestId), qPrintable(timeline));
++        QString exitResult;
++        for (const auto &event : events)
++            if (event.first.contains(QStringLiteral("event=helper-exit-result request=") + display.m_requestId + QLatin1Char(' '))
++                && event.first.contains(QStringLiteral("generation=1 ")))
++                exitResult = event.first;
++        QVERIFY2(!exitResult.isEmpty(), "missing exact-request helper exit status");
++        fprintf(stderr, "G05-4.3 request=%s %s kill-intent=%lld exit-result=%s\n",
++                qPrintable(display.m_requestId), qPrintable(timeline),
++                static_cast<long long>(at(QStringLiteral("kill-intent"), true)), qPrintable(exitResult));
 +        QCOMPARE(at(QStringLiteral("winner-selected"), false), qint64(-1));
 +        QCOMPARE(at(QStringLiteral("winner-authorize"), false), qint64(-1));
++        QCOMPARE(at(QStringLiteral("authorization-permit"), true), qint64(-1));
 +        QCOMPARE(at(QStringLiteral("session-open-success"), true), qint64(-1));
 +        QVERIFY(!display.m_contextCommitted && !display.m_methodWinnerChosen);
 +        QVERIFY(!client.state(FingerprintState::Matched));
@@ -4970,7 +4979,7 @@ index b721e43..d3fd16a 100644
      void initTestCase() {
          busDirectory = std::make_unique<QTemporaryDir>(QDir::currentPath() + QStringLiteral("/availability-bus-XXXXXX"));
          QVERIFY(busDirectory->isValid());
-@@ -280,6 +1513,9 @@ private slots:
+@@ -280,6 +1522,9 @@ private slots:
          QVERIFY(QDBusConnection::systemBus().isConnected());
      }
      void cleanup() {
@@ -4980,7 +4989,7 @@ index b721e43..d3fd16a 100644
          const auto current = fixtureOwner();
          Q_UNUSED(current);
          for (const auto &owner : qAsConst(fixtureOwners))
-@@ -320,6 +1556,13 @@ private slots:
+@@ -320,6 +1565,13 @@ private slots:
      }
      void activationDeadlineRejectsLateOwnerAcquisition() {
          const auto gate = directory->filePath(QStringLiteral("late-start"));
