@@ -874,7 +874,7 @@
     <div class="top-meta-left">
       <span class="top-meta-tag">REPOSITORY: agmonetti/fplogin</span>
       <span>COMMIT: <code id="meta-head">HEAD (main)</code></span>
-      <span>UPDATED: <span id="meta-updated">2026-10-22</span></span>
+      <span>UPDATED: <span id="meta-updated">2026-11-08</span></span>
     </div>
     <div class="top-meta-right">
       <span id="data-source-indicator">SOURCE: metrics.json (Live)</span>
@@ -1040,11 +1040,11 @@
     "tagline": "Biometric Fingerprint Authentication for Linux Display Managers",
     "target_v1": "Arch Linux · systemd · SDDM 0.21.0 · fprintd / libfprint · Hyprland",
     "reference_hardware": "Synaptics 06cb:00bd (match-on-sensor USB)",
-    "last_updated": "2026-11-06",
-    "current_gate": "Sprint 2 (Repetir / G05 offline bloqueado; aceptación física pendiente)",
+    "last_updated": "2026-11-08",
+    "current_gate": "Sprint 2 (Repetir / G05 físico parcial; carreras y aceptación pendientes)",
     "current_gate_status": "in_progress",
-    "latest_achievement": "Protocolo offline ABORT/STATUS y autoridad de salidas retenida implementados y revisados: 61 AuthTransport, 37 DaemonContext y CTest 9/9. Lanzamientos bloqueados; no READY ni aceptación G05.",
-    "next_step": "Implementar HELLO_ACK armado, puertas verificadas y recuperación supervisada sin SIGKILL; corregir 9 negativas del controlador offline. Sin despliegue autorizado.",
+    "latest_achievement": "G05-a1 físico: salida normal de huella tras ~30 s, PAM end rc=0, contraseña retenida según operador y una sesión posterior por contraseña. Sin evento explícito del deadline; evidencia básica parcial, no aceptación.",
+    "next_step": "Fortalecer correlación offline de deadline/estado y resolver controlador armado/recuperación antes de solicitar un nuevo handoff para las carreras G05.",
     "summary": {
       "total_items": 152,
       "done": 120,
@@ -1607,8 +1607,8 @@
           "id": "G05",
           "title": "G05: Límite de 30s de Huella, Timeout y Carreras",
           "status": "blocked",
-          "description": "Timeout solo tras salida del helper; success-first y timeout-first con entrada retenida. Protocolo offline ABORT/STATUS y salidas exactas verificados: 61 AuthTransport, 37 DaemonContext y CTest 9/9. Recuperación armada y mock-PAM pendientes. No READY ni aceptación física.",
-          "evidence": "docs/reviews/g05-abort-implementation-2026-11-06.md; docs/reviews/g05-abort-wire-spec-2026-11-05.md; docs/reviews/sprint-2.md"
+          "description": "G05-a1 físico parcial: ~30 s hasta terminación, PAM end rc=0, salida de huella corroborada; captura posterior muestra timed out; contraseña retenida según operador y una sesión por contraseña. Sin deadline/state timestamp explícito. Offline mock-PAM probó ambas órdenes controladas, no carreras físicas. Controlador y recuperación armada pendientes; no READY ni aceptación G05.",
+          "evidence": "docs/reviews/sprint-2.md#9-2026-11-08-g05-a1--basic-physical-timeoutretained-input-partial-evidence-and-closed-handoff; tests/integration/sddm-lab-g05-diagnostic.json"
         },
         {
           "id": "G06",
