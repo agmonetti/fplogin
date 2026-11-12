@@ -1,0 +1,68 @@
+# fplogin Sprint 3 preparation — UNACCEPTED. Owner-authorized preparatory work
+# while Sprint 2 is not accepted; not a release artifact.
+# Patched SDDM with concurrent password/fingerprint authentication (fplogin
+# patch series 0001+0002) plus the fplogin theme and dedicated PAM service.
+pkgname=sddm-fplogin
+pkgver=0.21.0
+pkgrel=1
+pkgdesc="QML based X11 and Wayland display manager with fplogin concurrent fingerprint authentication (unaccepted preview)"
+arch=('x86_64')
+url="https://github.com/sddm/sddm"
+license=('GPL-2.0-or-later' 'CC-BY-3.0')
+depends=('bash' 'glibc' 'libgcc' 'libstdc++' 'libxau' 'libxcb' 'pam' 'qt6-base'
+         'qt6-declarative' 'systemd-libs' 'ttf-font' 'xorg-server' 'xorg-xauth' 'fprintd')
+makedepends=('cmake' 'extra-cmake-modules' 'git' 'python-docutils' 'qt6-tools')
+# Known gap vs stock: no Qt5 greeter (the series' tests fail to build with Qt5: AuthMethod needs Q_DECLARE_METATYPE). Qt5 themes are unsupported.
+provides=('display-manager' "sddm=$pkgver")
+conflicts=('sddm')
+backup=('etc/pam.d/sddm' 'etc/pam.d/sddm-autologin' 'etc/pam.d/sddm-greeter'
+        'etc/pam.d/sddm-fingerprint')
+_commit=63780fcd79f1dbf81a30eef48c28c699ab15aded # v0.21.0
+source=("sddm::git+https://github.com/sddm/sddm.git#commit=${_commit}"
+        '0000-cmake-raise-required-version.patch'
+        '0001-concurrent-authentication-methods.patch'
+        '0002-greeter-api-and-theme-lifecycle.patch'
+        'sddm-fingerprint'
+        'fplogin-Main.qml' 'fplogin-metadata.desktop' 'fplogin-theme.conf' 'fplogin-LICENSE')
+sha256sums=('SKIP' @CHECKSUMS@)
+
+prepare() {
+  cd sddm
+  git apply --check ../0000-cmake-raise-required-version.patch
+  git apply ../0000-cmake-raise-required-version.patch
+  for patch in ../0001-concurrent-authentication-methods.patch ../0002-greeter-api-and-theme-lifecycle.patch; do
+    git apply --check "$patch"
+    git apply "$patch"
+  done
+}
+
+build() {
+  cmake -B build -S sddm \
+    -DCMAKE_BUILD_TYPE=None \
+    -DCMAKE_INSTALL_PREFIX=/usr \
+    -DCMAKE_INSTALL_LIBEXECDIR=/usr/lib/sddm \
+    -DDBUS_CONFIG_DIR=/usr/share/dbus-1/system.d \
+    -DDBUS_CONFIG_FILENAME=sddm_org.freedesktop.DisplayManager.conf \
+    -DBUILD_MAN_PAGES=ON \
+    -DUID_MAX=60513 \
+    -DBUILD_WITH_QT6=ON
+  cmake --build build
+}
+
+package() {
+  DESTDIR="$pkgdir" cmake --install build
+  install -d "$pkgdir"/usr/lib/sddm/sddm.conf.d
+  "$pkgdir"/usr/bin/sddm --example-config > "$pkgdir"/usr/lib/sddm/sddm.conf.d/default.conf
+  # Arch defaults: unprivileged PATH, no forced virtual keyboard.
+  sed -r 's|DefaultPath=.*|DefaultPath=/usr/local/sbin:/usr/local/bin:/usr/bin|g' -i "$pkgdir"/usr/lib/sddm/sddm.conf.d/default.conf
+  sed -e '/^InputMethod/s/qtvirtualkeyboard//' -i "$pkgdir"/usr/lib/sddm/sddm.conf.d/default.conf
+
+  # Dedicated fingerprint PAM service (fixed name used by the patched helper).
+  install -Dm644 sddm-fingerprint "$pkgdir"/etc/pam.d/sddm-fingerprint
+
+  # fplogin theme: Main.qml at the theme root. Activation is the installer's job.
+  install -Dm644 fplogin-Main.qml "$pkgdir"/usr/share/sddm/themes/fplogin/Main.qml
+  install -Dm644 fplogin-metadata.desktop "$pkgdir"/usr/share/sddm/themes/fplogin/metadata.desktop
+  install -Dm644 fplogin-theme.conf "$pkgdir"/usr/share/sddm/themes/fplogin/theme.conf
+  install -Dm644 fplogin-LICENSE "$pkgdir"/usr/share/licenses/$pkgname/fplogin-theme-LICENSE
+}
