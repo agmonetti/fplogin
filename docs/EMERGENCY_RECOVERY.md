@@ -16,22 +16,27 @@ Key guarantees:
 
 ---
 
-## 2. Automated Recovery via CLI
+## 2. Automated Recovery via CLI — not available yet
 
-If a power failure, system crash, or process termination interrupted a transaction mid-mutation, run:
+> **Do not rely on `fplogin install`/`uninstall` for recovery.** The [2026-11-12 audit](reviews/cli-provider-audit-2026-11-12.md) found that they cannot complete end to end (discovery fails before any change; adapter and platform operations refuse). `fplogin status` only reports whether a manifest exists. Use the package-level procedure below (§2.1) or the manual steps (§3).
 
-```bash
-# Check current system and transaction status
-fplogin status
+### 2.1 Package-level rollback to stock SDDM (sddm-fplogin)
 
-# Re-run install with dry-run to inspect proposed recovery actions
-fplogin install --dry-run
+This applies when the patched SDDM package `sddm-fplogin` is installed. It was rehearsed on 2026-11-12 in a lab VM (no reader): see [Sprint 3 plan](SPRINT_3_EXECUTION_PLAN.md#vm-install-and-rollback-rehearsal-2026-11-12-no-reader).
 
-# Or run uninstaller to restore clean baseline state
-fplogin uninstall
-```
-
-If a journal is present in an uncommitted state (`applying`, `rollback_required`, `verification_failed`), `fplogin` will report the pending compensation actions required.
+1. Switch to a text console (`Ctrl`+`Alt`+`F3`, or the rescue shell) and log in as root or a sudo user with your **password** (the fingerprint path is not involved).
+2. Stop the greeter: `systemctl stop sddm.service`.
+3. Reinstall stock SDDM; the package conflict removes `sddm-fplogin`:
+   - offline, from the pacman cache, verifying the signature first:
+     ```bash
+     pkg=$(ls /var/cache/pacman/pkg/sddm-0.21*-x86_64.pkg.tar.zst | tail -1)
+     pacman-key --verify "$pkg.sig" "$pkg"
+     pacman -U "$pkg"
+     ```
+   - or online: `pacman -S sddm`.
+4. Check: `pacman -Q sddm` shows `sddm`, not `sddm-fplogin`; `/etc/pam.d/sddm-fingerprint` and `/usr/share/sddm/themes/fplogin` are gone. A modified PAM file is kept as `.pacsave`.
+5. Optional: remove any drop-in that selects the fplogin theme (for example `/etc/sddm.conf.d/*fplogin*.conf`). If it is left in place, stock SDDM logs "The configured theme "fplogin" doesn't exist, using the embedded theme instead" and still offers password login.
+6. `systemctl start sddm.service` and log in with your password.
 
 ---
 
