@@ -52,7 +52,7 @@ index 1e02674..009aa1a 100644
          void startSocketServerAndGreeter();
          void handleAutologinFailure();
 diff --git a/test/DaemonContextTest.cpp b/test/DaemonContextTest.cpp
-index 189d90d..988247e 100644
+index 189d90d..c57fd71 100644
 --- a/test/DaemonContextTest.cpp
 +++ b/test/DaemonContextTest.cpp
 @@ -14,6 +14,7 @@
@@ -81,10 +81,236 @@ index 189d90d..988247e 100644
      private:
          void probeFingerprintAvailability() override {
              if (realAvailability) {
-@@ -1561,6 +1566,124 @@ private slots:
+@@ -327,6 +332,62 @@ class DaemonContextTest : public QObject {
+         QTRY_COMPARE(display.peers.value(int(AuthMethod::Fingerprint)).request, display.m_requestId);
+         QTRY_VERIFY(client.state(FingerprintState::Scanning));
+     }
++#ifdef G05_INTEGRATED
++    // Shared trace capture for Sprint 2 integrated offline cases.
++    struct S2Trace {
++        static QList<QPair<QString, qint64>> &events() { static QList<QPair<QString, qint64>> e; return e; }
++        QtMessageHandler previous;
++        S2Trace() {
++            events().clear();
++            previous = qInstallMessageHandler([](QtMsgType, const QMessageLogContext &, const QString &message) {
++                if (message.contains(QStringLiteral("FPLOGIN_TRACE")))
++                    events().append({message, AuthLaunchObservation::monotonicMs()});
++            });
++        }
++        ~S2Trace() { qInstallMessageHandler(previous); }
++        static QString line(const QString &name, const QString &request, const QString &extra = {}) {
++            for (const auto &event : events())
++                if (event.first.contains(QStringLiteral("event=") + name + QLatin1Char(' '))
++                    && event.first.contains(QStringLiteral("request=") + request + QLatin1Char(' '))
++                    && (extra.isEmpty() || event.first.contains(extra)))
++                    return event.first;
++            return {};
++        }
++        static qint64 at(const QString &name, const QString &request, const QString &extra = {}) {
++            for (const auto &event : events())
++                if (event.first.contains(QStringLiteral("event=") + name + QLatin1Char(' '))
++                    && event.first.contains(QStringLiteral("request=") + request + QLatin1Char(' '))
++                    && (extra.isEmpty() || event.first.contains(extra)))
++                    return event.second;
++            return -1;
++        }
++        static int count(const QString &name, const QString &request) {
++            int n = 0;
++            for (const auto &event : events())
++                n += event.first.contains(QStringLiteral("event=") + name + QLatin1Char(' '))
++                     && event.first.contains(QStringLiteral("request=") + request + QLatin1Char(' '));
++            return n;
++        }
++        static QString pid(const QString &request, const QString &role) {
++            const auto start = line(QStringLiteral("helper-start"), request, QStringLiteral(" role=") + role);
++            return QRegularExpression(QStringLiteral("helper_pid=(\\d+)")).match(start).captured(1);
++        }
++        // Mock PAM log line "<what> pid=<pid> ms=<ms> rc=<rc>" -> ms, or -1.
++        static qint64 pam(const QString &what, const QString &pid, int rc = -1000) {
++            QFile file(QStringLiteral("/lab/sprint2-pam-log"));
++            if (!file.open(QIODevice::ReadOnly))
++                return -1;
++            const auto pattern = QRegularExpression(QStringLiteral("^(\\S+) pid=(\\d+) ms=(\\d+) rc=(-?\\d+)$"));
++            for (const auto &raw : QString::fromUtf8(file.readAll()).split(QLatin1Char('\n'))) {
++                const auto m = pattern.match(raw.trimmed());
++                if (m.hasMatch() && m.captured(1) == what && m.captured(2) == pid
++                    && (rc == -1000 || m.captured(4).toInt() == rc))
++                    return m.captured(3).toLongLong();
++            }
++            return -1;
++        }
++    };
++#endif
+ private slots:
+     void diagnosticAbortOrders_data() {
+         QTest::addColumn<QString>("order");
+@@ -1561,6 +1622,287 @@ private slots:
          for (const auto &event : events)
              permits += event.first.contains(QStringLiteral("event=authorization-permit request=") + display.m_requestId);
          QCOMPARE(permits, 1);
++#endif
++    }
++    // G05 carry-over / G14: after the fingerprint deadline, PAM is cancelled by
++    // SIGTERM, the module returns PAM_AUTHINFO_UNAVAIL, pam_end runs, the helper
++    // exits normally without SIGKILL, and timed_out is published only after exit.
++    void realPamDeadlineNormalCleanup() {
++#ifndef G05_INTEGRATED
++        QSKIP("Requires disposable-container PAM and real helper");
++#else
++        QVERIFY(QFile::exists(QStringLiteral("/.dockerenv")));
++        QVERIFY(QFile::exists(QStringLiteral("/lab/sprint2-pam.so")));
++        mainConfig.FingerprintAuthTimeout.set(1);
++        S2Trace trace;
++        Harness display(directory->filePath(QStringLiteral("control")));
++        Client client;
++        connectClient(display, client);
++        select(client, 1, QStringLiteral("root"));
++        QTRY_COMPARE(display.m_contextUser, QStringLiteral("root"));
++        const auto request = display.m_requestId;
++        display.setFingerprintAvailability(1, request, true, QStringLiteral("available"));
++        start(client, 1);
++        QTRY_VERIFY_WITH_TIMEOUT(client.state(FingerprintState::TimedOut), 10000);
++        // Single-threaded daemon: if timed_out is visible, the exit must already be recorded.
++        const qint64 exitedWhenTimedOutSeen = S2Trace::at(QStringLiteral("helper-exit"), request, QStringLiteral(" role=fingerprint"));
++        QTRY_VERIFY_WITH_TIMEOUT(!display.m_fingerprintAuth->isActive(), 8000);
++        const auto pid = S2Trace::pid(request, QStringLiteral("fingerprint"));
++        QVERIFY(!pid.isEmpty());
++        const qint64 armed = S2Trace::at(QStringLiteral("deadline-armed"), request);
++        const qint64 fired = S2Trace::at(QStringLiteral("deadline-fired"), request);
++        const qint64 term = S2Trace::at(QStringLiteral("terminate-intent"), request, QStringLiteral(" role=fingerprint"));
++        const qint64 entered = S2Trace::pam(QStringLiteral("authenticate-enter"), pid);
++        const qint64 returned = S2Trace::pam(QStringLiteral("authenticate-return"), pid, 9);
++        const qint64 ended = S2Trace::pam(QStringLiteral("end"), pid);
++        const qint64 exited = S2Trace::at(QStringLiteral("helper-exit"), request, QStringLiteral(" role=fingerprint"));
++        const auto exitResult = S2Trace::line(QStringLiteral("helper-exit-result"), request);
++        const auto timeline = QStringLiteral("S2 deadline-normal-cleanup request=%1 armed=%2 pam-enter=%3 fired=%4 term=%5 pam-return-rc9=%6 pam-end=%7 exit=%8 kill=%9 result=[%10]")
++            .arg(request).arg(armed).arg(entered).arg(fired).arg(term).arg(returned).arg(ended).arg(exited)
++            .arg(S2Trace::at(QStringLiteral("kill-intent"), request)).arg(exitResult);
++        fprintf(stderr, "%s\n", qPrintable(timeline));
++        QVERIFY2(armed > 0 && entered > 0 && fired > armed && term >= fired, qPrintable(timeline));
++        QVERIFY2(returned >= term && ended >= returned && exited >= ended, qPrintable(timeline));
++        QVERIFY2(exitedWhenTimedOutSeen > 0, "timed_out became visible before the helper exit was observed");
++        QCOMPARE(S2Trace::at(QStringLiteral("kill-intent"), request), qint64(-1));
++        QVERIFY2(exitResult.contains(QStringLiteral("exit_status=normal")), qPrintable(exitResult));
++        QCOMPARE(S2Trace::at(QStringLiteral("winner-selected"), request), qint64(-1));
++        QCOMPARE(S2Trace::at(QStringLiteral("authorization-permit"), request), qint64(-1));
++        QVERIFY(!display.m_contextCommitted && !client.state(FingerprintState::Matched));
++        QTest::qWait(1500);
++        QCOMPARE(display.m_fingerprintAuth->launchGeneration(), quint64(1));
++#endif
++    }
++    // G09: a wrong password during an active scan fails only the password
++    // method; the same fingerprint generation keeps running and wins; one session.
++    void realPamPasswordFailureFingerprintContinues() {
++#ifndef G05_INTEGRATED
++        QSKIP("Requires disposable-container PAM and real helper");
++#else
++        QVERIFY(QFile::exists(QStringLiteral("/.dockerenv")));
++        QVERIFY(QFile::exists(QStringLiteral("/lab/sprint2-pam.so")));
++        mainConfig.FingerprintAuthTimeout.set(30);
++        S2Trace trace;
++        Harness display(directory->filePath(QStringLiteral("control")));
++        display.realTestSession = true;
++        Client client;
++        connectClient(display, client);
++        select(client, 1, QStringLiteral("root"));
++        QTRY_COMPARE(display.m_contextUser, QStringLiteral("root"));
++        const auto request = display.m_requestId;
++        display.setFingerprintAvailability(1, request, true, QStringLiteral("available"));
++        start(client, 1);
++        QTRY_VERIFY(!S2Trace::pid(request, QStringLiteral("fingerprint")).isEmpty());
++        password(client, QStringLiteral("root"));
++        QTRY_VERIFY_WITH_TIMEOUT(client.state(FingerprintState::Failed, AuthenticationMethod::Password), 5000);
++        const qint64 passwordFailedSeen = AuthLaunchObservation::monotonicMs();
++        QVERIFY(display.m_fingerprintAuth->isActive());
++        QCOMPARE(display.m_fingerprintAuth->launchGeneration(), quint64(1));
++        QVERIFY(!client.state(FingerprintState::Matched));
++        QTRY_VERIFY_WITH_TIMEOUT(S2Trace::at(QStringLiteral("session-open-success"), request) > 0, 8000);
++        QTRY_VERIFY_WITH_TIMEOUT(!display.m_fingerprintAuth->isActive(), 8000);
++        const auto fpPid = S2Trace::pid(request, QStringLiteral("fingerprint"));
++        const auto pwPid = S2Trace::pid(request, QStringLiteral("password"));
++        const qint64 pwReturn = S2Trace::pam(QStringLiteral("authenticate-return"), pwPid, 7);
++        const qint64 pwEnd = S2Trace::pam(QStringLiteral("end"), pwPid);
++        const qint64 fpReturn = S2Trace::pam(QStringLiteral("authenticate-return"), fpPid, 0);
++        const qint64 selected = S2Trace::at(QStringLiteral("winner-selected"), request);
++        const auto timeline = QStringLiteral("S2 G09 request=%1 pw-pid=%2 pw-return-rc7=%3 pw-end=%4 pw-failed-seen=%5 fp-pid=%6 fp-return-rc0=%7 selected=%8 permits=%9 opens=%10")
++            .arg(request, pwPid).arg(pwReturn).arg(pwEnd).arg(passwordFailedSeen).arg(fpPid).arg(fpReturn).arg(selected)
++            .arg(S2Trace::count(QStringLiteral("authorization-permit"), request))
++            .arg(S2Trace::count(QStringLiteral("session-open-success"), request));
++        fprintf(stderr, "%s\n", qPrintable(timeline));
++        QVERIFY2(!pwPid.isEmpty() && !fpPid.isEmpty() && pwPid != fpPid, qPrintable(timeline));
++        QVERIFY2(pwReturn > 0 && pwEnd >= pwReturn && fpReturn > pwReturn && selected >= fpReturn, qPrintable(timeline));
++        QVERIFY(S2Trace::line(QStringLiteral("winner-selected"), request).contains(QStringLiteral(" method=1 ")));
++        QCOMPARE(S2Trace::count(QStringLiteral("authorization-permit"), request), 1);
++        QCOMPARE(S2Trace::count(QStringLiteral("session-open-success"), request), 1);
++        QCOMPARE(display.m_fingerprintAuth->launchGeneration(), quint64(1));
++        QCOMPARE(display.m_auth->launchGeneration(), quint64(1));
++        QVERIFY(client.state(FingerprintState::Matched));
++        QFile executions(QStringLiteral("/lab/g05-session-executions"));
++        QVERIFY(executions.open(QIODevice::ReadOnly));
++        QCOMPARE(executions.readAll(), QByteArray("executed\n"));
++        QCOMPARE(S2Trace::pam(QStringLiteral("account"), fpPid, 0) > 0, true);
++        QCOMPARE(S2Trace::pam(QStringLiteral("open"), fpPid) > 0, true);
++#endif
++    }
++    // G07: replacing the context A -> B -> A while fingerprint PAM is inside
++    // pam_authenticate cancels it with normal cleanup; the replacement helper
++    // starts only after the observed old exit, under a new request.
++    void realPamContextReplacementWaitsForNormalExit() {
++#ifndef G05_INTEGRATED
++        QSKIP("Requires disposable-container PAM and real helper");
++#else
++        QVERIFY(QFile::exists(QStringLiteral("/.dockerenv")));
++        QVERIFY(QFile::exists(QStringLiteral("/lab/sprint2-pam.so")));
++        mainConfig.FingerprintAuthTimeout.set(30);
++        S2Trace trace;
++        Harness display(directory->filePath(QStringLiteral("control")));
++        Client client;
++        connectClient(display, client);
++        select(client, 1, QStringLiteral("root"));
++        QTRY_COMPARE(display.m_contextUser, QStringLiteral("root"));
++        const auto first = display.m_requestId;
++        display.setFingerprintAvailability(1, first, true, QStringLiteral("available"));
++        start(client, 1);
++        QTRY_VERIFY(!S2Trace::pid(first, QStringLiteral("fingerprint")).isEmpty());
++        const auto oldPid = S2Trace::pid(first, QStringLiteral("fingerprint"));
++        QTRY_VERIFY_WITH_TIMEOUT(S2Trace::pam(QStringLiteral("authenticate-enter"), oldPid) > 0, 5000);
++        select(client, 2, QStringLiteral("nobody"));
++        start(client, 2);
++        select(client, 3, QStringLiteral("root"));
++        start(client, 3);
++        QTRY_COMPARE_WITH_TIMEOUT(display.m_contextSerial, quint64(3), 10000);
++        const auto latest = display.m_requestId;
++        QVERIFY(latest != first);
++        QCOMPARE(display.m_contextUser, QStringLiteral("root"));
++        QTRY_VERIFY(display.m_fingerprintStartRequested || display.m_fingerprintAuth->launchGeneration() == 2);
++        display.setFingerprintAvailability(3, latest, true, QStringLiteral("available"));
++        QTRY_COMPARE_WITH_TIMEOUT(display.m_fingerprintAuth->launchGeneration(), quint64(2), 5000);
++        QTRY_VERIFY(!S2Trace::pid(latest, QStringLiteral("fingerprint")).isEmpty());
++        const auto newPid = S2Trace::pid(latest, QStringLiteral("fingerprint"));
++        const qint64 oldTerm = S2Trace::at(QStringLiteral("terminate-intent"), first, QStringLiteral(" role=fingerprint"));
++        const qint64 oldReturn = S2Trace::pam(QStringLiteral("authenticate-return"), oldPid, 9);
++        const qint64 oldEnd = S2Trace::pam(QStringLiteral("end"), oldPid);
++        const qint64 oldExit = S2Trace::at(QStringLiteral("helper-exit"), first, QStringLiteral(" role=fingerprint"));
++        const qint64 newStart = S2Trace::at(QStringLiteral("helper-start"), latest, QStringLiteral(" role=fingerprint"));
++        const auto oldResult = S2Trace::line(QStringLiteral("helper-exit-result"), first);
++        int intermediateLaunches = 0;
++        for (const auto &event : S2Trace::events())
++            intermediateLaunches += event.first.contains(QStringLiteral("event=helper-start "))
++                && !event.first.contains(first) && !event.first.contains(latest);
++        const auto timeline = QStringLiteral("S2 G07 first=%1 old-pid=%2 term=%3 pam-return-rc9=%4 pam-end=%5 old-exit=%6 latest=%7 new-pid=%8 new-start=%9 intermediate-launches=%10 old-result=[%11]")
++            .arg(first, oldPid).arg(oldTerm).arg(oldReturn).arg(oldEnd).arg(oldExit).arg(latest, newPid).arg(newStart)
++            .arg(intermediateLaunches).arg(oldResult);
++        fprintf(stderr, "%s\n", qPrintable(timeline));
++        QVERIFY2(oldTerm > 0 && oldReturn >= oldTerm && oldEnd >= oldReturn && oldExit >= oldEnd, qPrintable(timeline));
++        QVERIFY2(newStart > oldExit && newPid != oldPid, qPrintable(timeline));
++        QVERIFY2(oldResult.contains(QStringLiteral("exit_status=normal")), qPrintable(oldResult));
++        QCOMPARE(S2Trace::at(QStringLiteral("kill-intent"), first), qint64(-1));
++        QCOMPARE(intermediateLaunches, 0);
++        QCOMPARE(S2Trace::at(QStringLiteral("winner-selected"), first), qint64(-1));
++        cancel(client, 3, latest);
++        QTRY_VERIFY_WITH_TIMEOUT(!display.m_fingerprintAuth->isActive(), 8000);
++        QCOMPARE(S2Trace::at(QStringLiteral("kill-intent"), latest), qint64(-1));
 +#endif
 +    }
 +    // G10 offline: genuine fingerprint PAM success followed by pam_acct_mgmt

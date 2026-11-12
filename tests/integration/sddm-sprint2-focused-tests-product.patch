@@ -1,0 +1,83 @@
+diff --git a/test/FploginThemeTest.cpp b/test/FploginThemeTest.cpp
+index bfadaff..521233c 100644
+--- a/test/FploginThemeTest.cpp
++++ b/test/FploginThemeTest.cpp
+@@ -304,6 +304,78 @@ private slots:
+         }
+         QCOMPARE(count(GreeterMessages::StartAuthenticationMethod), 1);
+     }
++    // G13 offline: complete keyboard traversal at logical surfaces that
++    // correspond to common fractional scales; every control reachable,
++    // fully inside the window, and navigation never submits or powers off.
++    void keyboardTraversalReachesEveryControlFullyVisible_data() {
++        QTest::addColumn<QSize>("size");
++        QTest::newRow("1920x1080@100%") << QSize(1920, 1080);
++        QTest::newRow("1920x1080@125%") << QSize(1536, 864);
++        QTest::newRow("1920x1080@150%") << QSize(1280, 720);
++        QTest::newRow("1366x768@125%") << QSize(1093, 614);
++        QTest::newRow("1280x800@150%") << QSize(853, 533);
++        QTest::newRow("lab-1918x1046") << QSize(1918, 1046);
++        QTest::newRow("narrow-480x320") << QSize(480, 320);
++    }
++    void keyboardTraversalReachesEveryControlFullyVisible() {
++        QFETCH(QSize, size);
++        setup();
++        send([](QDataStream &out) { out << quint32(DaemonMessages::Capabilities) << quint32(0x1F); });
++        QTRY_VERIFY(proxy->canPowerOff() && proxy->canHibernate());
++        acknowledge();
++        view->resize(size);
++        QTRY_COMPARE(view->size(), size);
++        password()->forceActiveFocus();
++        password()->setProperty("text", QStringLiteral("typed-fixture"));
++        auto named = [&]() -> QQuickItem * {
++            QQuickItem *item = view->activeFocusItem();
++            while (item && item->objectName().isEmpty())
++                item = item->parentItem();
++            return item;
++        };
++        auto fullyVisible = [&](QQuickItem *item) {
++            const QPointF p = item->mapToScene(QPointF());
++            return item->width() > 0 && item->height() > 0 && p.x() >= -0.5 && p.y() >= -0.5
++                && p.x() + item->width() <= view->width() + 0.5
++                && p.y() + item->height() <= view->height() + 0.5;
++        };
++        const QStringList required {
++            QStringLiteral("userSelector"), QStringLiteral("sessionSelector"), QStringLiteral("passwordField"),
++            QStringLiteral("loginButton"), QStringLiteral("fingerprintButton"), QStringLiteral("powerOffButton"),
++            QStringLiteral("rebootButton"), QStringLiteral("hybridSleepButton"), QStringLiteral("suspendButton"),
++            QStringLiteral("hibernateButton") };
++        auto walk = [&](Qt::Key key, QStringList &order) {
++            for (int i = 0; i < 24; ++i) {
++                QTest::keyClick(view.get(), key);
++                QQuickItem *item = nullptr;
++                QTRY_VERIFY((item = named()) != nullptr);
++                const QString name = item->objectName();
++                QTRY_VERIFY2(fullyVisible(item), qPrintable(QStringLiteral("%1 not fully visible at %2x%3")
++                                                                .arg(name).arg(size.width()).arg(size.height())));
++                order.append(name);
++                if (name == QStringLiteral("passwordField"))
++                    return;
++            }
++        };
++        QStringList forward, backward;
++        walk(Qt::Key_Tab, forward);
++        for (const auto &name : required)
++            QVERIFY2(forward.contains(name), qPrintable(name + QStringLiteral(" unreachable by Tab: ") + forward.join(QLatin1Char(','))));
++        QCOMPARE(forward.last(), QStringLiteral("passwordField"));
++        walk(Qt::Key_Backtab, backward);
++        for (const auto &name : required)
++            QVERIFY2(backward.contains(name), qPrintable(name + QStringLiteral(" unreachable by Backtab: ") + backward.join(QLatin1Char(','))));
++        fprintf(stderr, "S2 G13 size=%dx%d dpr=%.2f tab=%s\n", size.width(), size.height(),
++                view->devicePixelRatio(), qPrintable(forward.join(QLatin1Char(','))));
++        QCOMPARE(password()->property("text").toString(), QStringLiteral("typed-fixture"));
++        QCOMPARE(count(GreeterMessages::Login), 0);
++        QCOMPARE(count(GreeterMessages::PowerOff), 0);
++        QCOMPARE(count(GreeterMessages::Reboot), 0);
++        QCOMPARE(count(GreeterMessages::Suspend), 0);
++        QCOMPARE(count(GreeterMessages::Hibernate), 0);
++        QCOMPARE(count(GreeterMessages::HybridSleep), 0);
++        QCOMPARE(count(GreeterMessages::StartAuthenticationMethod), 1);
++    }
+     void sessionResetRetainsIdentityUntilRemoval() {
+         setup();
+         acknowledge();
