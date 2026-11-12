@@ -1,8 +1,8 @@
 diff --git a/test/FploginThemeTest.cpp b/test/FploginThemeTest.cpp
-index bfadaff..521233c 100644
+index bfadaff..fd4272b 100644
 --- a/test/FploginThemeTest.cpp
 +++ b/test/FploginThemeTest.cpp
-@@ -304,6 +304,78 @@ private slots:
+@@ -304,6 +304,115 @@ private slots:
          }
          QCOMPARE(count(GreeterMessages::StartAuthenticationMethod), 1);
      }
@@ -77,6 +77,43 @@ index bfadaff..521233c 100644
 +        QCOMPARE(count(GreeterMessages::Hibernate), 0);
 +        QCOMPARE(count(GreeterMessages::HybridSleep), 0);
 +        QCOMPARE(count(GreeterMessages::StartAuthenticationMethod), 1);
++    }
++    // G13 regression (found on the real lab surface at QT_SCALE_FACTOR=1.5 with the
++    // on-screen keyboard): while the password field has focus in a short viewport,
++    // the fingerprint status line and the sign-in row must stay visible with it.
++    void shortViewportKeepsStatusVisibleWhileTypingPassword_data() {
++        QTest::addColumn<QSize>("size");
++        QTest::newRow("1280x800@150%-above-osk") << QSize(853, 300);
++        QTest::newRow("1366x768@125%-above-osk") << QSize(1093, 320);
++        QTest::newRow("1280x800@100%-above-osk") << QSize(1280, 420);
++    }
++    void shortViewportKeepsStatusVisibleWhileTypingPassword() {
++        QFETCH(QSize, size);
++        setup();
++        acknowledge();
++        state(FingerprintState::Scanning);
++        QTRY_COMPARE(proxy->fingerprintState(), QStringLiteral("scanning"));
++        view->resize(size);
++        QTRY_COMPARE(view->size(), size);
++        auto *loginButton = view->rootObject()->findChild<QQuickItem *>(QStringLiteral("loginButton"));
++        QVERIFY(loginButton);
++        QQuickItem *status = nullptr;
++        for (auto *item : view->rootObject()->findChildren<QQuickItem *>())
++            if (item->property("text").toString() == view->rootObject()->property("statusText").toString()
++                && item->isVisible() && item != password())
++                status = item;
++        QVERIFY2(status, "status label not found");
++        // Move focus away and back so the viewport logic runs for the password field.
++        loginButton->forceActiveFocus();
++        password()->forceActiveFocus();
++        auto inside = [&](QQuickItem *item) {
++            const QPointF p = item->mapToScene(QPointF());
++            return p.y() >= -0.5 && p.y() + item->height() <= view->height() + 0.5;
++        };
++        QTRY_VERIFY(inside(password()));
++        QTRY_VERIFY2(inside(status), qPrintable(QStringLiteral("status hidden while typing at %1x%2").arg(size.width()).arg(size.height())));
++        QTRY_VERIFY2(inside(loginButton), qPrintable(QStringLiteral("sign-in row hidden while typing at %1x%2").arg(size.width()).arg(size.height())));
++        QVERIFY(inside(password()));
 +    }
      void sessionResetRetainsIdentityUntilRemoval() {
          setup();
