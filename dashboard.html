@@ -874,7 +874,7 @@
     <div class="top-meta-left">
       <span class="top-meta-tag">REPOSITORY: agmonetti/fplogin</span>
       <span>COMMIT: <code id="meta-head">HEAD (main)</code></span>
-      <span>UPDATED: <span id="meta-updated">2026-11-11</span></span>
+      <span>UPDATED: <span id="meta-updated">2026-11-12</span></span>
     </div>
     <div class="top-meta-right">
       <span id="data-source-indicator">SOURCE: metrics.json (Live)</span>
@@ -922,7 +922,7 @@
       <div class="metric-card blocked">
         <div class="metric-label">Bloqueadas (gates pendientes)</div>
         <div class="metric-val" id="val-blocked" style="color: var(--status-blocked-text);">21</div>
-        <div class="metric-sub">G06-G16, S3 PAM/paquetes, S6 IPC</div>
+        <div class="metric-sub">G07-G10, G12, S3 PAM/paquetes, S6 IPC</div>
       </div>
       <div class="metric-card pending">
         <div class="metric-label">Pendientes (Planned)</div>
@@ -1040,16 +1040,16 @@
     "tagline": "Biometric Fingerprint Authentication for Linux Display Managers",
     "target_v1": "Arch Linux · systemd · SDDM 0.21.0 · fprintd / libfprint · Hyprland",
     "reference_hardware": "Synaptics 06cb:00bd (match-on-sensor USB)",
-    "last_updated": "2026-11-11",
+    "last_updated": "2026-11-12",
     "current_gate": "Sprint 2 (Repetir / G05 resuelto por el dueño, revisión independiente pendiente; G06–G16 pendientes)",
     "current_gate_status": "in_progress",
-    "latest_achievement": "Más cobertura automática: limpieza PAM normal tras el plazo (con control negativo), G07 y G09 integrados con helper real, G13 recorrido por teclado con escalado (20/20) y auditor de secretos G16 (0 hallazgos). Ver docs/SPRINT_2_VALIDATION_CHECKLIST.md.",
-    "next_step": "Revisión independiente (G05 y los tests nuevos); decidir si los tests y la costura G14 entran al producto; pasos del dueño para G16; Grupo A en VM sin lector.",
+    "latest_achievement": "Corrida autónoma en la VM sin lector: G06a/G06b, G11, G13 (defecto del tema encontrado y corregido), G14 suspensión y G15 relogin verificados en la superficie real; G16 con la contraseña escrita.",
+    "next_step": "Revisión independiente (G05, tests nuevos y la corrección 28dd731); casos que requieren lector (G06c, G07–G10, G14/G15 restantes) con una entrega nueva del lector.",
     "summary": {
       "total_items": 152,
       "done": 120,
-      "partial": 6,
-      "blocked": 20,
+      "partial": 11,
+      "blocked": 15,
       "pending": 6,
       "percentage": 78.95
     }
@@ -1613,9 +1613,9 @@
         {
           "id": "G06",
           "title": "G06: Lector Ausente / Servicio Apagado / Usuario No Enrolado",
-          "status": "blocked",
-          "description": "Comportamiento cuando fprintd.service está detenido o el usuario no tiene huellas guardadas en fprintd-enroll.",
-          "evidence": "docs/reviews/sprint-2.md (Pendiente Hardware)"
+          "status": "partial",
+          "description": "G06a (lector ausente) y G06b (servicio enmascarado, Retry sin bucle) verificados en la superficie real, con la contraseña conservada que abre una sola sesión. Falta G06c (usuario sin huellas con lector).",
+          "evidence": "docs/SPRINT_2_VALIDATION_CHECKLIST.md; docs/reviews/sprint-2.md §12"
         },
         {
           "id": "G07",
@@ -1648,51 +1648,51 @@
         {
           "id": "G11",
           "title": "G11: Fallo de Arranque de Tema y Fallback a Rescate",
-          "status": "blocked",
-          "description": "Inyección de archivo QML corrupto en el greeter; comprobar que el usuario puede autenticarse mediante el tema de rescate.",
-          "evidence": "docs/reviews/sprint-2.md (Pendiente Hardware)"
+          "status": "partial",
+          "description": "Variante de QML inválido verificada en la superficie real: respaldo embebido y login por contraseña (una sesión). Falta la variante de carga parcial.",
+          "evidence": "docs/SPRINT_2_VALIDATION_CHECKLIST.md; docs/reviews/sprint-2.md §12"
         },
         {
           "id": "G12",
           "title": "G12: Gestión de Pantallas Multi-Monitor Dinámica",
           "status": "blocked",
-          "description": "Conexión y desconexión de cables DisplayPort/HDMI mientras la autenticación dactilar está armada.",
-          "evidence": "docs/reviews/sprint-2.md (Pendiente Hardware)"
+          "description": "Bloqueado por entorno: el lanzador de la VM tiene una sola salida de video; cubierto offline por GreeterAppTest.",
+          "evidence": "docs/SPRINT_2_VALIDATION_CHECKLIST.md; docs/reviews/sprint-2.md §12"
         },
         {
           "id": "G13",
           "title": "G13: Navegación por Teclado y Superficie Escalada",
           "status": "partial",
-          "description": "Offline hecho: Tab/Shift+Tab alcanzan los 10 controles completamente visibles en 7 superficies de escalado fraccional, con dpr 1.0 y 1.5 (20/20). Falta confirmar en el compositor real.",
-          "evidence": "docs/SPRINT_2_VALIDATION_CHECKLIST.md"
+          "description": "Verificado en la superficie real al 100 % y 150 %. Se encontró y corrigió un defecto del tema (estado oculto sobre el teclado en pantalla a 150 %, commit 28dd731) con regresión; pendiente de revisión.",
+          "evidence": "docs/SPRINT_2_VALIDATION_CHECKLIST.md; docs/reviews/sprint-2.md §12"
         },
         {
           "id": "G14",
           "title": "G14: Destrucción de Greeter, Suspensión y Energía",
-          "status": "blocked",
-          "description": "Offline hecho en rama de prueba: la energía espera la salida observada de ambos helpers, un solo despacho, sin relanzamiento oculto. Requiere decidir la costura de test y la física.",
-          "evidence": "docs/SPRINT_2_VALIDATION_CHECKLIST.md"
+          "status": "partial",
+          "description": "Suspensión/reanudación real sin activación oculta (request nuevo); espera de helpers probada offline. El reset del invitado tras S3 es del entorno (TCG). Faltan los casos con lector.",
+          "evidence": "docs/SPRINT_2_VALIDATION_CHECKLIST.md; docs/reviews/sprint-2.md §12"
         },
         {
           "id": "G15",
           "title": "G15: Logout / Relogin y Compatibilidad con Hyprland",
-          "status": "blocked",
-          "description": "Cierre de sesión desde compositor Hyprland y retorno limpio al greeter con el sensor nuevamente disponible.",
-          "evidence": "docs/reviews/sprint-2.md (Pendiente Hardware)"
+          "status": "partial",
+          "description": "4 ciclos reales de logout → greeter nuevo → relogin limpio. Falta la matriz de compatibilidad y el relogin por huella.",
+          "evidence": "docs/SPRINT_2_VALIDATION_CHECKLIST.md; docs/reviews/sprint-2.md §12"
         },
         {
           "id": "G16",
           "title": "G16: Auditoría Integral de No Exposición de Secretos",
-          "status": "blocked",
-          "description": "Auditor automático (sin mostrar contenido): 0 hallazgos en evidencia, checkpoints y repo con allowlist revisada por línea. Falta: correrlo con la contraseña desechable del dueño y la revisión visual de capturas.",
-          "evidence": "docs/SPRINT_2_VALIDATION_CHECKLIST.md"
+          "status": "partial",
+          "description": "Auditor y verificación con la contraseña realmente escrita en el lab: sin apariciones fuera del archivo secreto (destruido). Falta la contraseña de fplab y las capturas antiguas.",
+          "evidence": "docs/SPRINT_2_VALIDATION_CHECKLIST.md; docs/reviews/sprint-2.md §12"
         }
       ],
       "summary": {
         "total": 28,
         "done": 14,
-        "partial": 4,
-        "blocked": 10,
+        "partial": 9,
+        "blocked": 5,
         "pending": 0,
         "percentage": 50.0
       }
