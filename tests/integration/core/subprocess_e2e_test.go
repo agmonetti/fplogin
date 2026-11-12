@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -73,11 +74,11 @@ func TestE2E_Subprocess_PlatformAndAdapter(t *testing.T) {
 
 	// 3. Test Platform Client Discovery and Invoke over real pipes
 	runner, err := processrunner.New(processrunner.Config{
-		Timeout:         5 * time.Second,
-		MaxInputBytes:   1 << 20,
-		MaxStdoutBytes:  1 << 20,
-		MaxStderrBytes:  4096,
-		Environment:     os.Environ(),
+		Timeout:        5 * time.Second,
+		MaxInputBytes:  1 << 20,
+		MaxStdoutBytes: 1 << 20,
+		MaxStderrBytes: 4096,
+		Environment:    os.Environ(),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -164,8 +165,33 @@ func TestE2E_Subprocess_PlatformAndAdapter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("adapterclient Invoke Detect failed: %v", err)
 	}
-	if !adapResp.OK {
-		t.Fatalf("expected OK adapter response, got error: %v", adapResp.Error)
+	// Fail-closed contract: without a verified implementation, Detect must not
+	// fabricate a "confirmed active SDDM" target.
+	if adapResp.OK {
+		t.Fatalf("Detect must fail closed until implemented, got OK result %s", string(adapResp.Result))
+	}
+	if adapResp.Error == nil || !strings.Contains(adapResp.Error.Message, "not implemented") {
+		t.Fatalf("expected explicit not-implemented adapter error, got %+v", adapResp.Error)
+	}
+
+	// No mutation may report success: ApplyOperation must refuse with a contract code.
+	reqID3, _ := protocol.NewRequestID()
+	applyResp, err := pClient.Invoke(context.Background(), discoveredPlatforms[0], platformv1.Request{
+		ProtocolVersion: protocol.Version{Major: 1, Minor: 0},
+		RequestID:       reqID3,
+		Operation:       "ApplyOperation",
+		CoreVersion:     "0.1.0",
+		Context:         hostCtx,
+		Payload: json.RawMessage(`{"operation":{"operation_id":"op-1","kind":"create_directory","dependencies":[],` +
+			`"parameters":{"path":"/var/lib/fplogin-e2e-never-created","mode":"0755","owner":"root","group":"root"},"preconditions":[],"expected_before":{},` +
+			`"expected_after":{},"compensation":{"kind":"remove_directory","path":"/var/lib/fplogin-e2e-never-created"}},` +
+			`"plan_digest":"4b227777d4dd1fc61c6f884f48641d02b4d121d3fd328cb08b5531fcacdabf8a"}`),
+	})
+	if err != nil {
+		t.Fatalf("platformclient Invoke ApplyOperation failed: %v", err)
+	}
+	if applyResp.OK || applyResp.Error == nil || applyResp.Error.Code != "unsupported_operation" {
+		t.Fatalf("ApplyOperation must refuse with unsupported_operation, got OK=%v err=%+v", applyResp.OK, applyResp.Error)
 	}
 }
 

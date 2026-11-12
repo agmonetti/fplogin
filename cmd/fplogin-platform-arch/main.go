@@ -4,14 +4,14 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"runtime"
-	"time"
+	"strings"
 
 	"fplogin/internal/protocol"
-	manifestv1 "fplogin/internal/protocol/manifest/v1"
 	platformv1 "fplogin/internal/protocol/platform/v1"
 )
 
@@ -30,7 +30,12 @@ func main() {
 
 	res, err := handleRequest(req)
 	if err != nil {
-		emitError(req.RequestID, req.ProtocolVersion, "ERR_OPERATION_FAILED", err.Error())
+		code := "internal_error"
+		var known *opError
+		if errors.As(err, &known) {
+			code = known.code
+		}
+		emitError(req.RequestID, req.ProtocolVersion, code, err.Error())
 		os.Exit(0)
 	}
 
@@ -112,6 +117,38 @@ const staticPlatformDescriptor = `{
   "asset_root": "assets"
 }`
 
+// opError carries a contract error code (contracts/platform/v1/response.schema.json).
+type opError struct {
+	code    string
+	message string
+}
+
+func (e *opError) Error() string { return e.message }
+
+// notImplemented fails closed: an operation without a verified host
+// implementation must never report fabricated host state or success.
+func notImplemented(operation string) error {
+	return &opError{code: "unsupported_operation",
+		message: fmt.Sprintf("operation %q is not implemented by this platform provider (fail-closed; no host state was read or changed)", operation)}
+}
+
+// osReleaseID reads the distribution ID from os-release without executing anything.
+func osReleaseID(paths ...string) (string, error) {
+	for _, path := range paths {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		for _, line := range strings.Split(string(data), "\n") {
+			if value, ok := strings.CutPrefix(strings.TrimSpace(line), "ID="); ok {
+				return strings.Trim(value, `"'`), nil
+			}
+		}
+		return "", fmt.Errorf("%s has no ID field", path)
+	}
+	return "", fmt.Errorf("os-release not readable")
+}
+
 func handleRequest(req platformv1.Request) (json.RawMessage, error) {
 	switch req.Operation {
 	case "Describe":
@@ -122,83 +159,24 @@ func handleRequest(req platformv1.Request) (json.RawMessage, error) {
 		if arch == "amd64" {
 			arch = "x86_64"
 		}
+		id, err := osReleaseID("/etc/os-release", "/usr/lib/os-release")
+		if err != nil {
+			return nil, &opError{code: "host_read_failed", message: err.Error()}
+		}
 		result := map[string]any{
 			"host_facts": map[string]any{
-				"distribution": "arch",
+				"distribution": id,
 				"architecture": arch,
 			},
 		}
 		return json.Marshal(result)
 
-	case "ListPackageCandidates":
-		result := map[string]any{
-			"candidates": []map[string]any{
-				{"package_name": "fprintd", "status": "installed", "version": "1.94.3"},
-				{"package_name": "sddm", "status": "installed", "version": "0.21.0"},
-			},
-		}
-		return json.Marshal(result)
-
-	case "ListServiceCandidates":
-		result := map[string]any{
-			"candidates": []map[string]any{
-				{
-					"service_reference": "display-manager.service",
-					"status":            "active",
-					"enabled":           true,
-					"fragment_path":     "/usr/lib/systemd/system/sddm.service",
-				},
-				{
-					"service_reference": "sddm.service",
-					"status":            "active",
-					"enabled":           true,
-				},
-			},
-		}
-		return json.Marshal(result)
-
-	case "CollectAnalyzerFacts":
-		result := map[string]any{
-			"facts": map[string]any{
-				"distribution":    "arch",
-				"service_manager": "systemd",
-			},
-		}
-		return json.Marshal(result)
-
-	case "PrepareArtifactInstall":
-		result := map[string]any{
-			"status": "prepared",
-		}
-		return json.Marshal(result)
-
-	case "ApplyOperation":
-		var payload platformv1.ApplyOperationPayload
-		if err := json.Unmarshal(req.Payload, &payload); err != nil {
-			return nil, fmt.Errorf("unmarshal apply payload: %w", err)
-		}
-
-		now := time.Now().UTC().Format(time.RFC3339)
-		receipt := manifestv1.OperationReceipt{
-			OperationID:  payload.Operation.OperationID,
-			Kind:         payload.Operation.Kind,
-			StartedAt:    now,
-			CompletedAt:  now,
-			Status:       "success",
-			BeforeState:  protocol.Object{"state": json.RawMessage(`"disabled"`)},
-			AfterState:   protocol.Object{"state": json.RawMessage(`"enabled"`)},
-			Compensation: toObject(payload.Operation.Compensation),
-		}
-		return json.Marshal(receipt)
-
-	case "VerifyOperation":
-		result := map[string]any{
-			"verified": true,
-		}
-		return json.Marshal(result)
+	case "ListPackageCandidates", "ListServiceCandidates", "CollectAnalyzerFacts",
+		"PrepareArtifactInstall", "ApplyOperation", "VerifyOperation":
+		return nil, notImplemented(req.Operation)
 
 	default:
-		return nil, fmt.Errorf("unsupported platform operation %q", req.Operation)
+		return nil, &opError{code: "unsupported_operation", message: fmt.Sprintf("unknown platform operation %q", req.Operation)}
 	}
 }
 
