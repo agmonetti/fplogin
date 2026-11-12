@@ -11,11 +11,11 @@
     "next_step": "Revisión independiente; decisión sobre el greeter Qt5; pruebas con lector (Sprint 2 G06c/G07–G10/G14–G15 y el camino de huella del paquete).",
     "summary": {
       "total_items": 152,
-      "done": 117,
-      "partial": 20,
-      "blocked": 9,
+      "done": 124,
+      "partial": 17,
+      "blocked": 5,
       "pending": 6,
-      "percentage": 76.97
+      "percentage": 81.6
     }
   },
   "sprints": [
@@ -577,37 +577,37 @@
         {
           "id": "G06",
           "title": "G06: Lector Ausente / Servicio Apagado / Usuario No Enrolado",
-          "status": "partial",
-          "description": "G06a (lector ausente) y G06b (servicio enmascarado, Retry sin bucle) verificados en la superficie real, con la contraseña conservada que abre una sola sesión. Falta G06c (usuario sin huellas con lector).",
-          "evidence": "docs/SPRINT_2_VALIDATION_CHECKLIST.md; docs/reviews/sprint-2.md §12"
+          "status": "done",
+          "description": "G06a (sin lector), G06b (servicio enmascarado) y G06c (usuario fplab2 sin huellas con lector presente) verificados en superficie real sin bucles y con login por contraseña conservada.",
+          "evidence": "docs/SPRINT_2_VALIDATION_CHECKLIST.md; .work/evidence/sprint2/physical-20261112T134819-*"
         },
         {
           "id": "G07",
           "title": "G07: Cambio Rápido de Usuario / Sesión A–B–A",
-          "status": "blocked",
-          "description": "Offline hecho: con helper real dentro de PAM, A→B→A cancela con limpieza normal y el reemplazo arranca recién después de la salida observada (4/4). Falta la física con dos usuarios.",
-          "evidence": "docs/SPRINT_2_VALIDATION_CHECKLIST.md"
+          "status": "done",
+          "description": "Verificado en superficie real: con escaneo activo, A→B→A cancela helper viejo, espera su salida observada y el reemplazo gana limpiamente por huella en sesión seat0 única.",
+          "evidence": "docs/SPRINT_2_VALIDATION_CHECKLIST.md; .work/evidence/sprint2/physical-20261112T134819-*"
         },
         {
           "id": "G08",
           "title": "G08: Cancelación Previa al Ack y Reintento Explícito",
-          "status": "blocked",
-          "description": "Petición de cancelación enviada antes de que el demonio SDDM responda el acknowledge de inicio.",
-          "evidence": "docs/reviews/sprint-2.md (Pendiente Hardware)"
+          "status": "done",
+          "description": "Verificado en superficie real: cancelación con Escape (pam_authenticate rc=9, pam_end rc=0, salida normal), Retry relanza helper gen 2 y abre sesión por huella.",
+          "evidence": "docs/SPRINT_2_VALIDATION_CHECKLIST.md; .work/evidence/sprint2/physical-20261112T134819-*"
         },
         {
           "id": "G09",
           "title": "G09: Fallo de Contraseña y Reintento Continuo",
-          "status": "blocked",
-          "description": "Offline hecho: la contraseña errónea no reinicia la huella (misma generación), que gana con un solo permiso y una sola sesión (4/4). Falta la física.",
-          "evidence": "docs/SPRINT_2_VALIDATION_CHECKLIST.md"
+          "status": "done",
+          "description": "Verificado en superficie real: contraseña errónea da PAM rc=7 y sale, helper de huella sigue activo en su misma generación y gana al apoyar el dedo.",
+          "evidence": "docs/SPRINT_2_VALIDATION_CHECKLIST.md; .work/evidence/sprint2/physical-20261112T134819-*"
         },
         {
           "id": "G10",
           "title": "G10: Denegación de Cuenta tras Coincidencia Biométrica",
-          "status": "blocked",
-          "description": "Offline hecho: test integrado con helper real y mock PAM (match → cuenta denegada → intento Failed, sin sesión). Falta la física con política reversible en el invitado.",
-          "evidence": "docs/SPRINT_2_VALIDATION_CHECKLIST.md"
+          "status": "done",
+          "description": "Verificado en superficie real: huella coincide (rc=0), pam_acct_mgmt deniega (rc=6), 0 sesiones de usuario. Recuperación limpia por contraseña tras restaurar PAM.",
+          "evidence": "docs/SPRINT_2_VALIDATION_CHECKLIST.md; .work/evidence/sprint2/physical-20261112T134819-*"
         },
         {
           "id": "G11",
@@ -633,16 +633,16 @@
         {
           "id": "G14",
           "title": "G14: Destrucción de Greeter, Suspensión y Energía",
-          "status": "partial",
-          "description": "Suspensión/reanudación real sin activación oculta (request nuevo); espera de helpers probada offline. El reset del invitado tras S3 es del entorno (TCG). Faltan los casos con lector.",
-          "evidence": "docs/SPRINT_2_VALIDATION_CHECKLIST.md; docs/reviews/sprint-2.md §12"
+          "status": "done",
+          "description": "Verificado en superficie real: suspensión sin activación oculta (Group A); parada de SDDM con helper de huella vivo limpia en 0.58s con terminate-intent y salida normal (código 1); 0 binarios SDDM residuales.",
+          "evidence": "docs/SPRINT_2_VALIDATION_CHECKLIST.md; .work/evidence/sprint2/physical-20261112T134819-*"
         },
         {
           "id": "G15",
           "title": "G15: Logout / Relogin y Compatibilidad con Hyprland",
-          "status": "partial",
-          "description": "4 ciclos reales de logout → greeter nuevo → relogin limpio. Falta la matriz de compatibilidad y el relogin por huella.",
-          "evidence": "docs/SPRINT_2_VALIDATION_CHECKLIST.md; docs/reviews/sprint-2.md §12"
+          "status": "done",
+          "description": "Verificado en superficie real: 4 ciclos de logout/relogin con contraseña limpios + relogin por huella directo tras logout verificado en sesión seat0 nueva (id 35).",
+          "evidence": "docs/SPRINT_2_VALIDATION_CHECKLIST.md; .work/evidence/sprint2/physical-20261112T134819-*"
         },
         {
           "id": "G16",
@@ -654,11 +654,11 @@
       ],
       "summary": {
         "total": 28,
-        "done": 14,
-        "partial": 9,
-        "blocked": 5,
+        "done": 21,
+        "partial": 6,
+        "blocked": 1,
         "pending": 0,
-        "percentage": 50.0
+        "percentage": 75.0
       }
     },
     {
