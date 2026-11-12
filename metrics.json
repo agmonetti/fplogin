@@ -7,13 +7,13 @@
     "last_updated": "2026-11-12",
     "current_gate": "Sprint 2 (Repetir / G05 resuelto por el dueño, revisión independiente pendiente; G06–G16 pendientes)",
     "current_gate_status": "in_progress",
-    "latest_achievement": "Corrida autónoma en la VM sin lector: G06a/G06b, G11, G13 (defecto del tema encontrado y corregido), G14 suspensión y G15 relogin verificados en la superficie real; G16 con la contraseña escrita.",
-    "next_step": "Revisión independiente (G05, tests nuevos y la corrección 28dd731); casos que requieren lector (G06c, G07–G10, G14/G15 restantes) con una entrega nueva del lector.",
+    "latest_achievement": "Sprint 3 preparatorio (no aceptado): servicio PAM nuevo (corrige el bypass de faillock), paquete sddm-fplogin reproducible bit a bit, instalación, login y vuelta al stock ensayados en una VM separada. Auditoría de la CLI: los stubs ahora fallan de forma segura.",
+    "next_step": "Revisión independiente; decisión sobre el greeter Qt5; pruebas con lector (Sprint 2 G06c/G07–G10/G14–G15 y el camino de huella del paquete).",
     "summary": {
       "total_items": 152,
       "done": 120,
-      "partial": 11,
-      "blocked": 15,
+      "partial": 17,
+      "blocked": 9,
       "pending": 6,
       "percentage": 78.95
     }
@@ -671,65 +671,65 @@
         {
           "id": "S3-01",
           "title": "Definición de Servicio PAM sddm-fingerprint",
-          "status": "blocked",
-          "description": "Servicio dedicado para Arch que no modifica PAM global ni el servicio sddm de contraseña. Entregable pendiente, no evidencia de implementación.",
-          "evidence": "docs/IMPLEMENTATION_PLAN.md"
+          "status": "partial",
+          "description": "Servicio sddm-fingerprint empaquetado (preparatorio, no aceptado): requisite shells/nologin/faillock antes de pam_fprintd, sin pedir contraseña; corrige el bypass de faillock del servicio del lab. Falta el camino de huella con lector.",
+          "evidence": "docs/SPRINT_3_EXECUTION_PLAN.md"
         },
         {
           "id": "S3-02",
           "title": "Política de Cuentas y Sesión de la Distribución",
-          "status": "blocked",
-          "description": "Reutilizar la política Arch de cuenta y sesión sin invocar autenticación por contraseña después del éxito biométrico; verificar restricciones de cuenta y apertura de sesión.",
-          "evidence": "docs/IMPLEMENTATION_PLAN.md"
+          "status": "partial",
+          "description": "account/session vía la política stock de sddm: en contenedor, cuenta válida 0, pam_access 6, expirada 13, sesión 0; login real por contraseña en la VM con el paquete.",
+          "evidence": "docs/SPRINT_3_EXECUTION_PLAN.md"
         },
         {
           "id": "S3-03",
           "title": "Parámetros de Módulo de Reintento y Timeout",
-          "status": "blocked",
-          "description": "Definir y verificar reintentos y timeout del servicio PAM dedicado, diferenciándolos del deadline del daemon; no asumir parámetros de módulo sin validarlos.",
-          "evidence": "docs/IMPLEMENTATION_PLAN.md"
+          "status": "partial",
+          "description": "max-tries=3, timeout=35 (respaldo por encima del plazo de 30 s del daemon). Falta verificarlo con lector.",
+          "evidence": "docs/SPRINT_3_EXECUTION_PLAN.md"
         },
         {
           "id": "S3-04",
           "title": "Receta Arch para el Stack SDDM Parcheado",
           "status": "partial",
-          "description": "Existe receta para herramientas Go y descriptores. No compila SDDM parcheado: faltan fuente y serie aceptada fijadas por checksum, sin overlays diagnósticos. Sprint 3 no iniciado ni aceptado.",
-          "evidence": "platforms/arch/PKGBUILD"
+          "description": "PKGBUILD sddm-fplogin con commit fijado y serie 0001+0002; compila en entorno Arch limpio. Falta: greeter Qt5 (decisión) y aceptación.",
+          "evidence": "docs/SPRINT_3_EXECUTION_PLAN.md"
         },
         {
           "id": "S3-05",
           "title": "Reglas de Conflicts / Provides en Gestor de Paquetes",
           "status": "partial",
-          "description": "La receta existente declara provides/conflicts de fplogin, no de SDDM. Falta definir conservadoramente propiedad, dependencias y reemplazo/retorno del paquete SDDM; sin sustitución automática aprobada.",
-          "evidence": "platforms/arch/PKGBUILD"
+          "description": "VM sin lector: pacman -U reemplaza sddm limpio; provides/conflicts correctos. Falta el camino de huella.",
+          "evidence": "docs/SPRINT_3_EXECUTION_PLAN.md"
         },
         {
           "id": "S3-06",
           "title": "Empaquetado de Tema y Assets de Interfaz",
-          "status": "blocked",
-          "description": "Empaquetar los assets existentes y licencias con propiedad y modos correctos; comprobar que Main.qml quede en la raíz del tema, no bajo theme/. No añadir fuentes o iconos no requeridos.",
-          "evidence": "adapters/sddm/assets/theme/"
+          "status": "partial",
+          "description": "Tema en la raíz, modos 644 root:root; el greeter del paquete lo carga en la VM. Pendiente de revisión.",
+          "evidence": "docs/SPRINT_3_EXECUTION_PLAN.md"
         },
         {
           "id": "S3-07",
           "title": "Recuperación TTY y Retorno a SDDM Stock",
-          "status": "blocked",
-          "description": "Documentar y verificar retirada/reemplazo del paquete y retorno a contraseña con SDDM stock. Quitar el paquete no reinstala stock por sí solo. Automatización del instalador pertenece a Sprint 4.",
-          "evidence": "docs/IMPLEMENTATION_PLAN.md"
+          "status": "partial",
+          "description": "Vuelta al stock ensayada en la VM: paquete firmado desde caché, sin restos, login por contraseña con SDDM stock; procedimiento en EMERGENCY_RECOVERY §2.1.",
+          "evidence": "docs/SPRINT_3_EXECUTION_PLAN.md"
         },
         {
           "id": "S3-08",
           "title": "Verificación de Compilación en Chroot Limpio",
-          "status": "blocked",
-          "description": "Construir en entorno Arch limpio, registrar herramientas/fuentes y comparar reconstrucciones. Verificar archivos package-owned, modos y hashes; después, ciclo de instalación, ambos métodos, restricciones de cuenta y rollback en invitado autorizado. Compilar no prueba reproducibilidad ni aceptación.",
-          "evidence": "docs/IMPLEMENTATION_PLAN.md"
+          "status": "partial",
+          "description": "Reproducible: tres builds limpios; con el mismo SOURCE_DATE_EPOCH el paquete es idéntico bit a bit (SHA-256 81903bda…). Pendiente de revisión.",
+          "evidence": "docs/SPRINT_3_EXECUTION_PLAN.md"
         }
       ],
       "summary": {
         "total": 8,
         "done": 0,
-        "partial": 2,
-        "blocked": 6,
+        "partial": 8,
+        "blocked": 0,
         "pending": 0,
         "percentage": 0.0
       }
