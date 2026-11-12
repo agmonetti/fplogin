@@ -648,7 +648,7 @@
           "id": "G16",
           "title": "G16: Auditoría Integral de No Exposición de Secretos",
           "status": "partial",
-          "description": "Auditoría ampliada: textos, 179 imágenes únicas y 30 bundles revisados sin filtración identificada. Queda únicamente búsqueda literal local de la contraseña descartable de fplab, con entrada oculta; no requiere VM ni lector.",
+          "description": "Textos, 179 imágenes y 30 bundles revisados. Chequeo literal ejecutado: coincidencias sin clasificar, no filtraciones confirmadas. Repetición local con reporte contextual y nombre exclusivo; sin VM ni lector.",
           "evidence": "docs/SPRINT_2_VALIDATION_CHECKLIST.md; docs/reviews/sprint-2.md §12"
         }
       ],

@@ -4,7 +4,7 @@ Biometric login for Linux, under active development. The v1 target is fingerprin
 
 [![fplogin Project Telemetry & Milestone Matrix](docs/assets/dashboard.png)](dashboard.html)
 
-The updated capture reflects the [2026-11-12 independent Sprint 2 review](docs/reviews/sprint-2-acceptance-2026-11-12.md): **Repeat / Blocked; Sprint 3 transition not authorized**. Physical subcases and theme fix `28dd731` are retained, but G08/G14/G15 coverage, G05/G12 acceptance scope and the documented earlier gaps remain open. The [expanded G16 audit](docs/reviews/sprint-2-g16-audit-2026-11-12.md) found no leak in reviewed text, captures or bundles; only the owner-local literal test-password check remains. The dashboard capture reflects this updated audit status.
+The updated capture reflects the [2026-11-12 independent Sprint 2 review](docs/reviews/sprint-2-acceptance-2026-11-12.md): **Repeat / Blocked; Sprint 3 transition not authorized**. Physical subcases and theme fix `28dd731` are retained, but G08/G14/G15 coverage, G05/G12 acceptance scope and the documented earlier gaps remain open. The [expanded G16 audit](docs/reviews/sprint-2-g16-audit-2026-11-12.md) found no leak in reviewed text, captures or bundles; the owner-local literal check has run, but its matches still need contextual classification (not confirmed leaks). The dashboard capture reflects this updated audit status.
 
 ## The problem
 
