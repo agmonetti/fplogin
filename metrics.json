@@ -7,8 +7,8 @@
     "last_updated": "2026-11-11",
     "current_gate": "Sprint 2 (Repetir / G05 resuelto por el dueño, revisión independiente pendiente; G06–G16 pendientes)",
     "current_gate_status": "in_progress",
-    "latest_achievement": "Checklist de validación por ítem (docs/SPRINT_2_VALIDATION_CHECKLIST.md). Offline: producto 480332c CTest 9/9 y tema 13/13; G10 (cuenta denegada tras coincidencia, sin sesión) y G14 (energía espera la salida de los helpers, sin reanudación oculta) pasan en rama de prueba. G05 resuelto pendiente de revisión.",
-    "next_step": "Revisión independiente de G05; decidir la costura G14; Grupo A (G06/G11–G13) en VM sin lector con participación del dueño.",
+    "latest_achievement": "Más cobertura automática: limpieza PAM normal tras el plazo (con control negativo), G07 y G09 integrados con helper real, G13 recorrido por teclado con escalado (20/20) y auditor de secretos G16 (0 hallazgos). Ver docs/SPRINT_2_VALIDATION_CHECKLIST.md.",
+    "next_step": "Revisión independiente (G05 y los tests nuevos); decidir si los tests y la costura G14 entran al producto; pasos del dueño para G16; Grupo A en VM sin lector.",
     "summary": {
       "total_items": 152,
       "done": 120,
@@ -571,8 +571,8 @@
           "id": "G05",
           "title": "G05: Límite de 30s de Huella, Timeout y Carreras",
           "status": "partial",
-          "description": "Resuelto por el dueño (2026-11-11) bajo estrategia focalizada: 4.1 físico G05-a1; 4.2/4.3 offline con Display/Auth/helper reales y mock PAM. Límites: planificación controlada del perdedor, marcador previo al retorno PAM, limpieza por SIGKILL (llevada a G14). Revisión independiente pendiente; no es aceptación de Sprint 2. Controlador armado archivado como diagnóstico.",
-          "evidence": "docs/reviews/sprint-2.md#11-2026-11-11-g05-closure-under-the-focused-test-strategy--current-verdict; tests/integration/sddm-lab-g05-diagnostic.json"
+          "description": "Resuelto por el dueño (2026-11-11): 4.1 físico; 4.2/4.3 offline con código real. Agregado offline: limpieza PAM normal tras el plazo (rc=9, pam_end, salida normal sin SIGKILL) y timed_out recién después de la salida, con control negativo. Revisión independiente pendiente.",
+          "evidence": "docs/SPRINT_2_VALIDATION_CHECKLIST.md"
         },
         {
           "id": "G06",
@@ -585,8 +585,8 @@
           "id": "G07",
           "title": "G07: Cambio Rápido de Usuario / Sesión A–B–A",
           "status": "blocked",
-          "description": "Conmutación rápida entre múltiples usuarios en el selector de SDDM para verificar que no queden peticiones PAM colgadas.",
-          "evidence": "docs/reviews/sprint-2.md (Pendiente Hardware)"
+          "description": "Offline hecho: con helper real dentro de PAM, A→B→A cancela con limpieza normal y el reemplazo arranca recién después de la salida observada (4/4). Falta la física con dos usuarios.",
+          "evidence": "docs/SPRINT_2_VALIDATION_CHECKLIST.md"
         },
         {
           "id": "G08",
@@ -599,8 +599,8 @@
           "id": "G09",
           "title": "G09: Fallo de Contraseña y Reintento Continuo",
           "status": "blocked",
-          "description": "Tres contraseñas incorrectas consecutivas; verificar que el sensor biométrico no sea penalizado ni bloqueado.",
-          "evidence": "docs/reviews/sprint-2.md (Pendiente Hardware)"
+          "description": "Offline hecho: la contraseña errónea no reinicia la huella (misma generación), que gana con un solo permiso y una sola sesión (4/4). Falta la física.",
+          "evidence": "docs/SPRINT_2_VALIDATION_CHECKLIST.md"
         },
         {
           "id": "G10",
@@ -627,8 +627,8 @@
           "id": "G13",
           "title": "G13: Navegación por Teclado y Superficie Escalada",
           "status": "partial",
-          "description": "Verificación de accesibilidad total sin ratón y renderizado en pantallas con escalado fraccional Wayland (125%, 150%).",
-          "evidence": "docs/reviews/sprint-2.md"
+          "description": "Offline hecho: Tab/Shift+Tab alcanzan los 10 controles completamente visibles en 7 superficies de escalado fraccional, con dpr 1.0 y 1.5 (20/20). Falta confirmar en el compositor real.",
+          "evidence": "docs/SPRINT_2_VALIDATION_CHECKLIST.md"
         },
         {
           "id": "G14",
@@ -648,8 +648,8 @@
           "id": "G16",
           "title": "G16: Auditoría Integral de No Exposición de Secretos",
           "status": "blocked",
-          "description": "Revisión estricta de volcados de memoria, logs de systemd journald y capturas de pantalla para garantizar cero secretos expuestos.",
-          "evidence": "docs/reviews/sprint-2.md (Pendiente Hardware)"
+          "description": "Auditor automático (sin mostrar contenido): 0 hallazgos en evidencia, checkpoints y repo con allowlist revisada por línea. Falta: correrlo con la contraseña desechable del dueño y la revisión visual de capturas.",
+          "evidence": "docs/SPRINT_2_VALIDATION_CHECKLIST.md"
         }
       ],
       "summary": {
