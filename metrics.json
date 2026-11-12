@@ -5,17 +5,17 @@
     "target_v1": "Arch Linux · systemd · SDDM 0.21.0 · fprintd / libfprint · Hyprland",
     "reference_hardware": "Synaptics 06cb:00bd (match-on-sensor USB)",
     "last_updated": "2026-11-12",
-    "current_gate": "Sprint 2 (Repetir / G05 resuelto por el dueño, revisión independiente pendiente; G06–G16 pendientes)",
+    "current_gate": "Sprint 2 (Repetir / Bloqueado tras revisión independiente; Sprint 3 no autorizado)",
     "current_gate_status": "in_progress",
-    "latest_achievement": "Sprint 3 preparatorio (no aceptado): servicio PAM nuevo (corrige el bypass de faillock), paquete sddm-fplogin reproducible bit a bit, instalación, login y vuelta al stock ensayados en una VM separada. Auditoría de la CLI: los stubs ahora fallan de forma segura.",
-    "next_step": "Revisión independiente; decisión sobre el greeter Qt5; pruebas con lector (Sprint 2 G06c/G07–G10/G14–G15 y el camino de huella del paquete).",
+    "latest_achievement": "Revisión independiente: 7 digests físicos verificados y corrección de tema 28dd731 aceptada. G08/G14/G15 parciales; G14 no detuvo una huella activa. Sprint 3 preparatorio sigue no aceptado.",
+    "next_step": "Cerrar auditoría G16 y límites pendientes de superficie/fallback/compatibilidad; resolver alcance G05 y entorno G12 antes de nueva revisión Sprint 2.",
     "summary": {
       "total_items": 152,
-      "done": 124,
-      "partial": 17,
+      "done": 121,
+      "partial": 20,
       "blocked": 5,
       "pending": 6,
-      "percentage": 81.6
+      "percentage": 79.6
     }
   },
   "sprints": [
@@ -571,7 +571,7 @@
           "id": "G05",
           "title": "G05: Límite de 30s de Huella, Timeout y Carreras",
           "status": "partial",
-          "description": "Resuelto por el dueño (2026-11-11): 4.1 físico; 4.2/4.3 offline con código real. Agregado offline: limpieza PAM normal tras el plazo (rc=9, pam_end, salida normal sin SIGKILL) y timed_out recién después de la salida, con control negativo. Revisión independiente pendiente.",
+          "description": "Resuelto por el dueño: 4.1 físico y 4.2/4.3 offline con límites declarados. Revisión independiente: útil como prueba offline, insuficiente bajo la matriz de superficie real sin enmienda explícita. No repetir 4.1.",
           "evidence": "docs/SPRINT_2_VALIDATION_CHECKLIST.md"
         },
         {
@@ -591,8 +591,8 @@
         {
           "id": "G08",
           "title": "G08: Cancelación Previa al Ack y Reintento Explícito",
-          "status": "done",
-          "description": "Verificado en superficie real: cancelación con Escape (pam_authenticate rc=9, pam_end rc=0, salida normal), Retry relanza helper gen 2 y abre sesión por huella.",
+          "status": "partial",
+          "description": "Cancelación durante PAM y Retry con huella observados. No demuestra cancelación pre-ACK ni aislamiento de cancelación vieja; revisión independiente mantiene parcial.",
           "evidence": "docs/SPRINT_2_VALIDATION_CHECKLIST.md; .work/evidence/sprint2/physical-20261112T134819-*"
         },
         {
@@ -627,21 +627,21 @@
           "id": "G13",
           "title": "G13: Navegación por Teclado y Superficie Escalada",
           "status": "partial",
-          "description": "Verificado en la superficie real al 100 % y 150 %. Se encontró y corrigió un defecto del tema (estado oculto sobre el teclado en pantalla a 150 %, commit 28dd731) con regresión; pendiente de revisión.",
+          "description": "Superficie al 100 % y 150 %; corrección localizada 28dd731 aceptada por revisión de código/test y captura. No certifica todas las escalas ni toda la matriz G13.",
           "evidence": "docs/SPRINT_2_VALIDATION_CHECKLIST.md; docs/reviews/sprint-2.md §12"
         },
         {
           "id": "G14",
           "title": "G14: Destrucción de Greeter, Suspensión y Energía",
-          "status": "done",
-          "description": "Verificado en superficie real: suspensión sin activación oculta (Group A); parada de SDDM con helper de huella vivo limpia en 0.58s con terminate-intent y salida normal (código 1); 0 binarios SDDM residuales.",
+          "status": "partial",
+          "description": "Corregido en revisión: helper de huella salió 14.041s ANTES de parar SDDM. Parada de 0.577s y cero residuos no prueban limpieza de huella activa. Faltan límites de energía y sesión establecida.",
           "evidence": "docs/SPRINT_2_VALIDATION_CHECKLIST.md; .work/evidence/sprint2/physical-20261112T134819-*"
         },
         {
           "id": "G15",
           "title": "G15: Logout / Relogin y Compatibilidad con Hyprland",
-          "status": "done",
-          "description": "Verificado en superficie real: 4 ciclos de logout/relogin con contraseña limpios + relogin por huella directo tras logout verificado en sesión seat0 nueva (id 35).",
+          "status": "partial",
+          "description": "Logout/relogin por contraseña y huella verificados; falta matriz con runtimes stock/nuevos y diagnóstico de mezcla Sprint 1. No es aceptación completa de G15.",
           "evidence": "docs/SPRINT_2_VALIDATION_CHECKLIST.md; .work/evidence/sprint2/physical-20261112T134819-*"
         },
         {
@@ -654,11 +654,11 @@
       ],
       "summary": {
         "total": 28,
-        "done": 21,
-        "partial": 6,
+        "done": 18,
+        "partial": 9,
         "blocked": 1,
         "pending": 0,
-        "percentage": 75.0
+        "percentage": 64.3
       }
     },
     {

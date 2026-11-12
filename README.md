@@ -4,6 +4,8 @@ Biometric login for Linux, under active development. The v1 target is fingerprin
 
 [![fplogin Project Telemetry & Milestone Matrix](docs/assets/dashboard.png)](dashboard.html)
 
+The updated capture reflects the [2026-11-12 independent Sprint 2 review](docs/reviews/sprint-2-acceptance-2026-11-12.md): **Repeat / Blocked; Sprint 3 transition not authorized**. Physical subcases and theme fix `28dd731` are retained, but G08/G14/G15 coverage, G05/G12 acceptance scope, G16 and the documented earlier gaps remain open.
+
 ## The problem
 
 SDDM does not natively support fingerprint authentication. Users must type their password or, with manual PAM tweaks, press Enter and then place their finger. There is no built-in experience where the reader activates automatically and works in parallel with the password field.
