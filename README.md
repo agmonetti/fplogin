@@ -97,23 +97,16 @@ No existing system files will be modified in place. The installer will generate 
 
 ## CLI Usage
 
-`fplogin` provides a standalone command-line interface for installation, uninstallation, inspection, and analysis:
+> **Status (2026-11-12 audit, see [CLI and provider audit](docs/reviews/cli-provider-audit-2026-11-12.md)):** the `fplogin` CLI is **not ready for use**. `install` and `uninstall` cannot complete end to end: discovery fails before any change, and the SDDM adapter and Arch platform provider do not yet implement detection, planning, application or verification. These operations now refuse explicitly instead of reporting success. Do not run `sudo fplogin install` on a real system. `analyze` runs, but its "safe" conclusion is not yet backed by probes and must not be used to make an installation decision.
+
+Intended interface (target of Sprints 3–5, not yet verified):
 
 ```bash
-# Analyze system for password-derived facilities affected by biometric login
-fplogin analyze [--json] [--user <username>]
-
-# Perform dry-run installation (validates prerequisites and outputs proposed plan without mutating)
-fplogin install --dry-run
-
-# Perform full atomic installation
-sudo fplogin install
-
-# View current installation status and manifest details
-fplogin status
-
-# Clean uninstallation (restores backed up files and previous display manager)
-sudo fplogin uninstall
+fplogin analyze [--json] [--user <username>]   # experimental; conclusions not yet trustworthy
+fplogin install --dry-run                        # not functional yet
+sudo fplogin install                             # not functional yet — do not run
+fplogin status                                   # reports the absence/presence of a manifest
+sudo fplogin uninstall                           # not functional yet
 ```
 
 ## Documentation
