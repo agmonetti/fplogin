@@ -1,0 +1,208 @@
+diff --git a/src/daemon/Display.cpp b/src/daemon/Display.cpp
+index 23e169a..172dce3 100644
+--- a/src/daemon/Display.cpp
++++ b/src/daemon/Display.cpp
+@@ -1183,15 +1183,7 @@ namespace SDDM {
+         const auto action = GreeterMessages(m_pendingPower);
+         m_pendingPower = -1;
+         QTimer::singleShot(0, this, [this, action] {
+-            auto *power = daemonApp->powerManager();
+-            switch (action) {
+-            case GreeterMessages::PowerOff: power->powerOff(); break;
+-            case GreeterMessages::Reboot: power->reboot(); break;
+-            case GreeterMessages::Suspend: power->suspend(); break;
+-            case GreeterMessages::Hibernate: power->hibernate(); break;
+-            case GreeterMessages::HybridSleep: power->hybridSleep(); break;
+-            default: Q_UNREACHABLE();
+-            }
++            dispatchPowerAction(action);
+             // Resume needs a fresh visible context, never a hidden restart.
+             m_tearingDown = false;
+             m_contextOptedIn = false;
+@@ -1200,6 +1192,18 @@ namespace SDDM {
+         });
+     }
+ 
++    void Display::dispatchPowerAction(GreeterMessages action) {
++        auto *power = daemonApp->powerManager();
++        switch (action) {
++        case GreeterMessages::PowerOff: power->powerOff(); break;
++        case GreeterMessages::Reboot: power->reboot(); break;
++        case GreeterMessages::Suspend: power->suspend(); break;
++        case GreeterMessages::Hibernate: power->hibernate(); break;
++        case GreeterMessages::HybridSleep: power->hybridSleep(); break;
++        default: Q_UNREACHABLE();
++        }
++    }
++
+     QString Display::findGreeterTheme() const {
+         QString themeName = mainConfig.Theme.Current.get();
+ 
+diff --git a/src/daemon/Display.h b/src/daemon/Display.h
+index 1e02674..009aa1a 100644
+--- a/src/daemon/Display.h
++++ b/src/daemon/Display.h
+@@ -133,6 +133,8 @@ namespace SDDM {
+         void retireSocket(QLocalSocket *socket);
+         void requestPower(GreeterMessages action);
+         void performPendingPower();
++        // Test seam only: production dispatch is unchanged; tests observe the call.
++        virtual void dispatchPowerAction(GreeterMessages action);
+ 
+         void startSocketServerAndGreeter();
+         void handleAutologinFailure();
+diff --git a/test/DaemonContextTest.cpp b/test/DaemonContextTest.cpp
+index 189d90d..988247e 100644
+--- a/test/DaemonContextTest.cpp
++++ b/test/DaemonContextTest.cpp
+@@ -14,6 +14,7 @@
+ #include <QTemporaryDir>
+ #include <QTest>
+ #include <QTimer>
++#include <QDateTime>
+ #include <QDBusConnectionInterface>
+ #include <QDBusMessage>
+ #include <QDBusReply>
+@@ -161,6 +162,7 @@ class DaemonContextTest : public QObject {
+         int probes = 0;
+         bool realAvailability = false;
+         bool realTestSession = false;
++        QList<QPair<GreeterMessages, qint64>> powerDispatches;
+         explicit Harness(const QString &controlPath) : Display(nullptr, WaylandDisplayServerType, -1) {
+             controls.listen(controlPath);
+             QObject::connect(&controls, &QLocalServer::newConnection, this, [this] {
+@@ -186,6 +188,9 @@ class DaemonContextTest : public QObject {
+             const auto peer = peers.value(int(method)).socket;
+             if (peer) { peer->write(bytes); peer->flush(); }
+         }
++        void dispatchPowerAction(GreeterMessages action) override {
++            powerDispatches.append({action, QDateTime::currentMSecsSinceEpoch()});
++        }
+     private:
+         void probeFingerprintAvailability() override {
+             if (realAvailability) {
+@@ -1561,6 +1566,124 @@ private slots:
+         for (const auto &event : events)
+             permits += event.first.contains(QStringLiteral("event=authorization-permit request=") + display.m_requestId);
+         QCOMPARE(permits, 1);
++#endif
++    }
++    // G10 offline: genuine fingerprint PAM success followed by pam_acct_mgmt
++    // PAM_PERM_DENIED in the real helper. Proves daemon-side outcome only:
++    // matched is published, the attempt finishes Failed, no session opens.
++    // G14 offline: a power request during an active attempt cancels both
++    // helpers, dispatches only after both exits are observed, exactly once,
++    // and never relaunches fingerprint without a fresh visible context.
++    void powerWaitsForObservedHelperExitsAndNeverResumesHidden() {
++        Harness display(directory->filePath(QStringLiteral("control")));
++        Client client;
++        activate(display, client, QStringLiteral("a"));
++        password(client, QStringLiteral("a"));
++        QTRY_VERIFY(display.peers.contains(int(AuthMethod::Password)));
++        const auto fingerprintGeneration = display.m_fingerprintAuth->launchGeneration();
++        const auto passwordGeneration = display.m_auth->launchGeneration();
++        QVERIFY(display.m_fingerprintAuth->isActive() && display.m_auth->isActive());
++        display.requestPower(GreeterMessages::Suspend);
++        display.requestPower(GreeterMessages::PowerOff);
++        QTest::qWait(200);
++        QVERIFY(display.powerDispatches.isEmpty());
++        display.command(AuthMethod::Fingerprint, "E");
++        QTRY_VERIFY(!display.m_fingerprintAuth->isActive());
++        QTest::qWait(100);
++        QVERIFY2(display.powerDispatches.isEmpty(), "dispatched before the password helper exited");
++        const auto passwordExit = QDateTime::currentMSecsSinceEpoch();
++        display.command(AuthMethod::Password, "E");
++        QTRY_VERIFY(!display.m_auth->isActive());
++        QTRY_COMPARE(display.powerDispatches.size(), 1);
++        QCOMPARE(display.powerDispatches.first().first, GreeterMessages::Suspend);
++        QVERIFY(display.powerDispatches.first().second >= passwordExit);
++        QVERIFY(!client.state(FingerprintState::Matched));
++        QVERIFY(!display.m_contextCommitted);
++        // Simulated resume: availability arriving for the old request must not relaunch.
++        display.setFingerprintAvailability(1, display.m_requestId, true, QStringLiteral("available"));
++        QTest::qWait(1200);
++        QCOMPARE(display.powerDispatches.size(), 1);
++        QCOMPARE(display.m_fingerprintAuth->launchGeneration(), fingerprintGeneration);
++        QCOMPARE(display.m_auth->launchGeneration(), passwordGeneration);
++        QVERIFY(!display.m_fingerprintAuth->isActive() && !display.m_auth->isActive());
++        QVERIFY(!display.m_contextOptedIn);
++        // A fresh visible context after resume may start the reader again.
++        Client fresh;
++        connectClient(display, fresh);
++        select(fresh, 2, QStringLiteral("a"));
++        QTRY_COMPARE(display.m_contextUser, QStringLiteral("a"));
++        display.setFingerprintAvailability(2, display.m_requestId, true, QStringLiteral("available"));
++        start(fresh, 2);
++        QTRY_VERIFY(display.m_fingerprintStartRequested);
++        display.setFingerprintAvailability(2, display.m_requestId, true, QStringLiteral("available"));
++        QTRY_COMPARE(display.m_fingerprintAuth->launchGeneration(), fingerprintGeneration + 1);
++        QTRY_COMPARE(display.peers.value(int(AuthMethod::Fingerprint)).request, display.m_requestId);
++        display.command(AuthMethod::Fingerprint, "E");
++        QTRY_VERIFY(!display.m_fingerprintAuth->isActive());
++    }
++    void realPamAccountDeniedAfterFingerprintMatch() {
++#ifndef G05_INTEGRATED
++        QSKIP("Requires disposable-container PAM and real helper");
++#else
++        QVERIFY(QFile::exists(QStringLiteral("/.dockerenv")));
++        QVERIFY(QFile::exists(QStringLiteral("/lab/g05-pam.so")));
++        QVERIFY(QFile::exists(QStringLiteral("/lab/g10-account-deny")));
++        mainConfig.FingerprintAuthTimeout.set(30);
++        static QList<QPair<QString, qint64>> events;
++        events.clear();
++        const auto previous = qInstallMessageHandler([](QtMsgType, const QMessageLogContext &, const QString &message) {
++            if (message.contains(QStringLiteral("FPLOGIN_TRACE")))
++                events.append({message, AuthLaunchObservation::monotonicMs()});
++        });
++        struct Restore {
++            QtMessageHandler previous;
++            ~Restore() { qInstallMessageHandler(previous); }
++        } restore { previous };
++        Harness display(directory->filePath(QStringLiteral("control")));
++        // A wrongly opened session would execute the fixture script and leave a record.
++        display.realTestSession = true;
++        Client client;
++        connectClient(display, client);
++        select(client, 1, QStringLiteral("root"));
++        QTRY_COMPARE(display.m_contextUser, QStringLiteral("root"));
++        display.setFingerprintAvailability(1, display.m_requestId, true, QStringLiteral("available"));
++        start(client, 1);
++        QTRY_COMPARE_WITH_TIMEOUT(client.count(DaemonMessages::AuthenticationAttemptFinished), 1, 10000);
++        QTRY_VERIFY_WITH_TIMEOUT(!display.m_fingerprintAuth->isActive(), 8000);
++        auto at = [&](const QString &name) {
++            for (const auto &event : events)
++                if (event.first.contains(QStringLiteral("event=") + name + QLatin1Char(' '))
++                    && event.first.contains(QStringLiteral("request=") + display.m_requestId + QLatin1Char(' ')))
++                    return event.second;
++            return qint64(-1);
++        };
++        const qint64 selected = at(QStringLiteral("winner-selected"));
++        const qint64 exited = at(QStringLiteral("helper-exit"));
++        QString exitResult;
++        for (const auto &event : events)
++            if (event.first.contains(QStringLiteral("event=helper-exit-result request=") + display.m_requestId + QLatin1Char(' ')))
++                exitResult = event.first;
++        const auto finished = std::find_if(client.events.cbegin(), client.events.cend(), [](const auto &event) {
++            return event.message == DaemonMessages::AuthenticationAttemptFinished;
++        });
++        QVERIFY(finished != client.events.cend());
++        fprintf(stderr, "G10 request=%s selected=%lld permit=%lld exited=%lld finished-result=%u finished-method=%u exit-result=%s\n",
++                qPrintable(display.m_requestId), static_cast<long long>(selected),
++                static_cast<long long>(at(QStringLiteral("authorization-permit"))), static_cast<long long>(exited),
++                finished->result, finished->method, qPrintable(exitResult));
++        QVERIFY(selected > 0);
++        QVERIFY(client.state(FingerprintState::Matched));
++        QCOMPARE(finished->result, quint32(AuthenticationResult::Failed));
++        QCOMPARE(finished->method, quint32(AuthenticationMethod::Fingerprint));
++        QCOMPARE(at(QStringLiteral("session-open-success")), qint64(-1));
++        QCOMPARE(at(QStringLiteral("kill-intent")), qint64(-1));
++        QVERIFY(!display.m_contextCommitted);
++        QVERIFY(!QFile::exists(QStringLiteral("/lab/g05-session-executions")));
++        QVERIFY(!QFile::exists(QStringLiteral("/lab/g05-session-pam")));
++        QCOMPARE(display.m_fingerprintAuth->launchGeneration(), quint64(1));
++        QTest::qWait(1500);
++        QCOMPARE(display.m_fingerprintAuth->launchGeneration(), quint64(1));
++        QCOMPARE(client.count(DaemonMessages::AuthenticationAttemptFinished), 1);
+ #endif
+     }
+     void realPamReturnAfterDeadline() {
