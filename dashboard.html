@@ -1047,11 +1047,11 @@
     "next_step": "Revisión independiente; decisión sobre el greeter Qt5; pruebas con lector (Sprint 2 G06c/G07–G10/G14–G15 y el camino de huella del paquete).",
     "summary": {
       "total_items": 152,
-      "done": 120,
-      "partial": 17,
+      "done": 117,
+      "partial": 20,
       "blocked": 9,
       "pending": 6,
-      "percentage": 78.95
+      "percentage": 76.97
     }
   },
   "sprints": [
@@ -1794,16 +1794,16 @@
         {
           "id": "S4-03",
           "title": "Negociación de Compatibilidad de Adaptadores",
-          "status": "done",
-          "description": "Handshake IPC con el binario del adaptador para validar versiones mayores de protocolo y coincidencia de descriptor.",
-          "evidence": "internal/core/discovery/adapterclient.go"
+          "status": "partial",
+          "description": "Componente con tests, pero en la CLI real el handshake falla: el contexto no lleva platform facts y el adaptador rechaza Describe (auditoría 2026-11-12, A4).",
+          "evidence": "docs/reviews/cli-provider-audit-2026-11-12.md"
         },
         {
           "id": "S4-04",
           "title": "Descubrimiento y Ejecución de Plataforma",
-          "status": "done",
-          "description": "Subproceso de plataforma (Arch Linux) que valida dependencias de paquetes, servicios del sistema y compatibilidad del kernel.",
-          "evidence": "internal/core/discovery/platformclient.go"
+          "status": "partial",
+          "description": "El proveedor Arch era un stub (candidatos fijos, ApplyOperation siempre exitoso). Desde 76648e5 rechaza esas operaciones con unsupported_operation; falta la implementación real (auditoría A2).",
+          "evidence": "docs/reviews/cli-provider-audit-2026-11-12.md"
         },
         {
           "id": "S4-05",
@@ -1892,11 +1892,11 @@
       ],
       "summary": {
         "total": 16,
-        "done": 16,
-        "partial": 0,
+        "done": 14,
+        "partial": 2,
         "blocked": 0,
         "pending": 0,
-        "percentage": 100.0
+        "percentage": 87.5
       }
     },
     {
@@ -1986,9 +1986,9 @@
         {
           "id": "S5-12",
           "title": "Renderizador de Reporte para Terminal Humana",
-          "status": "done",
-          "description": "Formateador ANSI de alto contraste con tablas y viñetas explicando las degradaciones y recomendaciones de mitigación.",
-          "evidence": "internal/core/report/report.go"
+          "status": "partial",
+          "description": "El reporte de terminal concluye 'Fingerprint login is safe' cuando no hay hallazgos, sin limitaciones declaradas; exagera (auditoría A8).",
+          "evidence": "docs/reviews/cli-provider-audit-2026-11-12.md"
         },
         {
           "id": "S5-13",
@@ -2021,11 +2021,11 @@
       ],
       "summary": {
         "total": 16,
-        "done": 16,
-        "partial": 0,
+        "done": 15,
+        "partial": 1,
         "blocked": 0,
         "pending": 0,
-        "percentage": 100.0
+        "percentage": 93.75
       }
     },
     {
