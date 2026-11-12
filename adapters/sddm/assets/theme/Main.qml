@@ -284,11 +284,20 @@ Rectangle {
             while (item.parent && !item.objectName.length && item.parent !== flick.contentItem)
                 item = item.parent
             var point = item.mapToItem(flick.contentItem, 0, 0)
+            var height = item.height
+            // While typing the password, keep the status line and sign-in row with
+            // the field when they fit, so state feedback stays readable above an
+            // on-screen keyboard or on scaled short surfaces.
+            if (item === passwordField && actionRow.visible) {
+                var rowBottom = actionRow.mapToItem(flick.contentItem, 0, 0).y + actionRow.height
+                if (rowBottom - point.y + 16 <= flick.height)
+                    height = rowBottom - point.y
+            }
             var maximum = Math.max(0, flick.contentHeight - flick.height)
             if (point.y < flick.contentY)
                 flick.contentY = Math.max(0, point.y - 8)
-            else if (point.y + item.height > flick.contentY + flick.height)
-                flick.contentY = Math.min(maximum, point.y + item.height - flick.height + 8)
+            else if (point.y + height > flick.contentY + flick.height)
+                flick.contentY = Math.min(maximum, point.y + height - flick.height + 8)
         })
     }
 
@@ -522,6 +531,7 @@ Rectangle {
                     Accessible.name: "Fingerprint status: " + text
                 }
                 RowLayout {
+                    id: actionRow
                     visible: root.controller
                     Layout.fillWidth: true
                     spacing: 10
