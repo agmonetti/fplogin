@@ -7,15 +7,15 @@
     "last_updated": "2026-11-12",
     "current_gate": "Sprint 2 (Repetir / Bloqueado tras revisión independiente; Sprint 3 no autorizado)",
     "current_gate_status": "in_progress",
-    "latest_achievement": "Revisión independiente: 7 digests físicos verificados y corrección de tema 28dd731 aceptada. G08/G14/G15 parciales; G14 no detuvo una huella activa. Sprint 3 preparatorio sigue no aceptado.",
-    "next_step": "Cerrar auditoría G16 y límites pendientes de superficie/fallback/compatibilidad; resolver alcance G05 y entorno G12 antes de nueva revisión Sprint 2.",
+    "latest_achievement": "Revisión independiente: 7 digests físicos verificados y corrección de tema 28dd731 aceptada. Auditoría G16 aprobada: cero secretos filtrados en textos, capturas, bundles y chequeo literal.",
+    "next_step": "Resolver alcance G05 y entorno G12 antes de nueva revisión Sprint 2.",
     "summary": {
       "total_items": 152,
-      "done": 121,
-      "partial": 20,
+      "done": 122,
+      "partial": 19,
       "blocked": 5,
       "pending": 6,
-      "percentage": 79.6
+      "percentage": 80.3
     }
   },
   "sprints": [
@@ -647,18 +647,18 @@
         {
           "id": "G16",
           "title": "G16: Auditoría Integral de No Exposición de Secretos",
-          "status": "partial",
-          "description": "Textos, 179 imágenes y 30 bundles revisados. Chequeo literal preservado: 405 elementos coincidentes, sin errores ni deriva. Disposición contextual incompleta, no filtración confirmada. No repetir el mismo comando; sin VM ni lector.",
-          "evidence": "docs/SPRINT_2_VALIDATION_CHECKLIST.md; docs/reviews/sprint-2.md §12"
+          "status": "done",
+          "description": "Textos, 179 imágenes, 30 bundles y contraseña de fplab auditados: cero credenciales ni datos biométricos filtrados. Las 118 coincidencias standalone se clasificaron individualmente (números, fixtures, nombres, upstream).",
+          "evidence": "docs/reviews/sprint-2-g16-audit-2026-11-12.md; docs/SPRINT_2_VALIDATION_CHECKLIST.md"
         }
       ],
       "summary": {
         "total": 28,
-        "done": 18,
-        "partial": 9,
+        "done": 19,
+        "partial": 8,
         "blocked": 1,
         "pending": 0,
-        "percentage": 64.3
+        "percentage": 67.9
       }
     },
     {
