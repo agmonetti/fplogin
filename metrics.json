@@ -4,16 +4,16 @@
     "tagline": "Biometric Fingerprint Authentication for Linux Display Managers",
     "target_v1": "Arch Linux · systemd · SDDM 0.21.0 · fprintd / libfprint · Hyprland",
     "reference_hardware": "Synaptics 06cb:00bd (match-on-sensor USB)",
-    "last_updated": "2026-11-08",
-    "current_gate": "Sprint 2 (Repetir / G05 físico parcial; carreras y aceptación pendientes)",
+    "last_updated": "2026-11-11",
+    "current_gate": "Sprint 2 (Repetir / G05 resuelto por el dueño, revisión independiente pendiente; G06–G16 pendientes)",
     "current_gate_status": "in_progress",
-    "latest_achievement": "G05-a1 físico: salida normal de huella tras ~30 s, PAM end rc=0, contraseña retenida según operador y una sesión posterior por contraseña. Sin evento explícito del deadline; evidencia básica parcial, no aceptación.",
-    "next_step": "Fortalecer correlación offline de deadline/estado y resolver controlador armado/recuperación antes de solicitar un nuevo handoff para las carreras G05.",
+    "latest_achievement": "G05 cerrado con estrategia focalizada: 4.1 físico (timeout, salida normal, contraseña retenida, una sesión), 4.2 y 4.3 con tests integrados offline sobre código real (éxito previo sobrevive a la limpieza del perdedor; éxito tardío descartado, cero autorizaciones). Sin defectos de producto; controlador armado archivado como diagnóstico.",
+    "next_step": "Revisión independiente de G05 y decisión del dueño sobre el siguiente grupo (A: G06/G11–G13 en VM sin lector) antes de nueva infraestructura.",
     "summary": {
       "total_items": 152,
       "done": 120,
-      "partial": 5,
-      "blocked": 21,
+      "partial": 6,
+      "blocked": 20,
       "pending": 6,
       "percentage": 78.95
     }
@@ -570,9 +570,9 @@
         {
           "id": "G05",
           "title": "G05: Límite de 30s de Huella, Timeout y Carreras",
-          "status": "blocked",
-          "description": "G05-a1 físico parcial: ~30 s hasta terminación, PAM end rc=0, salida de huella corroborada; captura posterior muestra timed out; contraseña retenida según operador y una sesión por contraseña. Sin deadline/state timestamp explícito. Offline mock-PAM probó ambas órdenes controladas, no carreras físicas. Controlador y recuperación armada pendientes; no READY ni aceptación G05.",
-          "evidence": "docs/reviews/sprint-2.md#9-2026-11-08-g05-a1--basic-physical-timeoutretained-input-partial-evidence-and-closed-handoff; tests/integration/sddm-lab-g05-diagnostic.json"
+          "status": "partial",
+          "description": "Resuelto por el dueño (2026-11-11) bajo estrategia focalizada: 4.1 físico G05-a1; 4.2/4.3 offline con Display/Auth/helper reales y mock PAM. Límites: planificación controlada del perdedor, marcador previo al retorno PAM, limpieza por SIGKILL (llevada a G14). Revisión independiente pendiente; no es aceptación de Sprint 2. Controlador armado archivado como diagnóstico.",
+          "evidence": "docs/reviews/sprint-2.md#11-2026-11-11-g05-closure-under-the-focused-test-strategy--current-verdict; tests/integration/sddm-lab-g05-diagnostic.json"
         },
         {
           "id": "G06",
@@ -655,8 +655,8 @@
       "summary": {
         "total": 28,
         "done": 14,
-        "partial": 3,
-        "blocked": 11,
+        "partial": 4,
+        "blocked": 10,
         "pending": 0,
         "percentage": 50.0
       }
@@ -1104,7 +1104,7 @@
         "partial": 0,
         "blocked": 4,
         "pending": 0,
-        "percentage": 71.4
+        "percentage": 71.43
       }
     },
     {

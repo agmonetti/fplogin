@@ -874,7 +874,7 @@
     <div class="top-meta-left">
       <span class="top-meta-tag">REPOSITORY: agmonetti/fplogin</span>
       <span>COMMIT: <code id="meta-head">HEAD (main)</code></span>
-      <span>UPDATED: <span id="meta-updated">2026-11-08</span></span>
+      <span>UPDATED: <span id="meta-updated">2026-11-11</span></span>
     </div>
     <div class="top-meta-right">
       <span id="data-source-indicator">SOURCE: metrics.json (Live)</span>
@@ -922,7 +922,7 @@
       <div class="metric-card blocked">
         <div class="metric-label">Bloqueadas (gates pendientes)</div>
         <div class="metric-val" id="val-blocked" style="color: var(--status-blocked-text);">21</div>
-        <div class="metric-sub">G05-G16, S3 PAM/paquetes, S6 IPC</div>
+        <div class="metric-sub">G06-G16, S3 PAM/paquetes, S6 IPC</div>
       </div>
       <div class="metric-card pending">
         <div class="metric-label">Pendientes (Planned)</div>
@@ -1040,16 +1040,16 @@
     "tagline": "Biometric Fingerprint Authentication for Linux Display Managers",
     "target_v1": "Arch Linux · systemd · SDDM 0.21.0 · fprintd / libfprint · Hyprland",
     "reference_hardware": "Synaptics 06cb:00bd (match-on-sensor USB)",
-    "last_updated": "2026-11-08",
-    "current_gate": "Sprint 2 (Repetir / G05 físico parcial; carreras y aceptación pendientes)",
+    "last_updated": "2026-11-11",
+    "current_gate": "Sprint 2 (Repetir / G05 resuelto por el dueño, revisión independiente pendiente; G06–G16 pendientes)",
     "current_gate_status": "in_progress",
-    "latest_achievement": "G05 control offline completado: retención pre-PAM asíncrona (HELD_PRE_PAM, 0 llamadas PAM), secuencia de armado supervisado con validación inline de reloj, liberación exacta (RELEASE) con sesión de prueba /lab/g05-session.sh, aborto pre-PAM sin tocar PAM y descarte de PAM tardío; 9/9 suites CTest pasando.",
-    "next_step": "Evaluar necesidad de carreras sobre hardware físico con handoff nuevo del operador; G05 permanece bloqueado para aceptación física de Sprint 2.",
+    "latest_achievement": "G05 cerrado con estrategia focalizada: 4.1 físico (timeout, salida normal, contraseña retenida, una sesión), 4.2 y 4.3 con tests integrados offline sobre código real (éxito previo sobrevive a la limpieza del perdedor; éxito tardío descartado, cero autorizaciones). Sin defectos de producto; controlador armado archivado como diagnóstico.",
+    "next_step": "Revisión independiente de G05 y decisión del dueño sobre el siguiente grupo (A: G06/G11–G13 en VM sin lector) antes de nueva infraestructura.",
     "summary": {
       "total_items": 152,
       "done": 120,
-      "partial": 5,
-      "blocked": 21,
+      "partial": 6,
+      "blocked": 20,
       "pending": 6,
       "percentage": 78.95
     }
@@ -1606,9 +1606,9 @@
         {
           "id": "G05",
           "title": "G05: Límite de 30s de Huella, Timeout y Carreras",
-          "status": "blocked",
-          "description": "G05 offline completado técnicamente: retención pre-PAM asíncrona (HELD_PRE_PAM, 0 llamadas PAM), secuencia ARM_READY->ARMED_READY con validación inline de reloj, liberación exacta (RELEASE) con ejecución acotada de sesión /lab/g05-session.sh, aborto seguro sin entrar a PAM, y descarte de PAM tardío sin autorización. Verificado en contenedor aislado sin red (12/12 casos DaemonContextTest, 4 regresiones de helper, 9/9 suites CTest). Carreras físicas sobre lector real pendientes; no READY ni aceptación G05.",
-          "evidence": "docs/reviews/sprint-2.md#9-2026-11-08-g05-a1--basic-physical-timeoutretained-input-partial-evidence-and-closed-handoff; tests/integration/sddm-lab-g05-diagnostic.json; .work/evidence/sprint2/g05-diagnostic-offline/g05-42-43-armed-closure.log"
+          "status": "partial",
+          "description": "Resuelto por el dueño (2026-11-11) bajo estrategia focalizada: 4.1 físico G05-a1; 4.2/4.3 offline con Display/Auth/helper reales y mock PAM. Límites: planificación controlada del perdedor, marcador previo al retorno PAM, limpieza por SIGKILL (llevada a G14). Revisión independiente pendiente; no es aceptación de Sprint 2. Controlador armado archivado como diagnóstico.",
+          "evidence": "docs/reviews/sprint-2.md#11-2026-11-11-g05-closure-under-the-focused-test-strategy--current-verdict; tests/integration/sddm-lab-g05-diagnostic.json"
         },
         {
           "id": "G06",
@@ -1691,8 +1691,8 @@
       "summary": {
         "total": 28,
         "done": 14,
-        "partial": 3,
-        "blocked": 11,
+        "partial": 4,
+        "blocked": 10,
         "pending": 0,
         "percentage": 50.0
       }
@@ -2140,7 +2140,7 @@
         "partial": 0,
         "blocked": 4,
         "pending": 0,
-        "percentage": 71.4
+        "percentage": 71.43
       }
     },
     {
