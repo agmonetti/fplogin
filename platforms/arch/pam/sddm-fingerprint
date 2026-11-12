@@ -1,0 +1,21 @@
+#%PAM-1.0
+# fplogin: dedicated PAM service used only by the patched SDDM helper for
+# AuthMethod::Fingerprint. It never prompts for or verifies a password.
+#
+# auth: the same pre-checks as system-login, as requisite so a refused account
+#       never activates the reader; faillock preauth so an account locked by
+#       failed password attempts cannot bypass the lock with a fingerprint.
+#       pam_fprintd timeout (35 s) is a backstop above the SDDM daemon's outer
+#       fingerprint deadline (30 s), which stays authoritative.
+# account/session: the distribution policy via the stock sddm service.
+# password: changes are never accepted through this service.
+auth       requisite  pam_shells.so
+auth       requisite  pam_nologin.so
+auth       requisite  pam_faillock.so preauth
+auth       required   pam_fprintd.so max-tries=3 timeout=35
+
+account    include    sddm
+
+password   required   pam_deny.so
+
+session    include    sddm
