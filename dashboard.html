@@ -1043,8 +1043,8 @@
     "last_updated": "2026-11-11",
     "current_gate": "Sprint 2 (Repetir / G05 resuelto por el dueño, revisión independiente pendiente; G06–G16 pendientes)",
     "current_gate_status": "in_progress",
-    "latest_achievement": "G05 cerrado con estrategia focalizada: 4.1 físico (timeout, salida normal, contraseña retenida, una sesión), 4.2 y 4.3 con tests integrados offline sobre código real (éxito previo sobrevive a la limpieza del perdedor; éxito tardío descartado, cero autorizaciones). Sin defectos de producto; controlador armado archivado como diagnóstico.",
-    "next_step": "Revisión independiente de G05 y decisión del dueño sobre el siguiente grupo (A: G06/G11–G13 en VM sin lector) antes de nueva infraestructura.",
+    "latest_achievement": "Checklist de validación por ítem (docs/SPRINT_2_VALIDATION_CHECKLIST.md). Offline: producto 480332c CTest 9/9 y tema 13/13; G10 (cuenta denegada tras coincidencia, sin sesión) y G14 (energía espera la salida de los helpers, sin reanudación oculta) pasan en rama de prueba. G05 resuelto pendiente de revisión.",
+    "next_step": "Revisión independiente de G05; decidir la costura G14; Grupo A (G06/G11–G13) en VM sin lector con participación del dueño.",
     "summary": {
       "total_items": 152,
       "done": 120,
@@ -1642,8 +1642,8 @@
           "id": "G10",
           "title": "G10: Denegación de Cuenta tras Coincidencia Biométrica",
           "status": "blocked",
-          "description": "Huella dactilar coincide físicamente en el sensor pero pam_access o pam_time rechaza el acceso de la cuenta.",
-          "evidence": "docs/reviews/sprint-2.md (Pendiente Hardware)"
+          "description": "Offline hecho: test integrado con helper real y mock PAM (match → cuenta denegada → intento Failed, sin sesión). Falta la física con política reversible en el invitado.",
+          "evidence": "docs/SPRINT_2_VALIDATION_CHECKLIST.md"
         },
         {
           "id": "G11",
@@ -1670,8 +1670,8 @@
           "id": "G14",
           "title": "G14: Destrucción de Greeter, Suspensión y Energía",
           "status": "blocked",
-          "description": "Cierre de tapa de la laptop durante la espera de huella; verificación de que el sensor se suspende y reactiva sin crash.",
-          "evidence": "docs/reviews/sprint-2.md (Pendiente Hardware)"
+          "description": "Offline hecho en rama de prueba: la energía espera la salida observada de ambos helpers, un solo despacho, sin relanzamiento oculto. Requiere decidir la costura de test y la física.",
+          "evidence": "docs/SPRINT_2_VALIDATION_CHECKLIST.md"
         },
         {
           "id": "G15",
