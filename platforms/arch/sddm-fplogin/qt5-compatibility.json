@@ -1,0 +1,193 @@
+{
+  "schema_version": 1,
+  "status": "UNACCEPTED; E0 PASS, E1 PASS (source/container scope only); E2-E7 NOT RUN",
+  "plan_commit": "0486d7517d1667c1e2aee17e9f6054cdbceeaccb",
+  "upstream_commit": "63780fcd79f1dbf81a30eef48c28c699ab15aded",
+  "source_commit": "eda38c6a95ab78c52d74ce8b6b4ca73ebe0a4105",
+  "baseline_source_commit": "ef4a441f213f267fe898febe2faf23a8a70180c7",
+  "patches": [
+    {
+      "path": "platforms/arch/sddm-fplogin/0000-cmake-raise-required-version.patch",
+      "sha256": "2e6c951ca7bbda921b6deb9b5c762914538ec267cd90bba83f36ebaa45f6db81"
+    },
+    {
+      "path": "adapters/sddm/patches/0001-concurrent-authentication-methods.patch",
+      "sha256": "0f2a7bed069f8f81cefc531ee79e6d7b131e9ef90c8dfd241d42e0c8ae3fdd3d"
+    },
+    {
+      "path": "adapters/sddm/patches/0002-greeter-api-and-theme-lifecycle.patch",
+      "sha256": "1706624e0af02e08bc264b8ab95d26bdfa11637deaa0577df0f2ba33584da4ca"
+    },
+    {
+      "path": "platforms/arch/sddm-fplogin/0003-qt5-compatibility.patch",
+      "sha256": "2a47b5d2c988f24ba686ee15b71f43c233cfc3b090f213a9d5d0a1c44c2d080f"
+    }
+  ],
+  "preserved_inputs_sha256": {
+    "adapters/sddm/patches/0001-concurrent-authentication-methods.patch": "0f2a7bed069f8f81cefc531ee79e6d7b131e9ef90c8dfd241d42e0c8ae3fdd3d",
+    "adapters/sddm/patches/0002-greeter-api-and-theme-lifecycle.patch": "1706624e0af02e08bc264b8ab95d26bdfa11637deaa0577df0f2ba33584da4ca",
+    "adapters/sddm/patches/series": "74fae388a98e517ebe06061517a581068c84c20151aafd267c9daa547dc75fb5",
+    "adapters/sddm/checkpoints/sprint2-recovered.patch": "1706624e0af02e08bc264b8ab95d26bdfa11637deaa0577df0f2ba33584da4ca",
+    "adapters/sddm/checkpoints/sprint2-recovery.json": "aeb0408a49f73cbf608d3e10e77fd6cf1d25dba1d33e2904b0facefda55ed636",
+    "platforms/arch/pam/sddm-fingerprint": "73dbe5f32bed1a835f71b5ba6df119ae41a2659f57b15516ec75fdefff0c38cc",
+    "adapters/sddm/assets/theme/LICENSE": "0b842bafa6410d391544df74365fd2cf45a89905c7d3a96f25d2edff4f5e55a1",
+    "adapters/sddm/assets/theme/Main.qml": "251182ce8a318acdfd5404d7a97c627300a44a2e73134e0926f7e8e39eed213d",
+    "adapters/sddm/assets/theme/metadata.desktop": "7c360fc332c62fd16cc2edc0fbc087453d9654523988ec44c09e0ad310352d6c",
+    "adapters/sddm/assets/theme/theme.conf": "a371ee2822ab833c1349cbe193bf4b9292d6ab6b49a22b525fc1dcd95aa933c1"
+  },
+  "changed_source_sha256": {
+    "CMakeLists.txt": "0ffaa8c1f4de6d9310582cc6fa83099600f79ca657fdbf97a5c31a5ff5c5058b",
+    "src/auth/Auth.cpp": "02fce74440fe2edef0939296b8779267c93f90974e3c1a98e7c7f9e511f6991f",
+    "src/auth/Auth.h": "17d73dcf58a2f3405e8efe2dc2482103dcc0769852149a95e96593997a875457",
+    "src/auth/AuthMessages.h": "39407332e5ca7d39e476aec91508cdb3c76fe2a317c335a29b92abc52c2baaab",
+    "src/common/Configuration.h": "1984921cc833710de4eb00801aa23c2e8fb14bf1579f7b39c6b6d0f52edbb48a",
+    "src/common/Messages.h": "102bb69068055206c6fff31418630f59ea0200bd19616a83d3dddba22b39bf1a",
+    "src/common/Session.cpp": "064cd03e05dbab9c4795ab835e599758f542c9410faa4de4674daa86f2b942f5",
+    "src/common/Session.h": "424dcae9a6b69c9362f2d5a8d05dfd373a269f9e7968c05f0e0a2cb77561c2b7",
+    "src/common/SocketWriter.cpp": "3980cbc881709421f1887ae3d2b5f044ba4a3d3b8737febf71ee695b028cd457",
+    "src/common/SocketWriter.h": "bebb067d10c6531135447829ac46e1bd3ee35168794b1c3f27ff1cbc32de9c72",
+    "src/daemon/AuthAttemptGate.h": "772370a803ac96304f8b4e1945ba05cc145c17ce74b74e809e62565339d4054c",
+    "src/daemon/DaemonApp.cpp": "616961893bc9d23cee5678d76234389a8d3949133709ac580361484210a16517",
+    "src/daemon/Display.cpp": "644f4af1ca6f79c464675511960a9a5cd4654af329b5222fae43056491e965d4",
+    "src/daemon/Display.h": "bf5acf705e03ef045884686a29fe2de407fb216cb55b7673d37023572d710c7e",
+    "src/daemon/SocketServer.cpp": "b60cfc24c3bc09e31d09d18d63d449d2f54a5c03fa50bb8a86038b2c034cef6e",
+    "src/daemon/SocketServer.h": "3902815038d26079fa58a5225a5c458a28d8d4f0eeed7485e38efcab89c243eb",
+    "src/greeter/GreeterApp.cpp": "847abaeb8f5522280a8b29969aa4de7c6967a8a26e7553bfafc0240d520fe67f",
+    "src/greeter/GreeterApp.h": "4641a17ee6932a497e352f63c1f324d8cd88262777f8aef3d48d4d79f3ff46a3",
+    "src/greeter/GreeterProxy.cpp": "160ce890485021d628986688dfa763ce6758be668a94bcdc25f521b3b5889ddd",
+    "src/greeter/GreeterProxy.h": "bcd69df076118d5a6957ece30857a224fd649be58d334aba2dfe615b7a79e8d0",
+    "src/greeter/SessionModel.cpp": "82f7682ad9dc2f0727e51ee31ac88189f14eddc087eefb5e22125a0f031ebb71",
+    "src/greeter/SessionModel.h": "e69665281f50302840b96959c65369a7f621c84bfe73c5483bd3d858719b562b",
+    "src/greeter/theme/Main.qml": "d5f628c1dce062e152911cb798a393aa389d41540277748544c257fe8a58e931",
+    "src/helper/Backend.cpp": "be6fdda223fb22cd2853688190184e15243e4ba9afe9bda352b7849caa53df56",
+    "src/helper/Backend.h": "2bfdc3c1babacb9d9c5f2f44ac1dd11f4709d7e4eedd7bfba994a277ecce88db",
+    "src/helper/HelperApp.cpp": "ecd31d2d4422814ad1bbd2409e781aa22d51003f0b87297a876de2a4a41e61ee",
+    "src/helper/HelperApp.h": "abd7a447073a32276849648095a43f5d2752d95efe25f3279b559a8619193c9e",
+    "src/helper/backend/PamBackend.cpp": "1a4918752c377f97d2fd4ce8a5aa774f4179ebb920bcbf455770ae33b716f614",
+    "src/helper/backend/PamBackend.h": "c81dad7a909222e50bc3fdb14cfdcd98325ab5b615f2c8557e945d277c3367e6",
+    "src/helper/backend/PamHandle.cpp": "da57c78357bb0dae176d7253e2cb1203ff3bd12e485dcb1c97bb29851b9365d1",
+    "src/helper/backend/PamHandle.h": "73db584d37f49d8087b2375512021f7ee706af449d9909cf7ae5760434d71dc5",
+    "test/AuthAttemptGateTest.cpp": "be29774fe2fef5a8ca41a1b725ed5b31b1057e4d8d90f843b3070bbdc3e56eac",
+    "test/AuthMessagesTest.cpp": "e83d2163e727a3fe35601ccc670cd33666736451965447b0c4f9336e6368031d",
+    "test/AuthTransportHelper.cpp": "352b8e23f2aed45fc664409f8ae99bbbdbdc555b58c38c4beacf956159474c3e",
+    "test/AuthTransportTest.cpp": "61b6d78df96a2fa4184d7934b56001b627cd66c036139cbea1d9c7f437462725",
+    "test/CMakeLists.txt": "16162b44f2f8e7af0fa657ae9e3793ea9c181481e9a405c4dcdb13b49ac46e31",
+    "test/DaemonContextHelper.cpp": "3e2af386ebd3aa0decb1bd328b20e695a822bf87f578cecf106ac20fdbb98c90",
+    "test/DaemonContextTest.cpp": "604e3d3567b00e8afc7e8a97989cf74b04b5d55632763d355fdf7cc8c2913876",
+    "test/FingerprintAvailabilityService.cpp": "218cfebd5032b62bfa891f1094d7614cef9cfea4df45f6cbc973d7e34d790331",
+    "test/FploginThemeTest.cpp": "6cf3206afee881efe64f3af304ba290f6cb9db1962c208bb47929a17ce36b1fd",
+    "test/GreeterAppTest.cpp": "ed7ab5ef292958768cc5864460cae8d80ead9c4ea7d11aea402ee13c793f7bda",
+    "test/GreeterProxyTest.cpp": "2625571ec0a477141e556c5ed14f1a1518964f4a8f5f4e2f09d33e44d55db728"
+  },
+  "reconstruction": {
+    "tracked_files_compared": 370,
+    "result": "PASS",
+    "recipe": ".work/evidence/sprint3-qt5/reconstruct.sh",
+    "supplement": "git apply 0003 after the baseline recipe"
+  },
+  "environment": {
+    "base_image": "sha256:70d777aaeb45befc04150df137c4d7c1b5042be442b4c904c38c6f6880bb7844",
+    "initial_build_image": "sha256:d6ce33b7f13b6ca525415def2905bb41d0346619b1293cdb5582a849f0cfdc1a",
+    "corrected_build_image": "sha256:9a452b48aefc55cf44903b4e91f36091c231959baaa90b638a382b6429887069",
+    "packages_record": ".work/evidence/sprint3-qt5/dependencies-with-controls-versions.txt",
+    "packages_record_sha256": "d37b972bf467dee6afc7dba74c5d243bae9c41fbf651abee5c6e53c1aca9d112",
+    "required_qt5_extra": "qt5-quickcontrols2: embedded Main.qml imports QtQuick.Controls 2.15; initial CTest failure retained"
+  },
+  "verification": {
+    "qt5-before-configure": {
+      "exit_code": 0,
+      "log": ".work/evidence/sprint3-qt5/qt5-before-configure.log"
+    },
+    "qt5-before-gate-build": {
+      "exit_code": 2,
+      "log": ".work/evidence/sprint3-qt5/qt5-before-gate-build.log"
+    },
+    "qt5-after-configure": {
+      "exit_code": 0,
+      "log": ".work/evidence/sprint3-qt5/qt5-after-configure.log"
+    },
+    "qt5-after-gate-build": {
+      "exit_code": 0,
+      "log": ".work/evidence/sprint3-qt5/qt5-after-gate-build.log"
+    },
+    "qt5-after-gate-test": {
+      "exit_code": 0,
+      "log": ".work/evidence/sprint3-qt5/qt5-after-gate-test.log"
+    },
+    "qt5-after-build": {
+      "exit_code": 0,
+      "log": ".work/evidence/sprint3-qt5/qt5-after-build.log"
+    },
+    "qt5-after-ctest": {
+      "exit_code": 8,
+      "log": ".work/evidence/sprint3-qt5/qt5-after-ctest.log"
+    },
+    "qt5-with-controls-ctest": {
+      "exit_code": 0,
+      "log": ".work/evidence/sprint3-qt5/qt5-with-controls-ctest.log"
+    },
+    "qt6-after-configure": {
+      "exit_code": 0,
+      "log": ".work/evidence/sprint3-qt5/qt6-after-configure.log"
+    },
+    "qt6-after-gate-build": {
+      "exit_code": 0,
+      "log": ".work/evidence/sprint3-qt5/qt6-after-gate-build.log"
+    },
+    "qt6-after-gate-test": {
+      "exit_code": 0,
+      "log": ".work/evidence/sprint3-qt5/qt6-after-gate-test.log"
+    },
+    "qt6-after-build": {
+      "exit_code": 0,
+      "log": ".work/evidence/sprint3-qt5/qt6-after-build.log"
+    },
+    "qt6-after-ctest": {
+      "exit_code": 0,
+      "log": ".work/evidence/sprint3-qt5/qt6-after-ctest.log"
+    },
+    "qt6-theme-configure": {
+      "exit_code": 0,
+      "log": ".work/evidence/sprint3-qt5/qt6-theme-configure.log"
+    },
+    "qt6-theme-build": {
+      "exit_code": 0,
+      "log": ".work/evidence/sprint3-qt5/qt6-theme-build.log"
+    },
+    "qt6-theme-ctest": {
+      "exit_code": 0,
+      "log": ".work/evidence/sprint3-qt5/qt6-theme-ctest.log"
+    },
+    "qt6-all-ctest": {
+      "exit_code": 0,
+      "log": ".work/evidence/sprint3-qt5/qt6-all-ctest.log"
+    }
+  },
+  "bounded_architect_review": {
+    "model": "openai-codex/gpt-6.1-sol",
+    "result": "GO to E2; no blocking source defect in E0/E1; not package or Sprint 3 acceptance",
+    "path": ".work/evidence/sprint3-qt5/architect-e0-e1.txt",
+    "sha256": "12311f09395a722e6cde963ce05c5504f0e3b892777e035914b3214dfad7d509"
+  },
+  "test_suites": {
+    "qt5": 9,
+    "qt6": 9,
+    "qt6_theme": "PASS: 1 CTest suite, 13 QTest cases, 0 failed, 0 skipped",
+    "qt6_final_combined": "PASS: 10/10 CTest suites; QTest totals have 0 failed and 0 skipped",
+    "qt5_details": ".work/evidence/sprint3-qt5/qt5-with-controls-tests-detail.log"
+  },
+  "source_bundle": {
+    "path": "/home/agus-hy/Documentos/fplogin/.work/checkpoints/sddm-sprint3-qt5-20261114T200311Z.bundle",
+    "sha256": "86fda62c20b11fa858c38d5851eaa1a2297ac166eb29bad08148ad398f61f72f",
+    "verification_log": ".work/evidence/sprint3-qt5/bundle-verify.log"
+  },
+  "remaining": [
+    "E2 dual-build recipe/check()/stage/wrapper and tests",
+    "E3 allowlisted package merge",
+    "E4 packaged inspector/smoke/negative fixtures",
+    "E5 dual-Qt package reproducibility",
+    "E6 fresh VM authorization, real theme password login and broken-greeter rollback",
+    "E7 final package/evidence review and explicit owner acceptance",
+    "Separate physical packaged-stack gate not run"
+  ]
+}

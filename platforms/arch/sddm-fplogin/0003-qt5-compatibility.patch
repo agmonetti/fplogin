@@ -1,0 +1,19 @@
+diff --git a/src/auth/Auth.h b/src/auth/Auth.h
+index 8cbbe77..bb459b6 100644
+--- a/src/auth/Auth.h
++++ b/src/auth/Auth.h
+@@ -24,6 +24,7 @@
+ #include "../common/Messages.h"
+ #include "AuthRequest.h"
+ #include "AuthPrompt.h"
++#include <QMetaType>
+ 
+ class QProcessEnvironment;
+ 
+@@ -261,4 +262,6 @@ namespace SDDM {
+     };
+ }
+ 
++Q_DECLARE_METATYPE(SDDM::AuthMethod)
++
+ #endif // SDDM_AUTH_H
