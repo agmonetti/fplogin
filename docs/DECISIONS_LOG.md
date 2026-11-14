@@ -17,4 +17,9 @@ New implementation work must satisfy all accepted ADRs and the architecture adde
 | Date | Decision | Scope and limits |
 |---|---|---|
 | 2026-11-12 | The owner authorized **preparatory Sprint 3 work in parallel** while Sprint 2 is not accepted. | Covers the PAM service, the reproducible PKGBUILD, package layout, clean-environment builds and container-only verification. Everything produced is labelled **unaccepted**. It does not accept Sprint 2, does not open the Sprint 3 gate, and does not authorize Sprint 4–6 implementation, host installation or release. Sprint 3 acceptance still requires Sprint 2 acceptance first, then the Sprint 3 review. Plan: [SPRINT_3_EXECUTION_PLAN.md](SPRINT_3_EXECUTION_PLAN.md). |
+| 2026-11-12 | The owner **accepted and closed Sprint 2 and authorized transition to Sprint 3**. | Supersedes the preparatory-only gate restriction above, not its historical evidence limits. Sprint 3 is in progress and remains unaccepted; no host installation, release or Sprint 4–6 authorization follows. See [Sprint 2 closure](reviews/sprint-2.md#13-2026-11-12-sprint-2-final-acceptance-and-closure-by-the-project-owner). |
+
+## Sprint 3 compatibility decision
+
+On 2026-11-14 the owner chose to **extend compatibility to Qt5 themes while retaining Qt6**, rather than declare v1 Qt6-only. Preserve accepted `0001`/`0002` and their series; plan a separate packaging supplement, dual builds and an allowlisted merge of the Qt5 greeter/components/translations. The daemon/helpers and PAM policy remain canonical Qt6 artifacts. Legacy themes are not promised new biometric controls. The [implementation plan](SPRINT_3_EXECUTION_PLAN.md#qt5-compatibility-extension--implementation-plan-2026-11-14) defines tests, persistence and acceptance gates. This is an approved compatibility direction and a reviewed plan, not implemented or verified Qt5 support.
 
