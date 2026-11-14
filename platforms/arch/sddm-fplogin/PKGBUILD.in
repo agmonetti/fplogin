@@ -1,5 +1,5 @@
 # fplogin Sprint 3 — AUTHORIZED, UNACCEPTED; not a release artifact.
-# E2 builds/tests both Qt variants; package installation remains Qt6-only until E3.
+# Both Qt builds are tested; only allowlisted Qt5 files join canonical Qt6.
 # Accepted 0001+0002 plus supplemental 0003, theme and dedicated PAM service.
 pkgname=sddm-fplogin
 pkgver=0.21.0
@@ -11,7 +11,7 @@ license=('GPL-2.0-or-later' 'CC-BY-3.0')
 depends=('bash' 'glibc' 'libgcc' 'libstdc++' 'libxau' 'libxcb' 'pam' 'qt6-base'
          'qt6-declarative' 'qt5-base' 'qt5-declarative' 'qt5-quickcontrols2'
          'systemd-libs' 'ttf-font' 'xorg-server' 'xorg-xauth' 'fprintd')
-makedepends=('cmake' 'extra-cmake-modules' 'git' 'python-docutils' 'qt6-tools' 'qt5-tools')
+makedepends=('cmake' 'extra-cmake-modules' 'git' 'python-docutils' 'qt6-tools' 'qt5-tools' 'python')
 provides=('display-manager' "sddm=$pkgver")
 conflicts=('sddm')
 backup=('etc/pam.d/sddm' 'etc/pam.d/sddm-autologin' 'etc/pam.d/sddm-greeter'
@@ -22,6 +22,7 @@ source=("sddm::git+https://github.com/sddm/sddm.git#commit=${_commit}"
         '0001-concurrent-authentication-methods.patch'
         '0002-greeter-api-and-theme-lifecycle.patch'
         '0003-qt5-compatibility.patch'
+        'merge-qt5.py'
         'sddm-fingerprint'
         'fplogin-Main.qml' 'fplogin-metadata.desktop' 'fplogin-theme.conf' 'fplogin-LICENSE')
 sha256sums=('SKIP' @CHECKSUMS@)
@@ -102,19 +103,27 @@ PY
 }
 
 package() {
-  DESTDIR="$pkgdir" cmake --install build-qt6
-  install -d "$pkgdir"/usr/lib/sddm/sddm.conf.d
-  "$pkgdir"/usr/bin/sddm --example-config > "$pkgdir"/usr/lib/sddm/sddm.conf.d/default.conf
+  DESTDIR="$pkgdir" cmake --install build-qt6 || return
+  install -d "$pkgdir"/usr/lib/sddm/sddm.conf.d || return
+  "$pkgdir"/usr/bin/sddm --example-config > "$pkgdir"/usr/lib/sddm/sddm.conf.d/default.conf || return
   # Arch defaults: unprivileged PATH, no forced virtual keyboard.
-  sed -r 's|DefaultPath=.*|DefaultPath=/usr/local/sbin:/usr/local/bin:/usr/bin|g' -i "$pkgdir"/usr/lib/sddm/sddm.conf.d/default.conf
-  sed -e '/^InputMethod/s/qtvirtualkeyboard//' -i "$pkgdir"/usr/lib/sddm/sddm.conf.d/default.conf
+  sed -r 's|DefaultPath=.*|DefaultPath=/usr/local/sbin:/usr/local/bin:/usr/bin|g' -i "$pkgdir"/usr/lib/sddm/sddm.conf.d/default.conf || return
+  sed -e '/^InputMethod/s/qtvirtualkeyboard//' -i "$pkgdir"/usr/lib/sddm/sddm.conf.d/default.conf || return
 
   # Dedicated fingerprint PAM service (fixed name used by the patched helper).
-  install -Dm644 sddm-fingerprint "$pkgdir"/etc/pam.d/sddm-fingerprint
+  install -Dm644 sddm-fingerprint "$pkgdir"/etc/pam.d/sddm-fingerprint || return
 
   # fplogin theme: Main.qml at the theme root. Activation is the installer's job.
-  install -Dm644 fplogin-Main.qml "$pkgdir"/usr/share/sddm/themes/fplogin/Main.qml
-  install -Dm644 fplogin-metadata.desktop "$pkgdir"/usr/share/sddm/themes/fplogin/metadata.desktop
-  install -Dm644 fplogin-theme.conf "$pkgdir"/usr/share/sddm/themes/fplogin/theme.conf
-  install -Dm644 fplogin-LICENSE "$pkgdir"/usr/share/licenses/$pkgname/fplogin-theme-LICENSE
+  install -Dm644 fplogin-Main.qml "$pkgdir"/usr/share/sddm/themes/fplogin/Main.qml || return
+  install -Dm644 fplogin-metadata.desktop "$pkgdir"/usr/share/sddm/themes/fplogin/metadata.desktop || return
+  install -Dm644 fplogin-theme.conf "$pkgdir"/usr/share/sddm/themes/fplogin/theme.conf || return
+  install -Dm644 fplogin-LICENSE "$pkgdir"/usr/share/licenses/$pkgname/fplogin-theme-LICENSE || return
+
+  # Snapshot after canonical customizations; private install never touches pkgdir.
+  local private
+  private=$(mktemp -d "$srcdir/qt5-install.XXXXXXXX") || return
+  python3 merge-qt5.py snapshot "$pkgdir" "$srcdir/qt6-canonical.json" || return
+  DESTDIR="$private" cmake --install build-qt5 || return
+  python3 merge-qt5.py merge "$pkgdir" "$private" \
+    "$srcdir/qt6-canonical.json" "$srcdir/qt5-merge.json" || return
 }

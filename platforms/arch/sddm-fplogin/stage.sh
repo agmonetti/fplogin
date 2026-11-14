@@ -8,6 +8,7 @@ test -d "$out" && test -z "$(ls -A "$out")" || { echo "output must be an empty d
 here=$root/platforms/arch/sddm-fplogin
 cp "$here/0000-cmake-raise-required-version.patch" "$out/"
 cp "$here/0003-qt5-compatibility.patch" "$out/"
+cp "$here/merge-qt5.py" "$out/"
 cp "$root/adapters/sddm/patches/0001-concurrent-authentication-methods.patch" "$out/"
 cp "$root/adapters/sddm/patches/0002-greeter-api-and-theme-lifecycle.patch" "$out/"
 cp "$root/platforms/arch/pam/sddm-fingerprint" "$out/"
@@ -17,7 +18,7 @@ done
 sums=""
 for f in 0000-cmake-raise-required-version.patch 0001-concurrent-authentication-methods.patch \
          0002-greeter-api-and-theme-lifecycle.patch 0003-qt5-compatibility.patch \
-         sddm-fingerprint fplogin-Main.qml \
+         merge-qt5.py sddm-fingerprint fplogin-Main.qml \
          fplogin-metadata.desktop fplogin-theme.conf fplogin-LICENSE; do
   sums="$sums'$(sha256sum "$out/$f" | cut -d' ' -f1)' "
 done

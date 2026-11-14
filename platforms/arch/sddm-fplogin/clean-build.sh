@@ -7,7 +7,7 @@
 # Arch mirrors, sources fetched by makepkg (git commit pinned in the PKGBUILD).
 set -eu
 pacman -Syu --noconfirm --needed git cmake extra-cmake-modules qt6-tools qt6-base qt6-declarative \
-  qt5-tools qt5-base qt5-declarative qt5-quickcontrols2 python-docutils \
+  qt5-tools qt5-base qt5-declarative qt5-quickcontrols2 python python-docutils \
   pam systemd-libs libxcb libxau xorg-server xorg-xauth ttf-dejavu fprintd > "/pkg/${OUT}.dependencies.log" 2>&1 || { rc=$?; tail -20 "/pkg/${OUT}.dependencies.log"; exit "$rc"; }
 pacman -Q git cmake qt6-base qt6-declarative qt5-base qt5-declarative qt5-quickcontrols2 extra-cmake-modules gcc
 useradd -m builder
