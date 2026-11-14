@@ -1,18 +1,17 @@
-# fplogin Sprint 3 preparation — UNACCEPTED. Owner-authorized preparatory work
-# while Sprint 2 is not accepted; not a release artifact.
-# Patched SDDM with concurrent password/fingerprint authentication (fplogin
-# patch series 0001+0002) plus the fplogin theme and dedicated PAM service.
+# fplogin Sprint 3 — AUTHORIZED, UNACCEPTED; not a release artifact.
+# E2 builds/tests both Qt variants; package installation remains Qt6-only until E3.
+# Accepted 0001+0002 plus supplemental 0003, theme and dedicated PAM service.
 pkgname=sddm-fplogin
 pkgver=0.21.0
-pkgrel=1
+pkgrel=2
 pkgdesc="QML based X11 and Wayland display manager with fplogin concurrent fingerprint authentication (unaccepted preview)"
 arch=('x86_64')
 url="https://github.com/sddm/sddm"
 license=('GPL-2.0-or-later' 'CC-BY-3.0')
 depends=('bash' 'glibc' 'libgcc' 'libstdc++' 'libxau' 'libxcb' 'pam' 'qt6-base'
-         'qt6-declarative' 'systemd-libs' 'ttf-font' 'xorg-server' 'xorg-xauth' 'fprintd')
-makedepends=('cmake' 'extra-cmake-modules' 'git' 'python-docutils' 'qt6-tools')
-# Known gap vs stock: no Qt5 greeter (the series' tests fail to build with Qt5: AuthMethod needs Q_DECLARE_METATYPE). Qt5 themes are unsupported.
+         'qt6-declarative' 'qt5-base' 'qt5-declarative' 'qt5-quickcontrols2'
+         'systemd-libs' 'ttf-font' 'xorg-server' 'xorg-xauth' 'fprintd')
+makedepends=('cmake' 'extra-cmake-modules' 'git' 'python-docutils' 'qt6-tools' 'qt5-tools')
 provides=('display-manager' "sddm=$pkgver")
 conflicts=('sddm')
 backup=('etc/pam.d/sddm' 'etc/pam.d/sddm-autologin' 'etc/pam.d/sddm-greeter'
@@ -22,6 +21,7 @@ source=("sddm::git+https://github.com/sddm/sddm.git#commit=${_commit}"
         '0000-cmake-raise-required-version.patch'
         '0001-concurrent-authentication-methods.patch'
         '0002-greeter-api-and-theme-lifecycle.patch'
+        '0003-qt5-compatibility.patch'
         'sddm-fingerprint'
         'fplogin-Main.qml' 'fplogin-metadata.desktop' 'fplogin-theme.conf' 'fplogin-LICENSE')
 sha256sums=('SKIP' @CHECKSUMS@)
@@ -30,14 +30,26 @@ prepare() {
   cd sddm
   git apply --check ../0000-cmake-raise-required-version.patch
   git apply ../0000-cmake-raise-required-version.patch
-  for patch in ../0001-concurrent-authentication-methods.patch ../0002-greeter-api-and-theme-lifecycle.patch; do
+  for patch in ../0001-concurrent-authentication-methods.patch ../0002-greeter-api-and-theme-lifecycle.patch ../0003-qt5-compatibility.patch; do
     git apply --check "$patch"
     git apply "$patch"
+  done
+  mkdir -p "$srcdir/fplogin-theme"
+  for file in Main.qml metadata.desktop theme.conf LICENSE; do
+    cp "$srcdir/fplogin-$file" "$srcdir/fplogin-theme/$file"
   done
 }
 
 build() {
-  cmake -B build -S sddm \
+  local variant qt6 theme
+  for variant in qt6 qt5; do
+    qt6=OFF
+    theme=
+    if [[ $variant == qt6 ]]; then
+      qt6=ON
+      theme="$srcdir/fplogin-theme"
+    fi
+    cmake -B "build-$variant" -S sddm \
     -DCMAKE_BUILD_TYPE=None \
     -DCMAKE_INSTALL_PREFIX=/usr \
     -DCMAKE_INSTALL_LIBEXECDIR=/usr/lib/sddm \
@@ -45,12 +57,52 @@ build() {
     -DDBUS_CONFIG_FILENAME=sddm_org.freedesktop.DisplayManager.conf \
     -DBUILD_MAN_PAGES=ON \
     -DUID_MAX=60513 \
-    -DBUILD_WITH_QT6=ON
-  cmake --build build
+    -DBUILD_WITH_QT6="$qt6" \
+    -DFPL_THEME_DIR="$theme" || return
+    cmake --build "build-$variant" || return
+  done
+}
+
+check() {
+  export QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_QUICK_CONTROLS_STYLE=Basic
+  local variant
+  for variant in qt6 qt5; do
+    # Qt5 QFINDTESTDATA cannot use __FILE__ after makepkg's debug-prefix rewrite.
+    cp sddm/test/plasmawayland-dev.desktop "build-$variant/test/" || return
+    ctest --test-dir "build-$variant" --show-only=json-v1 > "build-$variant/test-list.json" || return
+    ctest --test-dir "build-$variant" --output-on-failure --no-tests=error \
+      --output-junit "$srcdir/build-$variant/results.xml" || return
+    python3 - "$variant" <<'PY' || return
+import json
+import re
+import sys
+import xml.etree.ElementTree as ET
+from pathlib import Path
+
+variant = sys.argv[1]
+build = Path(f"build-{variant}")
+expected = {"Configuration", "QMLThemeConfig", "Session", "AuthMessages",
+            "AuthAttemptGate", "AuthTransport", "GreeterProxy", "DaemonContext", "GreeterApp"}
+if variant == "qt6":
+    expected.add("FploginTheme")
+names = [test["name"] for test in json.loads((build / "test-list.json").read_text())["tests"]]
+assert len(names) == len(expected) and set(names) == expected, names
+cases = ET.parse(build / "results.xml").getroot().findall(".//testcase")
+assert len(cases) == len(expected) and {case.attrib["name"] for case in cases} == expected
+assert all(case.find("skipped") is None and case.find("failure") is None
+           and case.find("error") is None for case in cases)
+totals = re.findall(r"Totals:.*?(\d+) passed, (\d+) failed, (\d+) skipped",
+                    (build / "Testing/Temporary/LastTest.log").read_text())
+assert len(totals) == len(expected), totals
+assert all(int(passed) > 0 and int(failed) == int(skipped) == 0
+           for passed, failed, skipped in totals), totals
+print(f"{variant}: {len(cases)} suites, zero failures/skips")
+PY
+  done
 }
 
 package() {
-  DESTDIR="$pkgdir" cmake --install build
+  DESTDIR="$pkgdir" cmake --install build-qt6
   install -d "$pkgdir"/usr/lib/sddm/sddm.conf.d
   "$pkgdir"/usr/bin/sddm --example-config > "$pkgdir"/usr/lib/sddm/sddm.conf.d/default.conf
   # Arch defaults: unprivileged PATH, no forced virtual keyboard.
