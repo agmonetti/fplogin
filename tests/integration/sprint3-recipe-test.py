@@ -45,6 +45,10 @@ class RecipeTest(unittest.TestCase):
         sources, sums = self.inputs(first)
         self.assertEqual(len(sources), len(sums))
         self.assertEqual(sums[0], "SKIP")
+        deps = run("bash", "-c", 'source "$1"; printf "%s\\n" "${depends[@]}"',
+                   "bash", str(first / "PKGBUILD"))
+        self.assertEqual(deps.returncode, 0, deps.stdout)
+        self.assertIn("qt5-svg", deps.stdout.splitlines())
         self.assertEqual(sources[1:5], ["0000-cmake-raise-required-version.patch",
                                       "0001-concurrent-authentication-methods.patch",
                                       "0002-greeter-api-and-theme-lifecycle.patch",
