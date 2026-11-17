@@ -4,11 +4,11 @@ This guide describes how to diagnose and recover the host system if an `fplogin`
 
 ---
 
-## 1. Safety Guarantees & Transaction Journal
+## 1. Planned safety contract — not an available recovery guarantee
 
-`fplogin` uses an atomic, durable transaction journal (`manifestv1.TransactionJournal`) adhering to **ADR 0003**. 
+The architecture requires an atomic, durable transaction journal (`manifestv1.TransactionJournal`) adhering to **ADR 0003**, but end-to-end installation and automatic recovery are not implemented. **Do not rely on journaling or automatic rollback to recover a system.** Use the package-level procedure (§2.1) or applicable manual steps (§3).
 
-Key guarantees:
+The following are planned requirements, not guarantees of the current CLI:
 1. **Never in-place edit**: Existing system configuration files (such as `/etc/pam.d/system-login` or `/etc/sddm.conf`) are **never** overwritten in-place. All `fplogin` configurations reside in drop-in directories (e.g. `/etc/sddm.conf.d/fplogin.conf`) or dedicated PAM files (`/etc/pam.d/sddm-fingerprint`).
 2. **Pre-mutation durability**: Every mutation intent is written and `fsync`'d to the transaction journal (`/var/lib/fplogin/transaction.json`) *before* any file or service mutation occurs on the system.
 3. **Automatic rollback**: If an operation fails during `fplogin install`, the installer automatically runs compensation logic in reverse execution order, restoring any backed up files and deleting temporary files.
@@ -22,16 +22,18 @@ Key guarantees:
 
 ### 2.1 Package-level rollback to stock SDDM (sddm-fplogin)
 
-This applies when the patched SDDM package `sddm-fplogin` is installed. It was rehearsed on 2026-11-12 in a lab VM (no reader): see [Sprint 3 plan](SPRINT_3_EXECUTION_PLAN.md#vm-install-and-rollback-rehearsal-2026-11-12-no-reader).
+This applies when the patched SDDM package `sddm-fplogin` is installed. The [2026-11-12 rehearsal](SPRINT_3_EXECUTION_PLAN.md#vm-install-and-rollback-rehearsal-2026-11-12-no-reader) is the historical Qt6-only baseline. The [2026-11-17 E6 retest](SPRINT_3_EXECUTION_PLAN.md#e6-retest--2026-11-17-pass-bounded-real-guest-scope) verified actual ttyS0 recovery from a deliberately broken greeter, signed-stock rollback and stock password login with the unchanged dual-Qt candidate and pinned Qt5/OpenSSL3 laboratory runtime. Both were reader-free VM tests, not general host compatibility or Sprint 3 acceptance.
 
 1. Switch to a text console (`Ctrl`+`Alt`+`F3`, or the rescue shell) and log in as root or a sudo user with your **password** (the fingerprint path is not involved).
 2. Stop the greeter: `systemctl stop sddm.service`.
 3. Reinstall stock SDDM; the package conflict removes `sddm-fplogin`:
-   - offline, from the pacman cache, verifying the signature first:
+   - offline, explicitly select a stock archive compatible with the recovery system and require its detached signature. The path below is the tested laboratory version, not a universal downgrade recommendation. If any check fails, stop; do not run the install separately:
      ```bash
-     pkg=$(ls /var/cache/pacman/pkg/sddm-0.21*-x86_64.pkg.tar.zst | tail -1)
-     pacman-key --verify "$pkg.sig" "$pkg"
-     pacman -U "$pkg"
+     pkg=/var/cache/pacman/pkg/sddm-0.21.0-7-x86_64.pkg.tar.zst
+     test -f "$pkg" &&
+       test -f "$pkg.sig" &&
+       pacman-key --verify "$pkg.sig" "$pkg" &&
+       pacman -U "$pkg"
      ```
    - or online: `pacman -S sddm`.
 4. Check: `pacman -Q sddm` shows `sddm`, not `sddm-fplogin`; `/etc/pam.d/sddm-fingerprint` and `/usr/share/sddm/themes/fplogin` are gone. A modified PAM file is kept as `.pacsave`.
