@@ -4,11 +4,11 @@
     "tagline": "Biometric Fingerprint Authentication for Linux Display Managers",
     "target_v1": "Arch Linux \u00b7 systemd \u00b7 SDDM 0.21.0 \u00b7 fprintd / libfprint \u00b7 Hyprland",
     "reference_hardware": "Synaptics 06cb:00bd (match-on-sensor USB)",
-    "last_updated": "2026-11-12",
+    "last_updated": "2026-11-17",
     "current_gate": "Sprint 3 (Servicio PAM y Empaquetado Arch/SDDM)",
     "current_gate_status": "in_progress",
-    "latest_achievement": "Sprint 2 aceptado y cerrado por el due\u00f1o del proyecto tras verificaci\u00f3n manual en hardware de todos los casos y auditor\u00eda G16 completa sin filtraciones. Transici\u00f3n a Sprint 3 autorizada.",
-    "next_step": "Iniciar Sprint 3: verificaci\u00f3n en chroot limpio de la receta Arch y servicio PAM sddm-fingerprint.",
+    "latest_achievement": "Sprint 3 E6 PASS: cuatro logins reales por contraseña con Qt5/Qt6 y recuperación TTY desde greeter roto, rollback firmado y login stock. Sprint 2 sigue cerrado; Sprint 3 no aceptado.",
+    "next_step": "E7: revisión independiente completa de implementación, paquete y evidencia E0–E6. Sigue pendiente el gate físico del stack empaquetado, con nueva autorización del lector; sin instalación en host ni aceptación de Sprint 3.",
     "summary": {
       "total_items": 152,
       "done": 131,
@@ -693,7 +693,7 @@
           "id": "S3-04",
           "title": "Receta Arch para el Stack SDDM Parcheado",
           "status": "partial",
-          "description": "PKGBUILD sddm-fplogin con commit fijado y serie 0001+0002; compila en entorno Arch limpio. Falta: greeter Qt5 (decisi\u00f3n) y aceptaci\u00f3n.",
+          "description": "Paquete dual Qt5/Qt6 con suplementos separados 0003/0004 y serie aceptada intacta. E2–E5 PASS offline; E6 PASS con runtime Qt5/OpenSSL3 fijado y cuatro logins reales. Pendientes E7, gate físico y aceptación.",
           "evidence": "docs/SPRINT_3_EXECUTION_PLAN.md"
         },
         {
@@ -707,21 +707,21 @@
           "id": "S3-06",
           "title": "Empaquetado de Tema y Assets de Interfaz",
           "status": "partial",
-          "description": "Tema en la ra\u00edz, modos 644 root:root; el greeter del paquete lo carga en la VM. Pendiente de revisi\u00f3n.",
+          "description": "263 hashes instalados/root:root verificados; metadata selecciona Qt5 para elarun/maldives/maya y Qt6 para fplogin, con login real en cada caso. Pendiente de revisión final E7.",
           "evidence": "docs/SPRINT_3_EXECUTION_PLAN.md"
         },
         {
           "id": "S3-07",
           "title": "Recuperaci\u00f3n TTY y Retorno a SDDM Stock",
           "status": "partial",
-          "description": "Vuelta al stock ensayada en la VM: paquete firmado desde cach\u00e9, sin restos, login por contrase\u00f1a con SDDM stock; procedimiento en EMERGENCY_RECOVERY \u00a72.1.",
+          "description": "E6 PASS: fallo controlado real del greeter, recuperación ttyS0, rollback firmado y login stock; inventario de paquetes y 69015 rutas restaurados, cuenta temporal eliminada y VM apagada. Pendiente E7; no restauración byte a byte del disco.",
           "evidence": "docs/SPRINT_3_EXECUTION_PLAN.md"
         },
         {
           "id": "S3-08",
           "title": "Verificaci\u00f3n de Compilaci\u00f3n en Chroot Limpio",
           "status": "partial",
-          "description": "Reproducible: tres builds limpios; con el mismo SOURCE_DATE_EPOCH el paquete es id\u00e9ntico bit a bit (SHA-256 81903bda\u2026). Pendiente de revisi\u00f3n.",
+          "description": "E5 corregido PASS: dos builds limpios dual Qt con tests; archivos main y debug idénticos byte a byte, candidato main e461b3a9…411a6. Pendiente revisión final E7; no aceptación de Sprint 3.",
           "evidence": "docs/SPRINT_3_EXECUTION_PLAN.md"
         }
       ],

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "status": "UNACCEPTED; corrected E2-E5 PASS preserved; authorized E6 attempted, elarun FAIL and progression BLOCKED by guest OpenSSL ABI mismatch; stock recovered, VM stopped; remaining E6 cases and E7 NOT RUN",
+  "status": "UNACCEPTED; corrected E2-E5 PASS preserved; E6 retest PASS with pinned Qt5/OpenSSL3 runtime: four real password logins and broken-greeter/stock-password recovery; E7 and physical packaged-stack gate NOT RUN; VM stopped",
   "plan_commit": "0486d7517d1667c1e2aee17e9f6054cdbceeaccb",
   "upstream_commit": "63780fcd79f1dbf81a30eef48c28c699ab15aded",
   "source_commit": "deaee9b94c79486a7b7e65715c3b438cabe9e09e",
@@ -555,9 +555,53 @@
     "architect_verdict": "READY FOR SEPARATE COMMITS / HANDOFF of bounded offline runtime prerequisite; no GO VM/E6/E7/release/acceptance. Review stored separately from unchanged175-artifact index",
     "next": "Fresh explicit owner E6 VM authorization, backup/tty/stock/installed-closure prerequisites, then actual per-theme metadata-correlated logins and broken-greeter/stock-login recovery. Never implicitly recreate VM or update shared OpenSSL/Qt6/host/reader"
   },
+  "e6_guest_retest": {
+    "date_utc": "2026-11-17",
+    "status": "PASS - bounded real guest metadata/password/recovery scope; not E7 or Sprint3 acceptance",
+    "authorization": "Owner directly requested repeating E6 after 7cd131a/eacdbce; exact verified Qt5/OpenSSL3 runtime and E5 candidate on existing S3 VM only; no reader/host changes or disk recreation",
+    "source_commit": "deaee9b94c79486a7b7e65715c3b438cabe9e09e",
+    "candidate_sha256": "e461b3a9cca1c991ba4cc9537b7101009a06cbdf72d7b0eb3e0765b6d4e411a6",
+    "runtime_pins": "e6_openssl3_runtime.packages; exact15-member payload8c1687edc4fb4d434973863e88b584867792636e1bc893cf21651ab3f921afc7 verified and deployed",
+    "guest_path": ".work/labs/sprint3/vm-s3/",
+    "boot_id": "c386845e-9e8b-414c-b9f0-0ddd3c779e15",
+    "backup_path": ".work/labs/sprint3/e6-retest-20261117T191909Z/guest-before.ext4",
+    "backup_sha256": "900ce200f255a19827e9dc6c279a10c6b1b5cf106c48436ad6143cbf61885a97",
+    "backup_method": "Nonreflink sparse independent copy, rehashed equal before any disk writes; existing disk retained, no prepare",
+    "deployment": "Actual guest signatures good/full; runtime/candidate transactions0 and real hooks without errors/warnings/Skipped;263 payload hashes/root ownership and Qkk304/0altered; scoped ABI8PASS with providers. All existing package versions and3771 selected Qt6/SSL paths unchanged, including OpenSSL3.6.5-1/Qt6base6.12.0-2/declarative6.12.0-1. Broad optionalSQL4 sandbox failures remain explicitly not total ABI PASS",
+    "password_sessions": [
+      {"theme": "elarun", "qt": 5, "daemon_pid": 681, "greeter_pid": 710, "greeter_helper_pid": 696, "session": "4", "session_leader": 738},
+      {"theme": "maldives", "qt": 5, "daemon_pid": 868, "greeter_pid": 895, "greeter_helper_pid": 881, "session": "7", "session_leader": 920},
+      {"theme": "maya", "qt": 5, "daemon_pid": 1064, "greeter_pid": 1091, "greeter_helper_pid": 1077, "session": "10", "session_leader": 1114},
+      {"theme": "fplogin", "qt": 6, "daemon_pid": 1243, "greeter_pid": 1270, "greeter_helper_pid": 1256, "session": "13", "session_leader": 1302}
+    ],
+    "login_evidence": "Actual metadata/helper argv/live exe/mappedQt major with Qt6 daemons; one distinct active Class=user/Service=sddm/seat0/Wayland/Hyprland session per case, original PAM-open and daemon success. Maya SVG mapped. Separate manager sessions not duplicate user logins; controlled stop/terminate-user between cases, not natural logout claim",
+    "broken_greeter": "Disclosed fault injection: attempt-only QT_QPA_PLATFORM=fplogin_e6_broken. Actual Qt6greeter1460 fatal plugin error/helper1446 exit6 under daemon1433; real ttyS0 identity/recovery-check after failure. Not missing-theme fallback or natural defect",
+    "stock_recovery": "Exact signed stock927cc24362cdc83b8c48532252ae4d41ade99dc5e65cb0fdeb9b6d69f7601a7a verified before deployment and rollback; exact conflict/proceed prompts, pacman0/hooks healthy; plain remove exactly5 newQt packages. Stock251/0altered, custom PAM/theme absent; original Current=fplogin config retained and embeddedQt6 fallback works. Actual stock daemon1607/greeter1635/helper1621, password session17/leader1660 active seat0 Wayland",
+    "restoration": "Temporary account/home removed and original config/state restored; exported compressed original baseline/restored JSON before shutdown, host independently compared whole package inventory and all69015 recorded usr/PAM/SSL/passwd/group paths exactly. Global PAM unchanged; not whole-disk restoration",
+    "secrets": "Scoped literal/base64/hex audit PASS on declared current-attempt host evidence/tools and guest currentboot journal/log/history/session logs; only inspected empty-field pretyping images. Temp password never secret argv/logs, local plaintext unlinked after account removal/audit. Raw disks/cores/unrelated historical sandbox excluded; no whole-system/physical secure-erasure claim",
+    "original_errors_and_limits": "Host payload-prefix assertion corrected before VM mutation; initial combined preflight observer100s timeout not successful wrapper, completed baseline verified and only read-only signatures repeated before sole install. Initial legacy audit historical root-owned .pwd.lock PermissionError retained then explicit current-attempt scoped audit PASS. Original QBasicTimer shutdown warnings/helper exit9, pgrep15char warning (not absence proof), userdel missingmail warning retained; no warning-free services/normal-helper-cleanup assertion",
+    "guest_after_sha256": "50de57c66ceceee6aef8efa578213fdef16ad38214ba3c14dd81e43f18f1986e",
+    "shutdown": "ACPI powerdown0; no running containers/currentUID QEMU, disk preserved",
+    "preservation": "10 accepted inputs+42 current-source+37 acceptedSprint2 source hashes rechecked; both source clones clean, source/recipe/candidate unchanged; acceptedS2 disk/kernel/initramfs/runtime unchanged",
+    "evidence_directory": ".work/evidence/sprint3-qt5/e6-retest-20261117T191909Z/",
+    "report": ".work/evidence/sprint3-qt5/e6-retest-20261117T191909Z/report.md",
+    "evidence_artifacts": 57,
+    "evidence_index_sha256": "944680065477d96a7346b70eec49a90ff643eebd2ea114f7baf8fbff7f85e47b",
+    "functional_review": ".work/evidence/sprint3-qt5/e6-retest-20261117T191909Z/architect-functional.txt",
+    "functional_review_sha256": "3d87fd2e12bb2cf34f5c82a0f16add0adeff851d7f820de8eebad92423304a8b",
+    "functional_verdict": "Independent GPT-6.1 Sol GO bounded E6 PASS pending normal integrity/docs persistence; not E7/package/Sprint acceptance. Independently decoded69015 snapshots and inspected original login/selection/fault/TTY/stock/5 pretyping images/audit scope/source cleanliness, not rerun signatures/large-disk hashes/secret audit",
+    "source_bundle": ".work/checkpoints/sddm-sprint3-e6-retest-20261117T191909Z.bundle",
+    "source_bundle_sha256": "40c327ec28eab88008ed66a7cec9316623ef0c629d72dac52d5792869bab3edf",
+    "source_bundle_verification": ".work/evidence/sprint3-qt5/e6-retest-20261117T191909Z/source-bundle-verify.txt",
+    "final_verification": ".work/evidence/sprint3-qt5/e6-retest-20261117T191909Z/final-verification.json",
+    "final_verification_sha256": "01bf423dedccdb6ceeefcefc42ef6fe05b24c09d40a321ca2ea7b2e498af30aa",
+    "final_review": ".work/evidence/sprint3-qt5/e6-retest-20261117T191909Z/architect-final.txt",
+    "final_review_sha256": "b7b5482f213a24e5368e276761deedb914930de7a14632fdc813ce1b9c79fd46",
+    "final_review_verdict": "GO separate code/integrity and documentation commits for bounded E6 persistence, NOT E7; independent index57/history/copies/bundle/metrics/capture/diff verification. Final review and final verification separately hashed outside unchanged evidence index"
+  },
   "remaining": [
-    "E6 fresh explicit guest deployment authorization and real per-theme login/recovery using the exact sandbox-verified Qt5/OpenSSL3 runtime; offline prerequisite PASS does not pass E6 or authorize implicit disk/OpenSSL replacement",
-    "E7 final package/evidence review and explicit owner acceptance",
-    "Separate physical packaged-stack gate not run"
+    "E7 independent complete implementation/package/E0-E6 review and explicit owner compatibility acceptance; E6 functional review alone is not E7",
+    "Separate physical packaged-stack Sprint3 gate: fresh owner reader handoff, actual fingerprint/account/session/retry/timeout checks; NOT RUN",
+    "Sprint3 final review and explicit owner acceptance; no host installation, release or Sprint4 authorization"
   ]
 }
