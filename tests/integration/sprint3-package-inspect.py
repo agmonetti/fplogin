@@ -118,7 +118,7 @@ def inspect(candidate, reference, report, repo):
         if ' = ' in line:
             key, value = line.split(' = ', 1)
             meta.setdefault(key, set()).add(value)
-    for key, values in {'pkgname': {'sddm-fplogin'}, 'pkgver': {'0.21.0-2'}, 'arch': {'x86_64'},
+    for key, values in {'pkgname': {'sddm-fplogin'}, 'pkgver': {'0.21.0-3'}, 'arch': {'x86_64'},
                         'provides': {'sddm=0.21.0', 'display-manager'}, 'conflict': {'sddm'},
                         'backup': {f'etc/pam.d/{n}' for n in ('sddm', 'sddm-autologin', 'sddm-greeter', 'sddm-fingerprint')}}.items():
         require(meta.get(key) == values, f'wrong metadata: {key}')

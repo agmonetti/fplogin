@@ -64,7 +64,9 @@ class InspectorTest(unittest.TestCase):
 
         greeter = 'usr/bin/sddm-greeter'
         helper = 'usr/lib/sddm/sddm-helper'
+        self.assertIn(b'pkgver = 0.21.0-3\n', self.entries['.PKGINFO'][2])
         mutations = {
+            'stale-pkgrel': change('.PKGINFO', lambda m, d: (m, d.replace(b'pkgver = 0.21.0-3\n', b'pkgver = 0.21.0-2\n'))),
             'missing-qt5-greeter': change(greeter, lambda m, d: None),
             'misplaced-module': change('usr/lib/qt/qml/SddmComponents/qmldir', rename('usr/lib/qt6/qml/misplaced/qmldir')),
             'canonical-helper-substitution': change(helper, lambda m, d: (m, self.entries[greeter][2])),

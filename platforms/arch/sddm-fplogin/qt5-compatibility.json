@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "status": "UNACCEPTED; E5 original attempt FAIL; correction source/container and recipe regressions PASS, ready for downstream revalidation; corrected package E2-E4 revalidation and new E5 pair NOT RUN; progression BLOCKED; E6-E7 NOT RUN",
+  "status": "UNACCEPTED; corrected production E2-E4 revalidation and fresh E5 main/debug full-byte reproducibility PASS; original failed attempt preserved; E6 requires fresh owner authorization; E6-E7 NOT RUN",
   "plan_commit": "0486d7517d1667c1e2aee17e9f6054cdbceeaccb",
   "upstream_commit": "63780fcd79f1dbf81a30eef48c28c699ab15aded",
   "source_commit": "deaee9b94c79486a7b7e65715c3b438cabe9e09e",
@@ -183,6 +183,11 @@
     "qt5_details": ".work/evidence/sprint3-qt5/qt5-with-controls-tests-detail.log"
   },
   "source_bundle": {
+    "path": "/home/agus-hy/Documentos/fplogin/.work/checkpoints/sddm-sprint3-e5-revalidation-20261117T133559Z.bundle",
+    "sha256": "b600171352404fe556957e261b754c4f73fd5e3ee33cf549ab4c40b539b4725e",
+    "verification_log": ".work/evidence/sprint3-qt5/e5-revalidation/bundle-verify.log"
+  },
+  "historical_e5_correction_source_bundle": {
     "path": "/home/agus-hy/Documentos/fplogin/.work/checkpoints/sddm-sprint3-e5-correction-20261117.bundle",
     "sha256": "759489d16ca7c0cbde781bd0b93de2969fc87100a3d1c62e62dc34a6d40c47f6",
     "verification_log": ".work/evidence/sprint3-qt5/e5-diagnostic/bundle-verify.log"
@@ -385,8 +390,45 @@
     "not_run": "Corrected production makepkg/merge/canonical reference/archive inspection/installed rendering, new E5 fresh pair/full archive comparison, E6/E7/VM/reader. Historical E4/A archive is not current corrected candidate.",
     "tooling_limits": "Host C++ LSP lacks Qt/generated headers; actual pinned-container compilation authoritative. Initial observer builder-identity precondition failures preserved before cases; initial build tool wait timed out but per-suite exits0 retained; final runner/container0. Helper-path reporting error preserved and corrected without product/test rerun."
   },
+  "e5_package_revalidation": {
+    "date_utc": "2026-11-17",
+    "status": "PASS - corrected production E2-E4, offline package/rendering scope only",
+    "source_commit": "deaee9b94c79486a7b7e65715c3b438cabe9e09e",
+    "pkgrel": 3,
+    "image": "sha256:b30f0291fcee2e3c0117c58f96c650fb3bbeb24e2694b85a3024f2ba517f6215",
+    "source_date_epoch": 1794486593,
+    "tests": "Qt5 9/118; Qt6 10/131; zero failures/skips. Recipe4, merge3, inspector3 (19 mutations), smoke3 PASS",
+    "merge": "243 canonical install entries unchanged,62 additions; final archive242 canonical entries",
+    "canonical_reference_sha256": "f4054cf527ba4afa817b371a11d6e238154c0e759c352c65716cc308cbcf54f2",
+    "canonical_reference_scope": "Verification-only repackage from same corrected production build/home/dependencies/config/epoch, no Qt5 merge; exact canonical snapshot equality; original production full inventory and main/debug hashes preserved",
+    "runtime": "263 installed hashes, four PID-mapped packaged themes, SVG/Qt6 module and broken negative control PASS; rendering only, not login/metadata selection",
+    "inspector_amendment": "Strict pkgver0.21.0-3 plus asserted-preimage stale-pkgrel mutation; no recipe/source change or metadata waiver",
+    "inspector_sha256": "285f9c999146b6523b975178e458306ffa0933c208a2ff290c04bc9a1c6422f8",
+    "inspector_test_sha256": "9a895aebd480085203261266712a42004d77675ba2b17fe78107372948cca11c",
+    "preservation": "37 accepted Sprint2 and370 corrected source hashes, accepted inputs and289 original indexed E4/E5/diagnostic artifacts unchanged",
+    "retained_initial_errors": "Two orchestration account preconditions failed before builds; both logs/exits retained and architect reviewed direct inner-runner correction; one actual production build/check PASS",
+    "evidence_directory": ".work/evidence/sprint3-qt5/e5-revalidation/",
+    "evidence_artifacts_indexed": 123,
+    "evidence_integrity_sha256": "d6fb42ad997311ea1cfba43e9ef36acfea01be4de6cf2d736763f3c1f5625509",
+    "architect_review": ".work/evidence/sprint3-qt5/e5-revalidation/architect-gate.txt",
+    "architect_review_sha256": "5273a3453f4b2c3b6e8b82aa640ff7decce2d263facbfeb6c621ca27cf69c2ea"
+  },
+  "e5_corrected_reproducibility": {
+    "date_utc": "2026-11-17",
+    "status": "PASS - fresh A/B complete main and debug archive bytes identical, not E6/login/Sprint acceptance",
+    "build_paths": [".work/build/sprint3-qt5/repro-corrected-A/", ".work/build/sprint3-qt5/repro-corrected-B/"],
+    "provenance": "Independent pinned Git mirrors/no hardlinks/alternates, empty homes, identical corrected staged inputs/dependencies/config/source370/epoch1794486593; sequential networkless containers; first production attempts makepkg/container/check0; Qt5 9/118 andQt6 10/131 each,no failures/skips",
+    "main_sha256": "e461b3a9cca1c991ba4cc9537b7101009a06cbdf72d7b0eb3e0765b6d4e411a6",
+    "debug_sha256": "1205c473c77db2ac984147337762f4f426f57ad0e338da8f0cdd02f5b8fca40e",
+    "comparison": "Full raw main/debug filecmp and digests A=B=rendered corrected candidate; existing comparator main304/debug254 entries,differing0,exits0; fresh A inspector exact match to rendered inspection",
+    "evidence_directory": ".work/evidence/sprint3-qt5/e5-corrected/",
+    "evidence_artifacts_indexed": 69,
+    "evidence_integrity_sha256": "9a4246cf3f6113970f69521bdc5fd4d030727eb91b21132ee3302d15b4e8e28a",
+    "architect_model": "openai-codex/gpt-6.1-sol",
+    "architect_review": ".work/evidence/sprint3-qt5/e5-corrected/architect-final.txt",
+    "architect_review_sha256": "8061c9f0bc1418c913c8d8f929d1eaef62f516d449c321b39fcbd8b1e13b0a56"
+  },
   "remaining": [
-    "Revalidate corrected production package E2-E4, including new provenance-matched canonical reference/inspector and installed rendering; then new E5 fresh successful pair/full main+debug archive comparison",
     "E6 fresh VM authorization, real theme password login and broken-greeter rollback",
     "E7 final package/evidence review and explicit owner acceptance",
     "Separate physical packaged-stack gate not run"
