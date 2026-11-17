@@ -1,0 +1,80 @@
+{
+  "schema_version": 1,
+  "status": "tested offline automatic-start prototype; not installed, packaged, independently accepted or Sprint 3 accepted",
+  "owner_choices": {
+    "hidden_current_selection": "automatic scan without Enter after exposed root, ACK and positive availability; do not reveal/restyle labels",
+    "cancel": "Escape",
+    "retry": "F4; explicit only; may reprobe unavailable reader",
+    "installer_preferences": "future scope: optional buttons/messages/shortcuts and persistent configuration; NOT implemented"
+  },
+  "fixture_and_first_patch_manifest": "adapters/sddm/integrations/where-is-my-sddm-qt5/provenance.json",
+  "theme_patch": "adapters/sddm/integrations/where-is-my-sddm-qt5/0002-automatic-authentication.patch",
+  "theme_patch_sha256": "60f33b577cb53f0e489f25d9ba378850c3a1666a4eceb2f2a65d60e61d36ff1d",
+  "sddm_base": "deaee9b94c79486a7b7e65715c3b438cabe9e09e",
+  "sddm_source_commit": "33fbaeeb8d2381520d27e01d7eebb38bc186c76f",
+  "sddm_source_path": ".work/sddm/sprint3-theme-auto",
+  "sddm_patch": "adapters/sddm/integrations/where-is-my-sddm-qt5/sddm-theme-automatic-policy.patch",
+  "sddm_patch_sha256": "402ca9776973c4eeec16840e42d2afc757944d52ddd85ce25790fba030049c74",
+  "changed_source_sha256": {
+    "src/greeter/CMakeLists.txt": "3844ad4d6769fbd750c8a0eebedbdbd2d6245076e89678d464f8adee4f7ffd8f",
+    "src/greeter/GreeterApp.cpp": "349ea20e5e9950aca87b81ee0fd7498e147e04a66ad21f08b505331cbbac8ce8",
+    "src/greeter/GreeterApp.h": "71d26770464c549a71b03b2bd26126ae7c7d2ad9d70c5e73a42b651b1ff54437",
+    "src/greeter/GreeterProxy.cpp": "8db8745a2bf3dc76d24f7300c4a88e4d5cc8d0629570d33c391b21d56807700c",
+    "src/greeter/ThemeAuthentication.cpp": "fa571782f8b957ebc20d468e65425699eb319281acb35a0d92174bfa81085c65",
+    "src/greeter/ThemeAuthentication.h": "4a73493fff6137e5d28e97c611870dc8d24bc339c52cd2dce64d0e363c5ff4de",
+    "test/GreeterAppTest.cpp": "83b26ce39e0e32e9087fc0cab25758a7a25a1dc4ec735b447b45f79beb821dca",
+    "test/GreeterProxyTest.cpp": "588c78099b9f1bb6201a02a23a6a648559ff909162555de6f3f97fcda937b2cb"
+  },
+  "code_sha256": {
+    "tests/integration/theme-context/prepare.py": "81a9a54cb51a04e5439f2290fa109172755305f23defa630ea49d534fc569f1d",
+    "tests/integration/theme-context/prepare_test.py": "801f01d9c8cd88fa41681876776a07c655831ed1636c59ce4b6636b5e04be283",
+    "tests/integration/theme-auto/CMakeLists.txt": "59cfdeecca61a5b87adc78b8db97cbd400efaa850ffa7ceca1110349b72f32ee",
+    "tests/integration/theme-auto/ThemeAutoTest.cpp": "ec3200ad7f317f457022d57286e607a04da6729329cb3845682f9b86ed5592ed",
+    "tests/integration/theme-auto/run-container.sh": "0a5e3e89ec6034937c62c01488170caf852a5e9796fb735975bb48c7dec4e4b4"
+  },
+  "source_bundle": {
+    "path": ".work/checkpoints/sddm-theme-auto-20261117.bundle",
+    "sha256": "c9be78dee21a0f933b472b9a8896df8100618a0cbab8cb4de4a30484a0eb40ab",
+    "full_history_verify": "PASS"
+  },
+  "replay": {
+    "path": ".work/sddm/sprint3-theme-auto-replay",
+    "source_files_compared": 372,
+    "result": "all exported file bytes match tested candidate"
+  },
+  "image": "sha256:0ccf97570aa91d4d68ea7f2800d33b23df983290ea5ad86c9f5ba6c1c1ab254b",
+  "verification": {
+    "preparation_tests": 5,
+    "qt5_consumer_ctest": "1/1 PASS",
+    "qt5_consumer_qtest": "23 PASS (21 rows + init/cleanup), zero failures/skips",
+    "qt5_source_ctest": "9/9 PASS",
+    "qt6_source_ctest": "10/10 PASS including unchanged accepted fplogin theme (13 QTests)",
+    "t1_publication_regression": "1/1 CTest,14 QTest PASS, zero starts",
+    "render": "empty + masked synthetic PNG bytes and password geometry identical at 1024x768/Xvfb/software Qt5",
+    "used_label_negative": "exit4 before overwrite"
+  },
+  "evidence": {
+    "path": ".work/evidence/sprint3-qt5/theme-auto-20261117",
+    "index": "index.json",
+    "index_sha256": "82604b8e7db06c1d1c766e9e24968c71fb37c927e7d5ecfe3bfce22d3c93832b",
+    "files": 116
+  },
+  "review": {
+    "path": ".work/evidence/sprint3-qt5/theme-auto-20261117/architect-coauthor-review.txt",
+    "sha256": "39fd186fe420225bc38157b2e4c078ea774b252dc55c9c14995eff3792dced72",
+    "scope": "architect preflight then coauthor integration review; NOT independent core acceptance"
+  },
+  "initial_failures": [
+    "QML Connections targetChanged signal collision prevented loading; renamed policy signal identityChanged; harness cascading null dereference retained in first/",
+    "host-tool 300s wait expired during Qt6 build; container continued and docker wait returned0; final commands/tests all exit0"
+  ],
+  "limits": [
+    "Synthetic socket peer; no daemon/PAM/reader login for consumer",
+    "Actual Qt5 theme plus complementary real GreeterApp synthetic theme/two roots on same QScreen; no true multi-monitor/compositor acceptance",
+    "SessionModel unchanged reset tested; direct session reorder/removal and broader controller races not fully exercised",
+    "Existing invalid-index display undefined-to-QString warnings remain",
+    "Host C++ LSP lacks Qt/generated/include paths; container compilation supplies compile verification",
+    "No Qt6 original-theme consumer, packaging/distribution, installed ABI/reproducibility or deployment validation",
+    "No independent core review or Sprint 3 acceptance; accepted series/recipes/assets/source clones unchanged"
+  ]
+}

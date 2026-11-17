@@ -23,7 +23,7 @@ def verify_inputs(fixtures, patch, manifest):
         raise ValueError("Patch integrity mismatch")
 
 
-def prepare(output):
+def prepare(output, automatic=False):
     output = output.resolve()
     allowed = (ROOT / ".work/labs/sprint3").resolve()
     if not output.is_relative_to(allowed) or output == allowed:
@@ -37,10 +37,20 @@ def prepare(output):
     command = ["git", "apply", "--directory=" + str(output.relative_to(ROOT)), str(patch)]
     subprocess.run(command[:2] + ["--check"] + command[2:], cwd=ROOT, check=True)
     subprocess.run(command, cwd=ROOT, check=True)
+    if automatic:
+        auto = json.loads((INTEGRATION / "automatic.json").read_text())
+        patch = ROOT / auto["theme_patch"]
+        if patch.is_symlink() or hashlib.sha256(patch.read_bytes()).hexdigest() != auto["theme_patch_sha256"]:
+            raise ValueError("Automatic patch integrity mismatch")
+        command = ["git", "apply", "--directory=" + str(output.relative_to(ROOT)), str(patch)]
+        subprocess.run(command[:2] + ["--check"] + command[2:], cwd=ROOT, check=True)
+        subprocess.run(command, cwd=ROOT, check=True)
     return output
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output", type=Path)
-    print(prepare(parser.parse_args().output))
+    parser.add_argument("--automatic", action="store_true", help="Apply the separate experimental automatic policy consumer")
+    args = parser.parse_args()
+    print(prepare(args.output, automatic=args.automatic))

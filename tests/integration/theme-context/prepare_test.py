@@ -4,6 +4,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from prepare import INTEGRATION, ROOT, prepare, verify_inputs
 
@@ -23,6 +24,23 @@ class PreparationTests(unittest.TestCase):
         self.assertNotIn("startFingerprint(", text)
         with self.assertRaises(FileExistsError):
             prepare(output)
+
+    def test_automatic_preparation_and_integrity(self):
+        output = prepare(self.work / "automatic", automatic=True)
+        text = (output / "Main.qml").read_text()
+        self.assertIn("themeAuthentication.attach", text)
+        self.assertIn('sequence: "Escape"', text)
+        self.assertIn('sequence: "F4"', text)
+        self.assertNotIn("publishAuthenticationContext", text)
+        # A separate manifest fixture cannot weaken the tracked patch digest.
+        manifests = self.work / "manifests"
+        manifests.mkdir()
+        shutil.copyfile(INTEGRATION / "provenance.json", manifests / "provenance.json")
+        automatic = json.loads((INTEGRATION / "automatic.json").read_text())
+        automatic["theme_patch_sha256"] = "0" * 64
+        (manifests / "automatic.json").write_text(json.dumps(automatic))
+        with patch("prepare.INTEGRATION", manifests), self.assertRaisesRegex(ValueError, "Automatic patch integrity"):
+            prepare(self.work / "rejected", automatic=True)
 
     def test_tampering_is_rejected(self):
         fixtures = self.work / "base"

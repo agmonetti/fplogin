@@ -1,0 +1,666 @@
+diff --git a/src/greeter/CMakeLists.txt b/src/greeter/CMakeLists.txt
+index 72769e4..cd6aa22 100644
+--- a/src/greeter/CMakeLists.txt
++++ b/src/greeter/CMakeLists.txt
+@@ -25,6 +25,7 @@ set(GREETER_SOURCES
+     ${CMAKE_SOURCE_DIR}/src/common/ThemeMetadata.cpp
+     GreeterApp.cpp
+     GreeterProxy.cpp
++    ThemeAuthentication.cpp
+     KeyboardLayout.cpp
+     KeyboardModel.cpp
+     ScreenModel.cpp
+diff --git a/src/greeter/GreeterApp.cpp b/src/greeter/GreeterApp.cpp
+index 9dc6845..6086ea5 100644
+--- a/src/greeter/GreeterApp.cpp
++++ b/src/greeter/GreeterApp.cpp
+@@ -21,6 +21,7 @@
+ #include "GreeterApp.h"
+ #include "Configuration.h"
+ #include "GreeterProxy.h"
++#include "ThemeAuthentication.h"
+ #include "Constants.h"
+ #include "ScreenModel.h"
+ #include "SessionModel.h"
+@@ -69,6 +70,7 @@ namespace SDDM {
+ 
+     GreeterApp::~GreeterApp() {
+         m_replacingRoots = true;
++        if (m_themeAuthentication) m_themeAuthentication->setControllerView(nullptr);
+         m_controllerView.clear();
+         m_pendingController.clear();
+         qDeleteAll(m_views);
+@@ -175,6 +177,7 @@ namespace SDDM {
+             && (screen == QGuiApplication::primaryScreen() || m_views.size() == 1);
+         if (controller) {
+             m_controllerView = view;
++            m_themeAuthentication->setControllerView(view);
+             m_proxy->setAuthenticationController(true);
+         }
+         if (!m_pendingController || (m_clearPending && screen == QGuiApplication::primaryScreen()))
+@@ -184,6 +187,7 @@ namespace SDDM {
+         view->rootContext()->setContextProperty(QStringLiteral("userModel"), m_userModel);
+         view->rootContext()->setContextProperty(QStringLiteral("config"), m_themeConfig);
+         view->rootContext()->setContextProperty(QStringLiteral("sddm"), m_proxy);
++        view->rootContext()->setContextProperty(QStringLiteral("themeAuthentication"), m_themeAuthentication);
+         view->rootContext()->setContextProperty(QStringLiteral("keyboard"), m_keyboard);
+         view->rootContext()->setContextProperty(QStringLiteral("authenticationController"), controller);
+         view->rootContext()->setContextProperty(QStringLiteral("primaryScreen"), screen == QGuiApplication::primaryScreen());
+@@ -229,6 +233,7 @@ namespace SDDM {
+         const bool wasController = m_controllerView == view;
+         if (m_pendingController == view) m_pendingController.clear();
+         if (wasController) {
++            m_themeAuthentication->setControllerView(nullptr);
+             m_controllerView.clear();
+             m_proxy->setAuthenticationController(false);
+             m_clearPending = true;
+@@ -244,6 +249,7 @@ namespace SDDM {
+         qWarning() << "Fallback to embedded theme";
+         m_fallbackStarted = true;
+         m_fallbackErrors = errors;
++        m_themeAuthentication->setControllerView(nullptr);
+         m_clearPending = true;
+         m_proxy->setAuthenticationController(false);
+         for (QQuickView *view : qAsConst(m_views))
+@@ -291,6 +297,7 @@ namespace SDDM {
+                 QGuiApplication::setFont(font);
+         }
+         m_proxy->setSessionModel(m_sessionModel);
++        m_themeAuthentication = new ThemeAuthentication(m_proxy, m_userModel, m_sessionModel, this);
+         connect(m_proxy, &GreeterProxy::socketDisconnected, qGuiApp, &QCoreApplication::quit);
+         connect(m_proxy, &GreeterProxy::authenticationContextCleared, this, [this](quint64) {
+             m_clearPending = false;
+@@ -329,6 +336,7 @@ namespace SDDM {
+             return;
+         }
+         m_clearPending = true;
++        m_themeAuthentication->setControllerView(nullptr);
+         m_controllerView.clear();
+         m_proxy->setAuthenticationController(false);
+         for (QQuickView *view : qAsConst(m_views))
+@@ -340,6 +348,7 @@ namespace SDDM {
+         if (!m_pendingController && !m_views.isEmpty())
+             m_pendingController = m_views.first();
+         m_controllerView = m_pendingController;
++        m_themeAuthentication->setControllerView(m_controllerView);
+         m_proxy->setAuthenticationController(bool(m_controllerView));
+         for (QQuickView *view : qAsConst(m_views)) {
+             const bool controller = view == m_controllerView;
+diff --git a/src/greeter/GreeterApp.h b/src/greeter/GreeterApp.h
+index 5dce2bb..f2058da 100644
+--- a/src/greeter/GreeterApp.h
++++ b/src/greeter/GreeterApp.h
+@@ -36,6 +36,7 @@ namespace SDDM {
+     class ScreenModel;
+     class UserModel;
+     class GreeterProxy;
++    class ThemeAuthentication;
+     class KeyboardModel;
+ 
+ 
+@@ -78,6 +79,7 @@ namespace SDDM {
+         SessionModel *m_sessionModel { nullptr };
+         UserModel *m_userModel { nullptr };
+         GreeterProxy *m_proxy { nullptr };
++        ThemeAuthentication *m_themeAuthentication { nullptr };
+         KeyboardModel *m_keyboard { nullptr };
+         QPointer<QQuickView> m_controllerView;
+         QPointer<QQuickView> m_pendingController;
+diff --git a/src/greeter/GreeterProxy.cpp b/src/greeter/GreeterProxy.cpp
+index 88994d6..f86373a 100644
+--- a/src/greeter/GreeterProxy.cpp
++++ b/src/greeter/GreeterProxy.cpp
+@@ -35,6 +35,7 @@ namespace SDDM {
+             quint32 sessionType { Session::UnknownSession };
+             int sessionIndex { -1 };
+             bool available { false }, busy { false }, completed { false }, succeeded { false };
++            bool passwordFeedbackPending { false };
+             QString state { QStringLiteral("unavailable") }, detail { QStringLiteral("checking") };
+         };
+ 
+@@ -209,6 +210,7 @@ namespace SDDM {
+                 return;
+         }
+         d->passwordPending = true;
++        d->snapshot.passwordFeedbackPending = true;
+         d->legacyFeedbackEnabled = !d->correlated;
+         SocketWriter(d->socket) << quint32(GreeterMessages::Login) << user << password << sessionType << sessionFile;
+         if (!d->correlated) {
+@@ -351,11 +353,15 @@ namespace SDDM {
+             next.state = QStringLiteral("failed");
+             next.detail = QStringLiteral("account_or_session_failed");
+         }
++        const bool passwordFailed = next.passwordFeedbackPending
++            && result == quint32(AuthenticationResult::Failed)
++            && winningMethod != quint32(AuthenticationMethod::Fingerprint);
++        next.passwordFeedbackPending = false;
+         d->passwordPending = false;
+         d->publish(this, next, allowed);
+         emit authenticationFinished(next.requestId, next.user, next.sessionIndex, result, winningMethod);
+         if (result == quint32(AuthenticationResult::Succeeded)) emit loginSucceeded();
+-        else emit loginFailed();
++        else if (passwordFailed) emit loginFailed();
+         if (clearAgain) clearAuthenticationContext();
+     }
+ 
+@@ -561,7 +567,10 @@ namespace SDDM {
+                     }
+                     const bool passwordFailed = frame.method == quint32(AuthenticationMethod::Password)
+                         && frame.state == quint32(FingerprintState::Failed) && d->passwordPending;
+-                    if (passwordFailed) d->passwordPending = false;
++                    if (passwordFailed) {
++                        d->passwordPending = false;
++                        next.passwordFeedbackPending = false;
++                    }
+                     d->publish(this, next, allowed);
+                     if (passwordFailed) emit loginFailed();
+                     break;
+diff --git a/src/greeter/ThemeAuthentication.cpp b/src/greeter/ThemeAuthentication.cpp
+new file mode 100644
+index 0000000..361415e
+--- /dev/null
++++ b/src/greeter/ThemeAuthentication.cpp
+@@ -0,0 +1,278 @@
++// SPDX-License-Identifier: GPL-2.0-or-later
++#include "ThemeAuthentication.h"
++#include "GreeterProxy.h"
++#include "SessionModel.h"
++
++#include <QAbstractItemModel>
++#include <QEvent>
++#include <QQuickItem>
++#include <QQuickView>
++#include <QQuickWindow>
++#include <QTimer>
++#include <QVariantMap>
++
++namespace SDDM {
++ThemeAuthentication::ThemeAuthentication(GreeterProxy *proxy, QAbstractItemModel *users,
++                                       SessionModel *sessions, QObject *parent)
++    : QObject(parent), m_proxy(proxy), m_users(users), m_sessions(sessions) {
++    for (QAbstractItemModel *model : {users, static_cast<QAbstractItemModel *>(sessions)}) {
++        if (!model) continue;
++        connect(model, &QAbstractItemModel::modelAboutToBeReset, this, &ThemeAuthentication::modelChanging);
++        connect(model, &QAbstractItemModel::modelReset, this, &ThemeAuthentication::modelChanged);
++        connect(model, &QAbstractItemModel::rowsAboutToBeRemoved, this, &ThemeAuthentication::modelChanging);
++        connect(model, &QAbstractItemModel::rowsRemoved, this, &ThemeAuthentication::modelChanged);
++        connect(model, &QAbstractItemModel::rowsAboutToBeInserted, this, &ThemeAuthentication::modelChanging);
++        connect(model, &QAbstractItemModel::rowsInserted, this, &ThemeAuthentication::modelChanged);
++        connect(model, &QAbstractItemModel::layoutAboutToBeChanged, this, &ThemeAuthentication::modelChanging);
++        connect(model, &QAbstractItemModel::layoutChanged, this, &ThemeAuthentication::modelChanged);
++        connect(model, &QAbstractItemModel::dataChanged, this, [this] {
++            if (!m_modelChanges) modelChanged();
++        });
++        connect(model, &QObject::destroyed, this, [this] { modelChanged(); });
++    }
++    connect(proxy, &GreeterProxy::authenticationMethodsAvailableChanged, this, &ThemeAuthentication::schedule);
++    connect(proxy, &GreeterProxy::authenticationControllerChanged, this, &ThemeAuthentication::schedule);
++    connect(proxy, &GreeterProxy::authenticationUserChanged, this, &ThemeAuthentication::schedule);
++    connect(proxy, &GreeterProxy::authenticationSessionIndexChanged, this, &ThemeAuthentication::schedule);
++    connect(proxy, &GreeterProxy::fingerprintRequestIdChanged, this, &ThemeAuthentication::schedule);
++    connect(proxy, &GreeterProxy::fingerprintAvailableChanged, this, &ThemeAuthentication::schedule);
++    connect(proxy, &GreeterProxy::fingerprintStateChanged, this, &ThemeAuthentication::schedule);
++    connect(proxy, &GreeterProxy::fingerprintDetailCodeChanged, this, [this](const QString &detail) {
++        // Observe both probe edges synchronously, even in one decoded socket batch.
++        if (m_startPending) {
++            if (detail == QLatin1String("checking")) m_probePending = true;
++            else if (m_probePending) {
++                m_startPending = false;
++                m_probePending = false;
++            }
++        }
++        schedule();
++    });
++    connect(proxy, &GreeterProxy::authenticationBusyChanged, this, &ThemeAuthentication::schedule);
++    connect(proxy, &GreeterProxy::authenticationSubmissionAllowedChanged, this, &ThemeAuthentication::schedule);
++    connect(proxy, &GreeterProxy::authenticationContextCleared, this, [this] {
++        m_startPending = false;
++        m_probePending = false;
++        schedule();
++    });
++    connect(proxy, &GreeterProxy::authenticationFinished, this, &ThemeAuthentication::schedule);
++    connect(proxy, &GreeterProxy::authenticationContextRejected, this, [this] {
++        restoreCommitted();
++        schedule();
++    });
++}
++
++int ThemeAuthentication::findUser(const QString &user) const {
++    if (!m_users || user.isEmpty()) return -1;
++    const int role = m_users->roleNames().key(QByteArrayLiteral("name"), -1);
++    if (role < 0) return -1;
++    for (int row = 0; row < m_users->rowCount(); ++row)
++        if (m_users->data(m_users->index(row, 0), role).toString() == user) return row;
++    return -1;
++}
++
++int ThemeAuthentication::userIndex() const { return m_modelChanges ? -1 : findUser(m_user); }
++int ThemeAuthentication::sessionIndex() const {
++    return m_modelChanges || !m_sessions || m_user.isEmpty()
++        ? -1 : m_sessions->indexOfSession(m_type, m_file);
++}
++bool ThemeAuthentication::valid() const { return userIndex() >= 0 && sessionIndex() >= 0; }
++
++bool ThemeAuthentication::owns(QQuickWindow *window) const {
++    return window && window == m_controller && m_roots.contains(window)
++        && m_roots.value(window).root && m_roots.value(window).root->window() == window;
++}
++bool ThemeAuthentication::ready() const {
++    return owns(m_controller) && valid() && m_controller->isVisible()
++        && m_controller->visibility() != QWindow::Minimized && m_controller->isExposed()
++        && m_roots.value(m_controller).root->isVisible();
++}
++
++void ThemeAuthentication::setControllerView(QQuickView *view) {
++    if (m_controller == view) return;
++    m_controller = view;
++    m_controllerIdentity = view;
++    // GreeterApp owns the clear/drain barrier on controller transfers.
++    m_startPending = false;
++    m_probePending = false;
++    if (owns(view) && !m_initialized) {
++        const auto surface = m_roots.value(view);
++        select(view, surface.initialUser, surface.initialSession);
++    }
++    emit selectionChanged();
++    schedule();
++}
++
++void ThemeAuthentication::attach(QQuickWindow *window, QQuickItem *root,
++                                 const QString &user, int sessionIndex) {
++    if (!window || !root || root->window() != window) return;
++    if (m_roots.contains(window)) {
++        if (m_roots.value(window).root != root) return;
++    } else {
++        m_roots.insert(window, {root, user, sessionIndex});
++        window->installEventFilter(this);
++        connect(root, &QQuickItem::visibleChanged, this, [this, window] {
++            if (window == m_controller) invalidateSurface();
++        });
++        connect(root, &QObject::destroyed, this, [this, window] {
++            m_roots.remove(window);
++            if (window == m_controllerIdentity) invalidateSurface();
++        });
++        connect(window, &QObject::destroyed, this, [this, window] {
++            m_roots.remove(window);
++            if (window == m_controllerIdentity) {
++                m_controllerIdentity = nullptr;
++                invalidateSurface();
++            }
++            schedule();
++        });
++    }
++    if (owns(window) && !m_initialized) select(window, user, sessionIndex);
++    emit selectionChanged();
++    schedule();
++}
++
++void ThemeAuthentication::changeTarget(const QString &user, int type, const QString &file) {
++    if (m_user == user && m_type == type && m_file == file) return;
++    // Even coalesced A -> B -> A intent must drain the old acknowledged A.
++    if (m_proxy && !m_proxy->authenticationBusy() && !m_proxy->authenticationUser().isEmpty())
++        m_proxy->clearAuthenticationContext();
++    m_user = user;
++    m_type = type;
++    m_file = file;
++    m_consumed = false;
++    m_startPending = false;
++    m_probePending = false;
++    m_retryRequested = false;
++    emit identityChanged();
++    emit selectionChanged();
++}
++
++bool ThemeAuthentication::select(QQuickWindow *window, const QString &user, int index) {
++    if (!owns(window) || m_modelChanges || !m_proxy) return false;
++    if (m_proxy->authenticationBusy()) {
++        restoreCommitted();
++        emit selectionChanged();
++        return false;
++    }
++    m_initialized = true;
++    const auto identity = m_sessions ? m_sessions->sessionIdentity(index) : QVariantMap();
++    if (findUser(user) < 0 || identity.isEmpty()) {
++        changeTarget(QString(), 0, QString());
++        invalidateSurface();
++        return false;
++    }
++    changeTarget(user, identity.value(QStringLiteral("type")).toInt(),
++                 identity.value(QStringLiteral("file")).toString());
++    schedule();
++    return true;
++}
++
++void ThemeAuthentication::cancel(QQuickWindow *window) {
++    if (!owns(window) || !m_proxy || m_proxy->authenticationBusy()) return;
++    m_consumed = true;
++    m_retryRequested = false;
++    m_startPending = false;
++    m_probePending = false;
++    if (m_proxy->authenticationMethodsAvailable()) m_proxy->cancelFingerprint();
++}
++
++void ThemeAuthentication::retry(QQuickWindow *window) {
++    if (!owns(window) || !ready() || !m_proxy || !m_proxy->authenticationMethodsAvailable()
++        || m_proxy->authenticationBusy() || m_startPending || m_probePending
++        || m_proxy->fingerprintDetailCode() == QLatin1String("checking")
++        || m_proxy->fingerprintState() == QLatin1String("scanning")
++        || m_proxy->fingerprintState() == QLatin1String("matched")) return;
++    m_consumed = false;
++    m_retryRequested = true;
++    schedule();
++}
++
++void ThemeAuthentication::schedule() {
++    if (m_queued) return;
++    m_queued = true;
++    QTimer::singleShot(0, this, [this] {
++        m_queued = false;
++        reconcile();
++    });
++}
++
++void ThemeAuthentication::invalidateSurface() {
++    if (!m_proxy) return;
++    if (!ready() && !m_proxy->authenticationBusy() && !m_proxy->authenticationUser().isEmpty()) {
++        m_startPending = false;
++        m_probePending = false;
++        m_proxy->clearAuthenticationContext();
++    }
++    schedule();
++}
++
++bool ThemeAuthentication::eventFilter(QObject *object, QEvent *event) {
++    if (object == m_controller && (event->type() == QEvent::Expose || event->type() == QEvent::Hide
++        || event->type() == QEvent::Show || event->type() == QEvent::WindowStateChange)) {
++        if (event->type() == QEvent::Hide && m_proxy && !m_proxy->authenticationBusy()
++            && !m_proxy->authenticationUser().isEmpty()) {
++            m_startPending = false;
++            m_probePending = false;
++            m_proxy->clearAuthenticationContext();
++        } else invalidateSurface();
++    }
++    return QObject::eventFilter(object, event);
++}
++
++void ThemeAuthentication::modelChanging() {
++    ++m_modelChanges;
++    emit selectionChanged();
++    invalidateSurface();
++}
++
++void ThemeAuthentication::modelChanged() {
++    if (m_modelChanges) --m_modelChanges;
++    if (m_modelChanges) return;
++    if (!valid() && (!m_proxy || !m_proxy->authenticationBusy())) {
++        changeTarget(QString(), 0, QString());
++        invalidateSurface();
++    }
++    emit selectionChanged();
++    schedule();
++}
++
++void ThemeAuthentication::restoreCommitted() {
++    if (!m_proxy || !m_proxy->authenticationBusy() || !m_sessions) return;
++    const auto identity = m_sessions->sessionIdentity(m_proxy->authenticationSessionIndex());
++    if (identity.isEmpty() || m_proxy->authenticationUser().isEmpty()) return;
++    changeTarget(m_proxy->authenticationUser(), identity.value(QStringLiteral("type")).toInt(),
++                 identity.value(QStringLiteral("file")).toString());
++    m_consumed = true;
++}
++
++void ThemeAuthentication::reconcile() {
++    if (!m_proxy || !m_proxy->authenticationController() || !owns(m_controller)) return;
++    if (!ready()) {
++        if (!m_proxy->authenticationBusy() && !m_proxy->authenticationUser().isEmpty()) {
++            m_startPending = false;
++            m_probePending = false;
++            m_proxy->clearAuthenticationContext();
++        }
++        return;
++    }
++    if (!m_proxy->authenticationMethodsAvailable() || m_proxy->authenticationBusy()) return;
++    const int index = sessionIndex();
++    if (m_startPending && !m_probePending && (m_proxy->fingerprintState() != m_startState
++        || m_proxy->fingerprintRequestId() != m_startRequest)) m_startPending = false;
++    const bool same = m_proxy->authenticationUser() == m_user
++        && m_proxy->authenticationSessionIndex() == index;
++    // Explicit Retry may reopen a completed attempt. Ordinary notifications must not.
++    if (!same || m_proxy->fingerprintRequestId().isEmpty() || m_retryRequested)
++        m_proxy->setAuthenticationContext(m_user, index);
++    if (!m_proxy->authenticationSubmissionAllowed() || m_proxy->authenticationUser() != m_user
++        || m_proxy->authenticationSessionIndex() != index || m_proxy->fingerprintRequestId().isEmpty()) return;
++    if (m_consumed || (!m_proxy->fingerprintAvailable() && !m_retryRequested)) return;
++    m_consumed = true;
++    m_retryRequested = false;
++    m_startPending = true;
++    m_startState = m_proxy->fingerprintState();
++    m_startRequest = m_proxy->fingerprintRequestId();
++    m_proxy->startFingerprint(m_user, index);
++}
++}
+diff --git a/src/greeter/ThemeAuthentication.h b/src/greeter/ThemeAuthentication.h
+new file mode 100644
+index 0000000..d2fce19
+--- /dev/null
++++ b/src/greeter/ThemeAuthentication.h
+@@ -0,0 +1,78 @@
++// SPDX-License-Identifier: GPL-2.0-or-later
++#ifndef SDDM_THEMEAUTHENTICATION_H
++#define SDDM_THEMEAUTHENTICATION_H
++
++#include <QObject>
++#include <QPointer>
++#include <QHash>
++#include <QString>
++
++class QAbstractItemModel;
++class QQuickItem;
++class QQuickView;
++class QQuickWindow;
++
++namespace SDDM {
++class GreeterProxy;
++class SessionModel;
++
++// Explicit theme cooperation; no password or privileged authentication state lives here.
++class ThemeAuthentication : public QObject {
++    Q_OBJECT
++    Q_PROPERTY(QString user READ user NOTIFY selectionChanged)
++    Q_PROPERTY(int userIndex READ userIndex NOTIFY selectionChanged)
++    Q_PROPERTY(int sessionIndex READ sessionIndex NOTIFY selectionChanged)
++    Q_PROPERTY(bool valid READ valid NOTIFY selectionChanged)
++public:
++    ThemeAuthentication(GreeterProxy *proxy, QAbstractItemModel *users,
++                        SessionModel *sessions, QObject *parent = nullptr);
++    QString user() const { return m_user; }
++    int userIndex() const;
++    int sessionIndex() const;
++    bool valid() const;
++    void setControllerView(QQuickView *view);
++    Q_INVOKABLE void attach(QQuickWindow *window, QQuickItem *root, const QString &user, int sessionIndex);
++    Q_INVOKABLE bool select(QQuickWindow *window, const QString &user, int sessionIndex);
++    Q_INVOKABLE void cancel(QQuickWindow *window);
++    Q_INVOKABLE void retry(QQuickWindow *window);
++signals:
++    void selectionChanged();
++    void identityChanged();
++protected:
++    bool eventFilter(QObject *object, QEvent *event) override;
++private:
++    bool owns(QQuickWindow *window) const;
++    bool ready() const;
++    void schedule();
++    void reconcile();
++    void invalidateSurface();
++    void changeTarget(const QString &user, int type, const QString &file);
++    void modelChanging();
++    void modelChanged();
++    void restoreCommitted();
++    int findUser(const QString &user) const;
++
++    QPointer<GreeterProxy> m_proxy;
++    QPointer<QAbstractItemModel> m_users;
++    QPointer<SessionModel> m_sessions;
++    QPointer<QQuickWindow> m_controller;
++    QQuickWindow *m_controllerIdentity = nullptr;
++    struct Surface {
++        QPointer<QQuickItem> root;
++        QString initialUser;
++        int initialSession = -1;
++    };
++    QHash<QQuickWindow *, Surface> m_roots;
++    QString m_user, m_file;
++    int m_type = 0;
++    int m_modelChanges = 0;
++    bool m_initialized = false;
++    bool m_consumed = false;
++    bool m_queued = false;
++    bool m_startPending = false;
++    bool m_probePending = false;
++    bool m_retryRequested = false;
++    QString m_startState, m_startRequest;
++};
++}
++#endif
+diff --git a/test/GreeterAppTest.cpp b/test/GreeterAppTest.cpp
+index 684cf23..64e0171 100644
+--- a/test/GreeterAppTest.cpp
++++ b/test/GreeterAppTest.cpp
+@@ -4,6 +4,7 @@
+ #include "GreeterProxy.h"
+ #include "Messages.h"
+ #include "Session.h"
++#include "ThemeAuthentication.h"
+ 
+ #include <QDataStream>
+ #include <QDir>
+@@ -191,6 +192,62 @@ Rectangle {
+         QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+     }
+ 
++    void cooperativePolicySurvivesRealPromotionWithoutRetryAndOptsOutOnFallback() {
++        // Container-only account discovery: never reads the host account database.
++        disconnect(m_app->m_proxy, nullptr, qGuiApp, nullptr);
++        m_app.reset();
++        delete m_peer;
++        m_peer = nullptr;
++        m_requests.clear();
++        m_startCount = 0;
++        mainConfig.Users.MinimumUid.set(0);
++        mainConfig.Users.MaximumUid.set(0);
++        mainConfig.Users.HideUsers.set({});
++        mainConfig.Users.HideShells.set({});
++        mainConfig.Theme.EnableAvatars.set(false);
++        QVERIFY(writeFile(QStringLiteral("Main.qml"), R"QML(
++import QtQuick 2.15
++import QtQuick.Window 2.2
++Rectangle {
++    id: root
++    width: 640; height: 480
++    property var surface: root.Window.window
++    property string actualUser: userModel.count > 0 ? userModel.data(userModel.index(0, 0), Qt.UserRole + 1) : ""
++    function attach() { if (surface) themeAuthentication.attach(surface, root, actualUser, 0) }
++    Component.onCompleted: attach()
++    onSurfaceChanged: attach()
++}
++)QML"));
++        m_app = std::make_unique<GreeterApp>();
++        m_app->setTestModeEnabled(true);
++        m_app->setSocketName(m_server.fullServerName());
++        m_app->setThemePath(m_dir->path());
++        m_app->startup();
++        QTRY_COMPARE(m_startCount, 1);
++        QCOMPARE(m_app->m_themeAuthentication->user(), QStringLiteral("root"));
++        auto *shared = m_app->m_themeAuthentication;
++        m_app->addViewForScreen(QGuiApplication::primaryScreen());
++        auto *mirror = m_app->m_views.last();
++        QCOMPARE(mirror->rootContext()->contextProperty(QStringLiteral("themeAuthentication")).value<QObject *>(), shared);
++        m_app->removeViewForScreen(m_app->m_controllerView);
++        QTRY_VERIFY(latestClear() != 0);
++        const auto clear = latestClear();
++        QVERIFY(!m_app->m_controllerView);
++        send(ack(clear, true));
++        QTRY_COMPARE(m_app->m_controllerView.data(), mirror);
++        QTRY_VERIFY(m_app->m_proxy->authenticationUser() == QStringLiteral("root"));
++        QTest::qWait(30);
++        QCOMPARE(m_startCount, 1);
++        QCOMPARE(shared->user(), QStringLiteral("root"));
++        forceLoadError();
++        QTRY_VERIFY(latestClear() > clear);
++        QTRY_VERIFY(m_app->m_embeddedFallback);
++        send(ack(latestClear(), true));
++        QTRY_VERIFY(m_app->m_proxy->authenticationSubmissionAllowed());
++        QTest::qWait(30);
++        QCOMPARE(m_startCount, 1);
++    }
++
+     void partialActivationThenWholeGreeterFallback() {
+         m_app->addViewForScreen(QGuiApplication::primaryScreen());
+         QCOMPARE(m_app->m_views.size(), 2);
+diff --git a/test/GreeterProxyTest.cpp b/test/GreeterProxyTest.cpp
+index 25ee084..1a8bd15 100644
+--- a/test/GreeterProxyTest.cpp
++++ b/test/GreeterProxyTest.cpp
+@@ -304,6 +304,61 @@ private slots:
+         QVERIFY(m_proxy->authenticationBusy());
+     }
+ 
++    void terminalFeedbackPreservesFingerprintOnlyInput_data() {
++        QTest::addColumn<bool>("submitted");
++        QTest::addColumn<int>("result");
++        QTest::addColumn<int>("winner");
++        QTest::addColumn<bool>("methodFailed");
++        QTest::addColumn<int>("failures");
++        QTest::newRow("fingerprint-account-denial") << false << int(AuthenticationResult::Failed)
++            << int(AuthenticationMethod::Fingerprint) << false << 0;
++        QTest::newRow("fingerprint-denial-with-password-pending") << true << int(AuthenticationResult::Failed)
++            << int(AuthenticationMethod::Fingerprint) << false << 0;
++        QTest::newRow("fingerprint-terminal-no-winner") << false << int(AuthenticationResult::Failed)
++            << int(AuthenticationMethod::NoWinner) << false << 0;
++        QTest::newRow("cancelled-with-password-pending") << true << int(AuthenticationResult::Cancelled)
++            << int(AuthenticationMethod::NoWinner) << false << 0;
++        QTest::newRow("password-account-denial") << true << int(AuthenticationResult::Failed)
++            << int(AuthenticationMethod::Password) << false << 1;
++        QTest::newRow("password-terminal-no-winner") << true << int(AuthenticationResult::Failed)
++            << int(AuthenticationMethod::NoWinner) << false << 1;
++        QTest::newRow("password-already-reported") << true << int(AuthenticationResult::Failed)
++            << int(AuthenticationMethod::NoWinner) << true << 1;
++    }
++    void terminalFeedbackPreservesFingerprintOnlyInput() {
++        QFETCH(bool, submitted);
++        QFETCH(int, result);
++        QFETCH(int, winner);
++        QFETCH(bool, methodFailed);
++        QFETCH(int, failures);
++        send(capabilities(2));
++        QTRY_VERIFY(m_proxy->authenticationMethodsAvailable());
++        m_proxy->setAuthenticationContext(QStringLiteral("alice"), 0);
++        QTRY_COMPARE(m_requests.size(), 1);
++        const auto serial = m_requests.last().serial;
++        send(context(serial, idA, QStringLiteral("alice")));
++        QTRY_COMPARE(m_proxy->fingerprintRequestId(), idA);
++        QSignalSpy failed(m_proxy.get(), &GreeterProxy::loginFailed);
++        QSignalSpy completed(m_proxy.get(), &GreeterProxy::authenticationFinished);
++        QString field = QStringLiteral("synthetic-pretyped-input");
++        connect(m_proxy.get(), &GreeterProxy::loginFailed, this, [&field] { field.clear(); });
++        if (submitted) {
++            m_proxy->login(QStringLiteral("alice"), field, 0);
++            QTRY_COMPARE(m_requests.size(), 2);
++        }
++        if (methodFailed) {
++            send(state(serial, idA, QStringLiteral("alice"), FingerprintState::Failed,
++                       AuthenticationMethod::Password, AuthenticationPhase::Active,
++                       QStringLiteral("authentication_failed")));
++            QTRY_COMPARE(failed.size(), 1);
++        }
++        send(finished(serial, idA, QStringLiteral("alice"), AuthenticationResult(result), AuthenticationMethod(winner))
++             + legacy(DaemonMessages::LoginFailed));
++        QTRY_COMPARE(completed.size(), 1);
++        QCOMPARE(failed.size(), failures);
++        QCOMPARE(field.isEmpty(), failures != 0);
++    }
++
+     void unavailableExplicitRetryConsumesOnlyFreshCurrentAvailability() {
+         send(capabilities(2));
+         QTRY_VERIFY(m_proxy->authenticationMethodsAvailable());
