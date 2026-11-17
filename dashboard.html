@@ -1046,8 +1046,8 @@
     "last_updated": "2026-11-17",
     "current_gate": "Sprint 3 (Servicio PAM y Empaquetado Arch/SDDM)",
     "current_gate_status": "in_progress",
-    "latest_achievement": "Sprint 3 E6 PASS: cuatro logins reales por contraseña con Qt5/Qt6 y recuperación TTY desde greeter roto, rollback firmado y login stock. Sprint 2 sigue cerrado; Sprint 3 no aceptado.",
-    "next_step": "E7: revisión independiente completa de implementación, paquete y evidencia E0–E6. Sigue pendiente el gate físico del stack empaquetado, con nueva autorización del lector; sin instalación en host ni aceptación de Sprint 3.",
+    "latest_achievement": "Sprint 3 E7: revisión técnica independiente PASS; Qt5 verificado offline y con login real/recuperación en VM. Aceptación de compatibilidad por el dueño pendiente; Sprint 3 no aceptado.",
+    "next_step": "Decisión del dueño sobre compatibilidad Qt5; luego gate físico del stack empaquetado con nueva autorización del lector. Sin instalación en host, release ni avance a Sprint 4; Sprint 3 sigue sin aceptar.",
     "summary": {
       "total_items": 152,
       "done": 131,
@@ -1732,7 +1732,7 @@
           "id": "S3-04",
           "title": "Receta Arch para el Stack SDDM Parcheado",
           "status": "partial",
-          "description": "Paquete dual Qt5/Qt6 con suplementos separados 0003/0004 y serie aceptada intacta. E2–E5 PASS offline; E6 PASS con runtime Qt5/OpenSSL3 fijado y cuatro logins reales. Pendientes E7, gate físico y aceptación.",
+          "description": "Paquete dual Qt5/Qt6, suplementos 0003/0004 y serie aceptada intacta. E2–E5 offline, E6 login/recuperación y E7 revisión técnica PASS. Runtime Qt5/OpenSSL3 fijado; pendientes aceptación del dueño y gate físico.",
           "evidence": "docs/SPRINT_3_EXECUTION_PLAN.md"
         },
         {
@@ -1746,21 +1746,21 @@
           "id": "S3-06",
           "title": "Empaquetado de Tema y Assets de Interfaz",
           "status": "partial",
-          "description": "263 hashes instalados/root:root verificados; metadata selecciona Qt5 para elarun/maldives/maya y Qt6 para fplogin, con login real en cada caso. Pendiente de revisión final E7.",
+          "description": "263 hashes instalados/root:root; metadata selecciona Qt5 para elarun/maldives/maya y Qt6 para fplogin, con login real en cada caso. Revisión técnica E7 PASS; aceptación del dueño pendiente.",
           "evidence": "docs/SPRINT_3_EXECUTION_PLAN.md"
         },
         {
           "id": "S3-07",
           "title": "Recuperaci\u00f3n TTY y Retorno a SDDM Stock",
           "status": "partial",
-          "description": "E6 PASS: fallo controlado real del greeter, recuperación ttyS0, rollback firmado y login stock; inventario de paquetes y 69015 rutas restaurados, cuenta temporal eliminada y VM apagada. Pendiente E7; no restauración byte a byte del disco.",
+          "description": "E6 recuperación ttyS0/rollback firmado/login stock PASS, corroborado en E7. Inventario y 69015 rutas restaurados, cuenta temporal eliminada y VM apagada; no restauración byte a byte del disco ni aceptación de Sprint 3.",
           "evidence": "docs/SPRINT_3_EXECUTION_PLAN.md"
         },
         {
           "id": "S3-08",
           "title": "Verificaci\u00f3n de Compilaci\u00f3n en Chroot Limpio",
           "status": "partial",
-          "description": "E5 corregido PASS: dos builds limpios dual Qt con tests; archivos main y debug idénticos byte a byte, candidato main e461b3a9…411a6. Pendiente revisión final E7; no aceptación de Sprint 3.",
+          "description": "E5 corregido PASS: dos builds limpios dual Qt con tests; main/debug idénticos byte a byte, candidato main e461b3a9…411a6. Corroborado en revisión E7; no reproducibilidad entre mirrors arbitrarios ni aceptación de Sprint 3.",
           "evidence": "docs/SPRINT_3_EXECUTION_PLAN.md"
         }
       ],
