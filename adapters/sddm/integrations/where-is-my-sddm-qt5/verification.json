@@ -1,0 +1,73 @@
+{
+  "status": "context-publication-only prototype; NOT installable/accepted; automatic fingerprint NOT IMPLEMENTED",
+  "sddm_source_commit": "deaee9b94c79486a7b7e65715c3b438cabe9e09e",
+  "sddm_source_changed": false,
+  "external_theme_changed": false,
+  "verification": {
+    "preparation_tests": {
+      "passed": 4,
+      "failed": 0
+    },
+    "qt5_ctest": {
+      "passed": 1,
+      "failed": 0
+    },
+    "qt5_qtest": {
+      "passed": 14,
+      "consumer_rows": 12,
+      "lifecycle_rows": 2,
+      "failed": 0,
+      "skipped": 0
+    },
+    "start_authentication_frames": 0,
+    "used_run_label_negative_exit": 4,
+    "known_qml_warnings": 2,
+    "host_lsp": "incomplete isolated include environment; actual container CMake build passes",
+    "qt6": "NOT RUN",
+    "real_daemon_guest_physical": "NOT RUN"
+  },
+  "container_image": "sha256:0ccf97570aa91d4d68ea7f2800d33b23df983290ea5ad86c9f5ba6c1c1ab254b",
+  "added_container_dependency": "qt5-graphicaleffects 5.15.19-1; no host dependency installation",
+  "render_scope": "Xvfb/software Qt5 1024x768; empty and masked-synthetic text; exact image/file equality; cursorVisible=false in both roots; not all-state/compositor/physical appearance proof",
+  "png_pair_sha256": {
+    "empty": "9a09d22634881d0c578ed04d1f477236c0e25446aa7e1d59eac7ebe915d85466",
+    "masked-synthetic": "6911706ca2a9c0a41b430a8481f8b43919a5e00a683de1cb6c0f8c4c6c2ef5a8"
+  },
+  "evidence": {
+    "path": ".work/evidence/sprint3-qt5/theme-contract-20261117",
+    "index": "index.json",
+    "index_sha256": "59d66201220354c32b064b5b181b48134c1a107db364d92bae3b6dfb92a801ac",
+    "final_run": "runs/visual-corrected",
+    "architect_review": "architect-final.txt",
+    "architect_review_sha256": "2a5109182c02ee6ee4002e19883dfd0f885c87d5fbc43ce5d7a16af01e75c61f",
+    "verdict": "GO preserve bounded prototype in separate commits; NOT integration/install/Sprint acceptance; documentation conditions applied"
+  },
+  "source_bundle": {
+    "path": ".work/checkpoints/sddm-theme-contract-20261117T205800Z.bundle",
+    "sha256": "40c327ec28eab88008ed66a7cec9316623ef0c629d72dac52d5792869bab3edf",
+    "verify": "PASS full history; unchanged production source"
+  },
+  "code_sha256": {
+    "adapters/sddm/integrations/where-is-my-sddm-qt5/0001-publish-authentication-context.patch": "047c9c0f79bc7082403cc81e71d7ff0c85a19c9569ff443e8145813de3785361",
+    "adapters/sddm/integrations/where-is-my-sddm-qt5/provenance.json": "66a82cd0e1d72347d80709689f73b8d12e7cb4a8baddee3155b484e35a65ab75",
+    "tests/fixtures/themes/where-is-my-sddm-qt5/LICENSE": "aa21514db9a40275d6293278e67e14ac71ee95d3020ea7830e124f4daa4e61cd",
+    "tests/fixtures/themes/where-is-my-sddm-qt5/Main.qml": "fcf967d149a9e57282ba1f10f1c84159903981070cc49e1779c17794347dbb63",
+    "tests/fixtures/themes/where-is-my-sddm-qt5/SessionsChoose.qml": "9abfe746c459bafebb5b97942dcb930bdd428d725cf3d583ab98e6f1c90f3c6d",
+    "tests/fixtures/themes/where-is-my-sddm-qt5/UsersChoose.qml": "fd8356c0a169080b1f99d5e64eefa40dbf680edfc7306197f24a6a676687b7e9",
+    "tests/fixtures/themes/where-is-my-sddm-qt5/metadata.desktop": "56bc8cb51faedf16cfb0f5faef4acad6afe6984052e1465766126398e7d6cfa6",
+    "tests/fixtures/themes/where-is-my-sddm-qt5/theme.conf": "4b527ec4ea760e7174b7ca75853f6fe5209b4f4e686954776b6a215eb68a4501",
+    "tests/integration/theme-context/CMakeLists.txt": "6c784adc4a5c9a616ae64200d9bff957604f1ccf15c63342699bdfc3d5a81ace",
+    "tests/integration/theme-context/ThemeContextTest.cpp": "dcfc88e6aa518c0a7bb2b9c64d90a856f16892d1318cb5ef6b88ffc2dcd64ebd",
+    "tests/integration/theme-context/prepare.py": "066f66672ad5f0058a3dd7342d43a3da977ab73ced2809324fb4fd5add61a042",
+    "tests/integration/theme-context/prepare_test.py": "9e4cf58cee58b758b852f17494e2d1253c08a67672cd7858bba0515aa6af8f48",
+    "tests/integration/theme-context/run-container.sh": "e7eb59a5cb8617369060bc1d2349faa52d12e2b5f2b3ae27331d949d7809945b"
+  },
+  "remaining": [
+    "Stable target across model resets/removal",
+    "Actual surface readiness/hidden-selection semantics",
+    "Controller promotion/multiscreen target synchronization/committed rejection",
+    "Separate fingerprint/password feedback",
+    "Shared automatic-start/cancel/retry policy",
+    "Dual-Qt packaging and fresh guest/physical acceptance"
+  ]
+}

@@ -1,0 +1,110 @@
+diff --git a/Main.qml b/Main.qml
+index f6b04dd..d89685c 100644
+--- a/Main.qml
++++ b/Main.qml
+@@ -1,5 +1,6 @@
+ import QtQuick 2.15
+ import QtQuick.Controls 2.0
++import QtQuick.Window 2.2
+ import QtGraphicalEffects 1.12
+ import SddmComponents 2.0
+ 
+@@ -26,7 +27,62 @@ Rectangle {
+     property string helpFont: config.stringValue("helpFont") || defaultFont
+ 
+ 
++    // Context-publication prototype only: no automatic fingerprint start.
++    readonly property bool contextSupported: typeof sddm.setAuthenticationContext === "function" &&
++                                             typeof sddm.clearAuthenticationContext === "function"
++    readonly property bool contextAvailable: contextSupported && sddm.authenticationMethodsAvailable
++    readonly property bool contextOwner: typeof authenticationController !== "undefined" && authenticationController
++    readonly property bool contextBusy: contextAvailable && sddm.authenticationBusy
++    property bool contextComponentReady: false
++    property bool contextRequested: false
++    readonly property bool contextSurfaceReady: contextComponentReady && root.visible &&
++                                               root.Window.window !== null && root.Window.window.visible &&
++                                               root.Window.window.visibility !== Window.Minimized
++    readonly property string loginUsername: currentUsersIndex >= 0 && currentUsersIndex < userModel.count
++        ? String(userModel.data(userModel.index(currentUsersIndex, 0), usernameRole) || "") : ""
++    readonly property bool validLoginSelection: loginUsername.length > 0 && currentSessionsIndex >= 0 &&
++                                               currentSessionsIndex < sessionModel.rowCount()
++
++    function publishAuthenticationContext() {
++        if (!contextOwner || !contextSupported || contextBusy)
++            return;
++        if (contextAvailable && contextSurfaceReady && validLoginSelection) {
++            contextRequested = true;
++            sddm.setAuthenticationContext(loginUsername, currentSessionsIndex);
++        } else if (contextRequested) {
++            contextRequested = false;
++            sddm.clearAuthenticationContext();
++        }
++    }
++
++    function selectionChanged() {
++        if (contextComponentReady)
++            passwordInput.clear();
++        publishAuthenticationContext();
++    }
++
++    onLoginUsernameChanged: selectionChanged()
++    onCurrentSessionsIndexChanged: selectionChanged()
++    onValidLoginSelectionChanged: publishAuthenticationContext()
++    onContextAvailableChanged: publishAuthenticationContext()
++    onContextSurfaceReadyChanged: publishAuthenticationContext()
++    onContextBusyChanged: publishAuthenticationContext()
++    onContextOwnerChanged: {
++        // GreeterApp owns controller transfer/clear; mirrors must never clear it.
++        if (!contextOwner) contextRequested = false;
++        else publishAuthenticationContext();
++    }
++    Component.onCompleted: {
++        contextComponentReady = true;
++        publishAuthenticationContext();
++    }
++    Connections {
++        target: root.contextSupported ? sddm : null
++        function onAuthenticationContextCleared(serial) { root.publishAuthenticationContext(); }
++    }
++
+     function usersCycleSelectPrev() {
++        if (contextBusy) return;
+         if (currentUsersIndex - 1 < 0) {
+             currentUsersIndex = userModel.count - 1;
+         } else {
+@@ -35,6 +91,7 @@ Rectangle {
+     }
+ 
+     function usersCycleSelectNext() {
++        if (contextBusy) return;
+         if (currentUsersIndex >= userModel.count - 1) {
+             currentUsersIndex = 0;
+         } else {
+@@ -63,6 +120,7 @@ Rectangle {
+     }
+ 
+     function sessionsCycleSelectPrev() {
++        if (contextBusy) return;
+         if (currentSessionsIndex - 1 < 0) {
+             currentSessionsIndex = sessionModel.rowCount() - 1;
+         } else {
+@@ -71,6 +129,7 @@ Rectangle {
+     }
+ 
+     function sessionsCycleSelectNext() {
++        if (contextBusy) return;
+         if (currentSessionsIndex >= sessionModel.rowCount() - 1) {
+             currentSessionsIndex = 0;
+         } else {
+@@ -238,9 +297,8 @@ Rectangle {
+             passwordCharacter: config.passwordCharacter || "*"
+             cursorVisible: config.passwordInputCursorVisible == "true" ? true : false
+             onAccepted: {
+-                if (text != "" || config.passwordAllowEmpty == "true") {
+-                    sddm.login(userModel.data(userModel.index(currentUsersIndex, 0), usernameRole)
+- || "123test", text, currentSessionsIndex);
++                if (validLoginSelection && !contextBusy && (text != "" || config.passwordAllowEmpty == "true")) {
++                    sddm.login(loginUsername, text, currentSessionsIndex);
+                 }
+             }
+             Rectangle {
