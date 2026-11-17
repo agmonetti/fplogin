@@ -1,0 +1,96 @@
+diff --git a/src/greeter/ThemeAuthentication.cpp b/src/greeter/ThemeAuthentication.cpp
+index bd34870..80eee98 100644
+--- a/src/greeter/ThemeAuthentication.cpp
++++ b/src/greeter/ThemeAuthentication.cpp
+@@ -114,6 +114,9 @@ void ThemeAuthentication::attach(QQuickWindow *window, QQuickItem *root,
+         connect(root, &QQuickItem::visibleChanged, this, [this, window] {
+             if (window == m_controller) invalidateSurface();
+         });
++        connect(root, &QQuickItem::windowChanged, this, [this, window] {
++            if (window == m_controller) invalidateSurface();
++        });
+         connect(root, &QObject::destroyed, this, [this, window] {
+             m_roots.remove(window);
+             if (window == m_controllerIdentity) invalidateSurface();
+diff --git a/test/GreeterAppTest.cpp b/test/GreeterAppTest.cpp
+index 64e0171..7709b56 100644
+--- a/test/GreeterAppTest.cpp
++++ b/test/GreeterAppTest.cpp
+@@ -192,7 +192,14 @@ Rectangle {
+         QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+     }
+ 
+-    void cooperativePolicySurvivesRealPromotionWithoutRetryAndOptsOutOnFallback() {
++    void cooperativePolicyPromotionAndCompletion_data() {
++        QTest::addColumn<int>("completion");
++        QTest::newRow("precommit-fallback") << -1;
++        QTest::newRow("committed-success") << int(AuthenticationResult::Succeeded);
++        QTest::newRow("committed-failure") << int(AuthenticationResult::Failed);
++    }
++    void cooperativePolicyPromotionAndCompletion() {
++        QFETCH(int, completion);
+         // Container-only account discovery: never reads the host account database.
+         disconnect(m_app->m_proxy, nullptr, qGuiApp, nullptr);
+         m_app.reset();
+@@ -211,6 +218,8 @@ import QtQuick.Window 2.2
+ Rectangle {
+     id: root
+     width: 640; height: 480
++    property alias passwordText: password.text
++    TextInput { id: password }
+     property var surface: root.Window.window
+     property string actualUser: userModel.count > 0 ? userModel.data(userModel.index(0, 0), Qt.UserRole + 1) : ""
+     function attach() { if (surface) themeAuthentication.attach(surface, root, actualUser, 0) }
+@@ -229,16 +238,51 @@ Rectangle {
+         m_app->addViewForScreen(QGuiApplication::primaryScreen());
+         auto *mirror = m_app->m_views.last();
+         QCOMPARE(mirror->rootContext()->contextProperty(QStringLiteral("themeAuthentication")).value<QObject *>(), shared);
++        m_app->m_controllerView->rootObject()->setProperty("passwordText", QStringLiteral("synthetic-controller-only"));
++        QCOMPARE(mirror->rootObject()->property("passwordText").toString(), QString());
++        const auto binding = m_binding;
++        if (completion >= 0) {
++            matched();
++            QTRY_VERIFY(m_app->m_proxy->authenticationBusy());
++        }
+         m_app->removeViewForScreen(m_app->m_controllerView);
+         QTRY_VERIFY(latestClear() != 0);
+         const auto clear = latestClear();
+         QVERIFY(!m_app->m_controllerView);
+-        send(ack(clear, true));
++        send(ack(clear, true, completion >= 0));
+         QTRY_COMPARE(m_app->m_controllerView.data(), mirror);
+         QTRY_VERIFY(m_app->m_proxy->authenticationUser() == QStringLiteral("root"));
+         QTest::qWait(30);
+         QCOMPARE(m_startCount, 1);
+         QCOMPARE(shared->user(), QStringLiteral("root"));
++        QCOMPARE(mirror->rootObject()->property("passwordText").toString(), QString());
++        if (completion >= 0) {
++            QCOMPARE(m_binding.serial, binding.serial);
++            QCOMPARE(m_app->m_proxy->fingerprintRequestId(), requestId);
++            QVERIFY(m_app->m_proxy->authenticationBusy());
++            QVERIFY(!m_app->m_proxy->authenticationSubmissionAllowed());
++            QSignalSpy success(m_app->m_proxy, &GreeterProxy::loginSucceeded);
++            QSignalSpy passwordFailure(m_app->m_proxy, &GreeterProxy::loginFailed);
++            complete(AuthenticationResult(completion));
++            if (AuthenticationResult(completion) == AuthenticationResult::Succeeded) {
++                QTRY_COMPARE(success.size(), 1);
++                QVERIFY(m_app->m_proxy->authenticationBusy());
++            } else {
++                QTRY_VERIFY(latestClear() > clear);
++                const auto fresh = latestClear();
++                send(ack(clear, true));
++                QTest::qWait(10);
++                QVERIFY(!m_app->m_proxy->authenticationSubmissionAllowed());
++                send(ack(fresh, true));
++                QTRY_VERIFY(m_app->m_proxy->authenticationSubmissionAllowed());
++            }
++            QTest::qWait(30);
++            QCOMPARE(passwordFailure.size(), 0);
++            QCOMPARE(count(GreeterMessages::Login), 0);
++            QCOMPARE(m_startCount, 1);
++            QCOMPARE(mirror->rootObject()->property("passwordText").toString(), QString());
++            return;
++        }
+         forceLoadError();
+         QTRY_VERIFY(latestClear() > clear);
+         QTRY_VERIFY(m_app->m_embeddedFallback);

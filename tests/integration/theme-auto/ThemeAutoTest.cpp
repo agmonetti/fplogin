@@ -618,6 +618,83 @@ private slots:
         QTRY_COMPARE(context().flag, quint32(0));
         acknowledge(context(), false); QTest::qWait(20); QCOMPARE(starts(), 1);
     }
+    void mirrorRootWindowTransferDoesNotClearController() {
+        start();
+        QQuickView mirror;
+        load(mirror, proxy.get(), adapted, false);
+        QQuickWindow destination;
+        destination.resize(1024, 768);
+        destination.show();
+        QTRY_VERIFY(destination.isExposed());
+        const auto originalContext = context();
+        const int publications = count(GreeterMessages::SetAuthenticationContext);
+        auto *root = mirror.rootObject();
+        auto *originalParent = root->parentItem();
+        root->setParentItem(destination.contentItem());
+        const bool moved = root->window() == &destination && root->isVisible();
+        QTest::qWait(100);
+        const auto afterMove = context();
+        const int afterPublications = count(GreeterMessages::SetAuthenticationContext);
+        root->setParentItem(originalParent);
+        QVERIFY(moved);
+        QCOMPARE(afterMove.serial, originalContext.serial);
+        QCOMPARE(afterPublications, publications);
+        QCOMPARE(starts(), 1);
+        QVERIFY(proxy->authenticationSubmissionAllowed());
+    }
+    void liveRootWindowLoss_data() {
+        QTest::addColumn<bool>("committed");
+        QTest::addColumn<bool>("detached");
+        QTest::newRow("moving-precommit") << false << false;
+        QTest::newRow("detached-precommit") << false << true;
+        QTest::newRow("moving-authorized") << true << false;
+        QTest::newRow("detached-authorized") << true << true;
+    }
+    void liveRootWindowLoss() {
+        QFETCH(bool, committed);
+        QFETCH(bool, detached);
+        start();
+        const auto originalContext = context();
+        const int publications = count(GreeterMessages::SetAuthenticationContext);
+        if (committed) {
+            state(originalContext, FingerprintState::Matched, AuthenticationPhase::SessionAuthorized);
+            QTRY_VERIFY(proxy->authenticationBusy());
+        }
+        QQuickWindow destination;
+        destination.resize(1024, 768);
+        destination.show();
+        QTRY_VERIFY(destination.isExposed());
+        QVERIFY(view->isExposed());
+        auto *root = view->rootObject();
+        auto *originalParent = root->parentItem();
+        root->setParentItem(detached ? nullptr : destination.contentItem());
+        const bool moved = root->window() == (detached ? nullptr : &destination) && root->isVisible();
+        QTest::qWait(100);
+        const auto afterMove = context();
+        const int afterPublications = count(GreeterMessages::SetAuthenticationContext);
+        const bool busy = proxy->authenticationBusy();
+        root->setParentItem(originalParent);
+        QVERIFY(moved);
+        QCOMPARE(starts(), 1);
+        if (committed) {
+            QVERIFY(busy);
+            QCOMPARE(afterMove.serial, originalContext.serial);
+            QCOMPARE(afterMove.request, originalContext.request);
+            QCOMPARE(afterPublications, publications);
+        } else {
+            QCOMPARE(afterMove.flag, quint32(0));
+            QVERIFY(afterMove.serial > originalContext.serial);
+            QCOMPARE(afterPublications, publications + 1);
+            QVERIFY(!proxy->authenticationSubmissionAllowed());
+            submit();
+            QCOMPARE(count(GreeterMessages::Login), 0);
+            acknowledge(afterMove, false);
+            QTRY_VERIFY(context().serial > afterMove.serial);
+            acknowledge(context());
+        }
+        QTest::qWait(30);
+        QCOMPARE(starts(), 1);
+    }
     void committedTargetCannotBeChanged() {
         start(); const auto f = context();
         state(f, FingerprintState::Matched, AuthenticationPhase::SessionAuthorized);

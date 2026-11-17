@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "status": "Independent bounded offline T2 review GO to T3; NOT distribution/deployment/physical/Sprint3 acceptance",
+  "previous_manifest": "adapters/sddm/integrations/where-is-my-sddm-qt5/lifecycle.json",
+  "sddm_source_path": ".work/sddm/sprint3-theme-auto",
+  "sddm_source_commit": "c05b6fbfe8f6ab7ff5dd6866068a6598b76b6dbf",
+  "sddm_base": "405a03427d7105a0200358102b490071ac5aa352",
+  "sddm_patch": "adapters/sddm/integrations/where-is-my-sddm-qt5/sddm-theme-root-window.patch",
+  "sddm_patch_sha256": "12b046e4a35dfa9df1cc3eb7bae53a3ca11eb71ec02de2e665ea47622ff60941",
+  "application_order": [
+    "E7 deaee9b",
+    "sddm-theme-automatic-policy.patch",
+    "sddm-theme-lifecycle.patch",
+    "sddm-theme-root-window.patch"
+  ],
+  "changed_source_sha256": {
+    "src/greeter/ThemeAuthentication.cpp": "f1dfaadbc8d5af36178fcbb006abbbf4c89336eb473448d5f5a794e2533ff9aa",
+    "test/GreeterAppTest.cpp": "80a2f9506735b1c9b058462d938caeb61896d0748f138ae1b31cc3f0d59aeca0"
+  },
+  "code_sha256": {
+    "tests/integration/theme-auto/ThemeAutoTest.cpp": "ed2f0c02da7976fd73f65df4b091ed8e5fcedc27bebcf254dcdcfff40c915d07"
+  },
+  "source_bundle": {
+    "path": ".work/checkpoints/sddm-theme-root-window-20261117.bundle",
+    "sha256": "79bf1877c8f214af8c6f76b0e524003f8b7ab08dd7e76cf9f8084648749e80f1",
+    "full_history_verify": "PASS"
+  },
+  "replay": {
+    "path": ".work/sddm/sprint3-theme-root-window-replay-20261117",
+    "files": 372,
+    "result": "PASS"
+  },
+  "verification": {
+    "consumer": "38 QTests (36 scenarios plus init/cleanup), zero failures/skips; committed-source run root-policy-committed-20261117T223225Z",
+    "full_source": "Qt5 9/9, Qt6 10/10, GreeterApp9QTests each; incremental source builds, no fresh package",
+    "preparation": "5/5 PASS"
+  },
+  "evidence": {
+    "path": ".work/evidence/sprint3-qt5/theme-independent-20261117",
+    "index": "index.json",
+    "index_sha256": "1e3e8167493c889ca0b2d94805bf46ebe0b907c7fd302d5c9b4f0b95ada4f1a6",
+    "files": 139
+  },
+  "review": {
+    "path": ".work/evidence/sprint3-qt5/theme-independent-20261117/architect-review.txt",
+    "sha256": "c4b364d059f6c348bde75fd58abd3cefa43943073dfe0524e8d682c007880f94",
+    "reviewer": "01a1eb92-daeb, gpt-6.1-sol",
+    "qualification": "No authorship or proposed implementation corrections in this session; earlier session history unverifiable (Engram unavailable). Bounded offline review."
+  },
+  "failures_retained": [
+    "root-window-loss-before-20261117T222133Z: new regression FAIL on 405a034",
+    "app-policy-preflight/qt5: intermediate guard removal cleared unadapted theme; removed guard change; init-failure listener cascades are secondary, not separate decoder failures"
+  ],
+  "limits": [
+    "No host/VM/reader/pi model operation",
+    "Real monitor/compositor readiness remains T4",
+    "Qt6 consumer/distribution/clean package/ABI/reproducibility not yet run for this amendment",
+    "GreeterApp harness not hardened against init failure; teardown before deliberate init-failure injection remains follow-up",
+    "Host C++ LSP lacks Qt/generated/include paths:42 missing-header/cascade errors across2files,1timeout; actual container compile passes; no clean host-LSP claim"
+  ]
+}
