@@ -4,7 +4,7 @@ Biometric login for Linux, under active development. The v1 target is fingerprin
 
 [![fplogin Project Telemetry & Milestone Matrix](docs/assets/dashboard.png)](dashboard.html)
 
-The updated capture reflects the [2026-11-12 Sprint 2 acceptance and closure](docs/reviews/sprint-2-acceptance-2026-11-12.md): **Sprint 2 is Accepted and Closed; Sprint 3 transition is authorized**. All physical hardware test cases were manually executed and verified on reference hardware by the project owner; G12 multi-monitor is formally recorded as a known laboratory constraint for v1; the localized theme fix `28dd731` is accepted; and the [G16 secret audit](docs/reviews/sprint-2-g16-audit-2026-11-12.md) is approved with zero credentials leaked.
+The updated capture reflects [Sprint 3 E6 on 2026-11-17](docs/SPRINT_3_EXECUTION_PLAN.md#e6-retest--2026-11-17-pass-bounded-real-guest-scope): **four real Qt5/Qt6 password logins and broken-greeter/stock-password recovery PASS**. E7 final review and physical packaged-stack verification remain pending; Sprint 3 is unaccepted. [Sprint 2 remains accepted and closed](docs/reviews/sprint-2-acceptance-2026-11-12.md). All physical hardware test cases were manually executed and verified on reference hardware by the project owner; G12 multi-monitor is formally recorded as a known laboratory constraint for v1; the localized theme fix `28dd731` is accepted; and the [G16 secret audit](docs/reviews/sprint-2-g16-audit-2026-11-12.md) is approved with zero credentials leaked.
 
 ## The problem
 
