@@ -23,3 +23,9 @@ New implementation work must satisfy all accepted ADRs and the architecture adde
 
 On 2026-11-14 the owner chose to **extend compatibility to Qt5 themes while retaining Qt6**, rather than declare v1 Qt6-only. Preserve accepted `0001`/`0002` and their series; plan a separate packaging supplement, dual builds and an allowlisted merge of the Qt5 greeter/components/translations. The daemon/helpers and PAM policy remain canonical Qt6 artifacts. Legacy themes are not promised new biometric controls. The [implementation plan](SPRINT_3_EXECUTION_PLAN.md#qt5-compatibility-extension--implementation-plan-2026-11-14) defines tests, persistence and acceptance gates. This is an approved compatibility direction and a reviewed plan, not implemented or verified Qt5 support.
 
+## Nonvisual theme cooperation direction — 2026-11-17
+
+The owner requires the existing SDDM login to retain its appearance and ordinary interaction: no replacement form, parallel biometric account selector or login-mode switching. The owner authorized documenting and beginning an **explicit nonvisual theme-context contract**, initially through a copied `where-is-my-sddm-theme` Qt5 consumer. Themes must cooperate to publish their actual selection; no scraper/heuristic or universal untouched-theme automatic-fingerprint claim. The earlier common-form interpretation is [withdrawn](architecture/SDDM_COMMON_LOGIN_DESIGN.md).
+
+[Contract and execution gates](architecture/SDDM_THEME_CONTEXT_CONTRACT.md): initial work is context-publication-only, with no automatic fingerprint start or deployment. Full lifecycle/model/automatic-policy, packaging/dual-Qt, guest/physical and independent acceptance gates remain outstanding. This direction does not accept the prototype, expand historical E7 evidence, reopen accepted Sprint 2, authorize host/service/reader changes or accept Sprint 3.
+
