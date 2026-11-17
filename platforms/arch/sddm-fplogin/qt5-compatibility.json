@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "status": "UNACCEPTED; corrected production E2-E4 revalidation and fresh E5 main/debug full-byte reproducibility PASS; original failed attempt preserved; E6 requires fresh owner authorization; E6-E7 NOT RUN",
+  "status": "UNACCEPTED; corrected E2-E5 PASS preserved; authorized E6 attempted, elarun FAIL and progression BLOCKED by guest OpenSSL ABI mismatch; stock recovered, VM stopped; remaining E6 cases and E7 NOT RUN",
   "plan_commit": "0486d7517d1667c1e2aee17e9f6054cdbceeaccb",
   "upstream_commit": "63780fcd79f1dbf81a30eef48c28c699ab15aded",
   "source_commit": "deaee9b94c79486a7b7e65715c3b438cabe9e09e",
@@ -428,8 +428,38 @@
     "architect_review": ".work/evidence/sprint3-qt5/e5-corrected/architect-final.txt",
     "architect_review_sha256": "8061c9f0bc1418c913c8d8f929d1eaef62f516d449c321b39fcbd8b1e13b0a56"
   },
+  "e6_guest_verification": {
+    "date_utc": "2026-11-17",
+    "status": "BLOCKED - actual elarun attempt FAIL before password input; other themes/login and intentional broken-greeter rehearsal NOT RUN",
+    "authorization": "Owner directly requested continuation with E6; bounded existing Sprint3 VM only, without reader, host changes, disk recreation or pi model",
+    "candidate_sha256": "e461b3a9cca1c991ba4cc9537b7101009a06cbdf72d7b0eb3e0765b6d4e411a6",
+    "deployment": "Real ttyS0 recovery/identity and signed cached stock package verified before deployment; offline candidate installation and all263 regular-file hashes/root ownership PASS",
+    "failure": "Qt6 daemon PID552 loads elarun metadata (default Qt5) and greeter helper exits127. Separate direct invocation of packaged Qt5 greeter reports missing libssl.so.4; ldd additionally reports libcrypto.so.4 absent. No surviving Qt5 PID or actual helper exec argv captured; successful metadata-based executable selection is NOT verified. Guest OpenSSL3.6.5 supplies .so.3. Package-level pacman -T passed but did not establish ELF closure. No symlink, deadline, test or dependency waiver.",
+    "recovery": "Actual ttyS0 controlled stock rollback exit0 after exact conflict/proceed prompts; signed stock0.21.0-7 digest927cc24362cdc83b8c48532252ae4d41ade99dc5e65cb0fdeb9b6d69f7601a7a; stock251 files/0 altered. Removed attempt drop-in, temporary user/home and five newly added Qt5 packages; original theme drop-in/state restored. Stock Qt6 greeter PID891 connects through real stock daemon with expected embedded fallback. No stock password login or intentional broken-greeter rehearsal claimed.",
+    "secrets": "No QMP password typed. Temporary guest password set with echo/history disabled and no secret argv/logs; literal/base64/hex audit of declared host/guest surfaces PASS, temporary user removed, local plaintext file unlinked. Raw disks excluded from audit; no secure physical-erasure claim.",
+    "tooling_recovery": "Original pinned image56a91f absent, no image backup found in searched persistent locations. New tooling-only image1a109b3da2c34a26318bf4b94ba4bbb0a6ee1bc4f003157d089722b80fe72741; unchanged launcher/hardware, retained kernel/initramfs/disk, no prepare. Initial entrypoint permissions exit2 and missing virtio-vga exit1 retained as preboot failures; exact UID1000/read-only/cap-drop/QEMU hardware-QMP smoke passed before actual boot. Empty stdin-less initial smoke is not proof. SVG download sandbox permission failure retained; exact cached archive plus repository detached signature verified instead.",
+    "tooling_backup": ".work/checkpoints/sprint3-e6-tooling-r3-20261117.tar",
+    "tooling_backup_sha256": "1d54df1ac0540ea0d8aed4509834b50285c8c0e739da4580face4a3946f50934",
+    "guest_path": ".work/labs/sprint3/vm-s3/",
+    "evidence_directory": ".work/evidence/sprint3-qt5/e6/",
+    "evidence_artifacts_indexed": 80,
+    "evidence_integrity_sha256": "c761c4e5a97de7ae8266e745b8efbab3c95c720d9846f28e65be6302a4387f94",
+    "architect_review": ".work/evidence/sprint3-qt5/e6/architect-final.txt",
+    "architect_review_sha256": "2d4c2023fdc15d9394230ddc10d7812b53394f2aebb2abf14608bd82ecb366d7",
+    "architect_verdict": "READY FOR BLOCKED HANDOFF after table wording correction and final integrity checks; not GO E6/E7 or acceptance",
+    "current_source_bundle": ".work/checkpoints/sddm-sprint3-e6-blocked-20261117.bundle",
+    "current_source_bundle_sha256": "bbd060b7df5f01a1c7df10716c2785e11f24a952f577ff48c621efe7fc00fc39",
+    "guest_before_backup": ".work/labs/sprint3/e6-before/",
+    "guest_before_sha256": "57cb6bf1843ba0d542ffe09e213d8981b95af32e7182c438e7f036efd692d448",
+    "guest_after_sha256": "900ce200f255a19827e9dc6c279a10c6b1b5cf106c48436ad6143cbf61885a97",
+    "shutdown": "ACPI completed, exit0; lab container absent and no current-UID QEMU process. Earlier pgrep warning and timed-out read-only proc probe are not process proof. Disk retained, not byte-restored.",
+    "preservation": "Accepted Sprint2 disk/source37, ten accepted inputs, source clone cleanliness, original192 corrected E5 indexed artifacts and S3 original backup/kernel/initramfs/runtime hashes verified unchanged; source/recipe/candidate not modified",
+    "source_bundle": ".work/checkpoints/sddm-sprint3-e6-blocked-20261117.bundle",
+    "source_bundle_sha256": "bbd060b7df5f01a1c7df10716c2785e11f24a952f577ff48c621efe7fc00fc39",
+    "evidence_directory": ".work/evidence/sprint3-qt5/e6/"
+  },
   "remaining": [
-    "E6 fresh VM authorization, real theme password login and broken-greeter rollback",
+    "E6 reviewed coherent guest dependency/ELF-closure prerequisite before rerunning the four real theme password logins and intentional broken-greeter/stock-login recovery; no implicit guest OpenSSL replacement or disk recreation",
     "E7 final package/evidence review and explicit owner acceptance",
     "Separate physical packaged-stack gate not run"
   ]
