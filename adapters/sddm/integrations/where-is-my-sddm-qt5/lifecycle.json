@@ -1,0 +1,83 @@
+{
+  "schema_version": 1,
+  "status": "tested offline T2 lifecycle corrections; not full T2 closure, packaging, deployment or Sprint 3 acceptance",
+  "previous_manifest": "adapters/sddm/integrations/where-is-my-sddm-qt5/automatic.json",
+  "sddm_base": "33fbaeeb8d2381520d27e01d7eebb38bc186c76f",
+  "sddm_source_commit": "405a03427d7105a0200358102b490071ac5aa352",
+  "sddm_source_path": ".work/sddm/sprint3-theme-auto",
+  "sddm_patch": "adapters/sddm/integrations/where-is-my-sddm-qt5/sddm-theme-lifecycle.patch",
+  "sddm_patch_sha256": "3acbe0e75889e978ac13e5705bb286da48cdb75b5a72d8039ff7dbc1125b09fe",
+  "application_order": [
+    "E7 supplemented source deaee9b94c79486a7b7e65715c3b438cabe9e09e",
+    "sddm-theme-automatic-policy.patch (unchanged)",
+    "sddm-theme-lifecycle.patch"
+  ],
+  "changed_source_sha256": {
+    "src/greeter/GreeterProxy.cpp": "7bcd2086a91e534516fceb6d1c670d03a10692c6ccbc8f937a1b1eb62df202fa",
+    "src/greeter/GreeterProxy.h": "8648bc415781f3f2467405bd178ddc3fe5f460838c0e7c74343185f0833bb163",
+    "src/greeter/ThemeAuthentication.cpp": "be0f56669d36cea658195d9dd180666034e9248649762d702547889f2d19e4f1"
+  },
+  "code_sha256": {
+    "tests/integration/theme-auto/ThemeAutoTest.cpp": "63f12141e37a1c70705b9ee9dedf0697a3e057e39abb2883e14c9ef72363ea82"
+  },
+  "source_bundle": {
+    "path": ".work/checkpoints/sddm-theme-lifecycle-20261117.bundle",
+    "sha256": "7b94fa816717e71caeb2455ea7987bf1b42b7129893809ab9bd178e433ddfef0",
+    "full_history_verify": "PASS"
+  },
+  "replay": {
+    "source_commit": "405a03427d7105a0200358102b490071ac5aa352",
+    "files": 372,
+    "result": "PASS",
+    "replay_path": ".work/sddm/sprint3-theme-lifecycle-replay-20261117"
+  },
+  "image": "sha256:0ccf97570aa91d4d68ea7f2800d33b23df983290ea5ad86c9f5ba6c1c1ab254b",
+  "verification": {
+    "qt5_consumer_ctest": "1/1 PASS",
+    "qt5_consumer_qtest": "33 PASS (31 rows + init/cleanup), zero failures/skips",
+    "qt5_source_ctest": "9/9 PASS",
+    "qt6_source_ctest": "10/10 PASS including unchanged accepted theme13 QTests",
+    "build_scope": "incremental reconfiguration/rebuild of existing separate Qt5/Qt6 builds; NOT fresh clean builds",
+    "preparation_tests": "5/5 PASS",
+    "session_model_delivery": "controlled QFileSystemWatcher callback runs real reset/populate; no natural filesystem-event timing claim",
+    "render": "existing suite empty/masked-synthetic byte and geometry comparisons PASS; no new screenshot of owner input"
+  },
+  "defects_fixed": [
+    "Known-authorized selected-session/model removal must not clear immutable committed tuple, busy state or request correlation",
+    "Rejected pending clear after original session removal must restore authoritative snapshot identity without substituting a mutable session row"
+  ],
+  "first_failures": [
+    {
+      "run": "lifecycle-preflight-20261117T2200",
+      "result": "28 PASS,1 FAIL; test helper confused absolute Session.fileName with fixture basename; fixed helper only"
+    },
+    {
+      "run": "lifecycle-committed-removal-20261117T2210",
+      "result": "29 PASS,1 FAIL; reproduced unwanted clear of committed context before first source fix"
+    },
+    {
+      "run": "lifecycle-rejection-removal-20261117T2220",
+      "result": "32 PASS,1 FAIL; reproduced wrong selected row on committed rejection after original session removal before second source fix"
+    }
+  ],
+  "final_consumer_evidence": ".work/evidence/sprint3-qt5/theme-auto-20261117/runs/lifecycle-committed-20261117T2230",
+  "evidence": {
+    "path": ".work/evidence/sprint3-qt5/theme-lifecycle-20261117",
+    "index": "index.json",
+    "index_sha256": "48c05c3dca01a2ec8da97c372c61a27af2d96e9e0643c364ca7ca39eadde8fff",
+    "files": 186
+  },
+  "review": {
+    "path": ".work/evidence/sprint3-qt5/theme-lifecycle-20261117/architect-review.txt",
+    "sha256": "1735850d4cf1c9be1739e5626b54e0eeef8e00d5878e0c8a465c4ee894f8a2d5",
+    "scope": "architect-assisted bounded defect review and actual test evidence; reviewer proposed fixes, NOT independent full-core acceptance"
+  },
+  "limits": [
+    "No daemon/PAM/reader authentication; synthetic socket peer only",
+    "No Qt6 actual-theme consumer, all root/controller/committed races or true multi-monitor/compositor acceptance",
+    "No new distribution/package, installed ABI/reproducibility or guest deployment",
+    "Host LSP lacks isolated Qt/SDDM includes: 3 finding-bearing files with missing-header cascades, 1 timeout on final four-path probe; actual container builds/tests pass, no clean host-LSP claim",
+    "Accepted Sprint2 source/series, E7 production clone, package recipe/theme and VM untouched; original116 evidence entries rehashed unchanged",
+    "Independent full-core review and T2/T3/T4/T5 gates remain open"
+  ]
+}

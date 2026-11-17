@@ -9,7 +9,10 @@
 #include "ThemeConfig.h"
 #include <QAbstractListModel>
 #include <QDataStream>
+#include <QDir>
 #include <QFile>
+#include <QFileInfo>
+#include <QFileSystemWatcher>
 #include <QGuiApplication>
 #include <QImage>
 #include <QLocalServer>
@@ -173,14 +176,29 @@ class ThemeAutoTest : public QObject {
         send([](QDataStream &out) { out << quint32(DaemonMessages::AuthenticationCapabilities) << quint32(2); });
         QTRY_VERIFY(proxy->authenticationMethodsAvailable());
     }
+    bool writeSession(const QString &file) {
+        QFile f(temporary.filePath("sessions/" + file));
+        const QByteArray contents("[Desktop Entry]\nName=Desktop\nExec=/bin/true\nTryExec=/bin/true\nType=Application\n");
+        return f.open(QIODevice::WriteOnly) && f.write(contents) == contents.size();
+    }
+    bool changeSessionFile(const QString &file, bool present) {
+        auto watcher = sessions->findChild<QFileSystemWatcher *>();
+        if (!watcher) return false;
+        const auto paths = watcher->directories();
+        if (paths.isEmpty()) return false;
+        // Drive the production reload once, without a duplicate queued filesystem notification.
+        if (!watcher->removePaths(paths).isEmpty()) return false;
+        const bool changed = present ? writeSession(file) : QFile::remove(temporary.filePath("sessions/" + file));
+        const bool watched = watcher->addPaths(paths).isEmpty();
+        return changed && watched && QMetaObject::invokeMethod(watcher, "directoryChanged", Qt::DirectConnection,
+                                                              Q_ARG(QString, paths.first()));
+    }
     void setup(bool methods = true, bool show = true) {
-        for (const auto &name : {"alpha", "beta"}) {
-            QFile f(temporary.filePath(QString(name) + ".desktop"));
-            QVERIFY(f.open(QIODevice::WriteOnly));
-            f.write("[Desktop Entry]\nName=Desktop\nExec=/bin/true\nTryExec=/bin/true\nType=Application\n");
-        }
-        mainConfig.X11.SessionDir.set({temporary.path()});
-        mainConfig.Wayland.SessionDir.set({temporary.path()});
+        QVERIFY(QDir().mkpath(temporary.filePath("sessions")));
+        for (const auto &name : {"alpha", "beta"})
+            QVERIFY(writeSession(QString(name) + ".desktop"));
+        mainConfig.X11.SessionDir.set({temporary.filePath("sessions")});
+        mainConfig.Wayland.SessionDir.set({temporary.filePath("sessions")});
         sessions = std::make_unique<Sessions>();
         QVERIFY(sessions->rowCount() > 1);
         QVERIFY(server.listen(temporary.filePath("socket")));
@@ -216,6 +234,7 @@ private slots:
         if (policy) policy->setControllerView(nullptr);
         view.reset(); policy.reset(); proxy.reset(); peer.reset(); sessions.reset();
         server.close(); frames.clear();
+        QVERIFY(QDir(temporary.filePath("sessions")).removeRecursively());
         users.reset({"alice", "bob"}); users.lastIndex = 0;
     }
     void exposedHiddenLabelsStartOnceWithoutEnter() {
@@ -362,6 +381,189 @@ private slots:
         QVERIFY(!policy->valid()); QCOMPARE(starts(), 1);
         password(*view)->setProperty("text", "synthetic-input"); submit();
         QTest::qWait(20); QCOMPARE(count(GreeterMessages::Login), 0);
+    }
+    void sessionReorderPreservesIdentityPasswordAndConsumedStart() {
+        start(); const auto selected = context();
+        const int oldIndex = policy->sessionIndex();
+        password(*view)->setProperty("text", "synthetic-retained");
+        QSignalSpy resets(sessions.get(), &QAbstractItemModel::modelReset);
+        QVERIFY(changeSessionFile("000-before.desktop", true));
+        QCOMPARE(resets.size(), 1);
+        const int nextIndex = sessions->indexOfSession(selected.session.type(), selected.session.fileName());
+        QVERIFY(nextIndex > oldIndex);
+        QCOMPARE(policy->sessionIndex(), nextIndex);
+        QCOMPARE(view->rootObject()->property("currentSessionsIndex").toInt(), nextIndex);
+        QCOMPARE(password(*view)->property("text").toString(), QStringLiteral("synthetic-retained"));
+        QTRY_COMPARE(context().flag, quint32(0)); const auto clear = context();
+        QTest::qWait(30); QCOMPARE(context().serial, clear.serial); QCOMPARE(starts(), 1);
+        acknowledge(clear, false); QTRY_VERIFY(context().serial > clear.serial);
+        const auto restored = context();
+        QCOMPARE(restored.user, selected.user);
+        QCOMPARE(restored.session.type(), selected.session.type());
+        QCOMPARE(restored.session.fileName(), selected.session.fileName());
+        acknowledge(restored); QTRY_COMPARE(proxy->authenticationSessionIndex(), nextIndex);
+        QTest::qWait(30); QCOMPARE(starts(), 1);
+        QCOMPARE(password(*view)->property("text").toString(), QStringLiteral("synthetic-retained"));
+    }
+    void sessionRemovalAndRestorationRequireExplicitSelection() {
+        start(); const auto selected = context();
+        password(*view)->setProperty("text", "synthetic-old-target");
+        QVERIFY(changeSessionFile(QFileInfo(selected.session.fileName()).fileName(), false));
+        QVERIFY(!policy->valid()); QCOMPARE(policy->sessionIndex(), -1);
+        QCOMPARE(password(*view)->property("text").toString(), QString());
+        QTRY_COMPARE(context().flag, quint32(0)); const auto clear = context();
+        password(*view)->setProperty("text", "synthetic-input"); submit();
+        QTest::qWait(30); QCOMPARE(count(GreeterMessages::Login), 0); QCOMPARE(starts(), 1);
+        acknowledge(clear, false); QTRY_VERIFY(proxy->authenticationUser().isEmpty());
+        QVERIFY(changeSessionFile(QFileInfo(selected.session.fileName()).fileName(), true));
+        const int restoredIndex = sessions->indexOfSession(selected.session.type(), selected.session.fileName());
+        QVERIFY(restoredIndex >= 0);
+        QTest::qWait(30); QVERIFY(!policy->valid());
+        QCOMPARE(context().serial, clear.serial); QCOMPARE(starts(), 1);
+        QVERIFY(policy->select(view.get(), selected.user, restoredIndex));
+        QTRY_VERIFY(context().serial > clear.serial); const auto restored = context();
+        QVERIFY(request(restored) != request(selected));
+        QCOMPARE(restored.session.type(), selected.session.type());
+        QCOMPARE(restored.session.fileName(), selected.session.fileName());
+        acknowledge(restored); QTRY_COMPARE(starts(), 2);
+    }
+    void committedSessionReorderAndSurfaceRetirement_data() {
+        QTest::addColumn<int>("retirement");
+        QTest::newRow("hide") << 0;
+        QTest::newRow("root-destroy") << 1;
+        QTest::newRow("window-destroy") << 2;
+    }
+    void committedSessionReorderAndSurfaceRetirement() {
+        QFETCH(int, retirement);
+        start(); const auto selected = context();
+        state(selected, FingerprintState::Matched, AuthenticationPhase::SessionAuthorized);
+        QTRY_VERIFY(proxy->authenticationBusy());
+        const int publications = count(GreeterMessages::SetAuthenticationContext);
+        QVERIFY(changeSessionFile("000-before.desktop", true));
+        QCOMPARE(policy->sessionIndex(), sessions->indexOfSession(selected.session.type(), selected.session.fileName()));
+        QVERIFY(policy->valid());
+        QTest::qWait(30); QCOMPARE(count(GreeterMessages::SetAuthenticationContext), publications);
+        QCOMPARE(starts(), 1);
+        if (retirement == 0) view->hide();
+        else if (retirement == 1) view->setSource(QUrl());
+        else view.reset();
+        QTest::qWait(30);
+        QCOMPARE(count(GreeterMessages::SetAuthenticationContext), publications);
+        QCOMPARE(count(GreeterMessages::CancelAuthenticationMethod), 0);
+        QCOMPARE(starts(), 1); QVERIFY(proxy->authenticationBusy());
+        finish(selected, AuthenticationResult::Succeeded, AuthenticationMethod::Fingerprint);
+        QTest::qWait(30); QCOMPARE(starts(), 1);
+    }
+    void committedSessionRemovalPreservesAuthorizedIdentity() {
+        start(); const auto selected = context();
+        state(selected, FingerprintState::Matched, AuthenticationPhase::SessionAuthorized);
+        QTRY_VERIFY(proxy->authenticationBusy());
+        password(*view)->setProperty("text", "synthetic-retained");
+        const int publications = count(GreeterMessages::SetAuthenticationContext);
+        const QString authorizedRequest = proxy->fingerprintRequestId();
+        QVERIFY(changeSessionFile(QFileInfo(selected.session.fileName()).fileName(), false));
+        QTest::qWait(30);
+        QCOMPARE(count(GreeterMessages::SetAuthenticationContext), publications);
+        QVERIFY(proxy->authenticationBusy());
+        QCOMPARE(policy->user(), selected.user);
+        QCOMPARE(policy->sessionIndex(), -1);
+        QCOMPARE(password(*view)->property("text").toString(), QStringLiteral("synthetic-retained"));
+        QVERIFY(!policy->select(view.get(), "bob", 0));
+        policy->retry(view.get()); policy->cancel(view.get());
+        QVERIFY(changeSessionFile(QFileInfo(selected.session.fileName()).fileName(), true));
+        QTRY_VERIFY(policy->valid());
+        QCOMPARE(policy->sessionIndex(), sessions->indexOfSession(selected.session.type(), selected.session.fileName()));
+        QCOMPARE(proxy->authenticationSessionIndex(), policy->sessionIndex());
+        QCOMPARE(proxy->fingerprintRequestId(), authorizedRequest);
+        QCOMPARE(password(*view)->property("text").toString(), QStringLiteral("synthetic-retained"));
+        QTest::qWait(30); QCOMPARE(starts(), 1);
+        QCOMPARE(count(GreeterMessages::Login), 0);
+        QCOMPARE(count(GreeterMessages::CancelAuthenticationMethod), 0);
+        QCOMPARE(count(GreeterMessages::SetAuthenticationContext), publications);
+        QSignalSpy finished(proxy.get(), &GreeterProxy::authenticationFinished);
+        finish(selected, AuthenticationResult::Succeeded, AuthenticationMethod::Fingerprint);
+        QTRY_COMPARE(finished.size(), 1);
+        QCOMPARE(starts(), 1);
+    }
+    void committedProxySurvivesMissingSessionModel_data() {
+        QTest::addColumn<bool>("destroy");
+        QTest::newRow("detach") << false;
+        QTest::newRow("destroy") << true;
+    }
+    void committedProxySurvivesMissingSessionModel() {
+        QFETCH(bool, destroy);
+        start(); const auto selected = context();
+        state(selected, FingerprintState::Matched, AuthenticationPhase::SessionAuthorized);
+        QTRY_VERIFY(proxy->authenticationBusy());
+        const QString authorizedRequest = proxy->fingerprintRequestId();
+        const int publications = count(GreeterMessages::SetAuthenticationContext);
+        // This row isolates the proxy's model lifetime, not policy model replacement.
+        policy->setControllerView(nullptr); view.reset(); policy.reset();
+        if (destroy) sessions.reset();
+        else proxy->setSessionModel(nullptr);
+        QCOMPARE(proxy->authenticationSessionIndex(), -1);
+        QVERIFY(proxy->authenticationBusy());
+        QCOMPARE(proxy->authenticationUser(), selected.user);
+        QCOMPARE(proxy->fingerprintRequestId(), authorizedRequest);
+        if (destroy) sessions = std::make_unique<Sessions>();
+        proxy->setSessionModel(sessions.get());
+        QCOMPARE(proxy->authenticationSessionIndex(), sessions->indexOfSession(selected.session.type(), selected.session.fileName()));
+        QTest::qWait(30);
+        QCOMPARE(count(GreeterMessages::SetAuthenticationContext), publications);
+        QCOMPARE(count(GreeterMessages::CancelAuthenticationMethod), 0);
+        QCOMPARE(count(GreeterMessages::Login), 0); QCOMPARE(starts(), 1);
+        QSignalSpy finished(proxy.get(), &GreeterProxy::authenticationFinished);
+        finish(selected, AuthenticationResult::Succeeded, AuthenticationMethod::Fingerprint);
+        QTRY_COMPARE(finished.size(), 1);
+    }
+    void committedClearRejectionRestoresSessionAfterModelChange_data() {
+        QTest::addColumn<bool>("removeSelected");
+        QTest::newRow("reorder") << false;
+        QTest::newRow("remove-selected") << true;
+    }
+    void committedClearRejectionRestoresSessionAfterModelChange() {
+        QFETCH(bool, removeSelected);
+        start(); const auto selected = context();
+        const auto other = sessions->sessionIdentity(1);
+        password(*view)->setProperty("text", "synthetic-original");
+        QVERIFY(policy->select(view.get(), selected.user, 1));
+        QCOMPARE(password(*view)->property("text").toString(), QString());
+        password(*view)->setProperty("text", "synthetic-other-target");
+        QTRY_COMPARE(context().flag, quint32(0)); const auto clear = context();
+        QVERIFY(removeSelected ? changeSessionFile(QFileInfo(selected.session.fileName()).fileName(), false)
+                               : changeSessionFile("000-before.desktop", true));
+        send([&](QDataStream &out) {
+            out << quint32(DaemonMessages::AuthenticationContext) << clear.serial << quint32(0)
+                << request(selected) << selected.user << selected.session << quint32(AuthenticationAvailability::Available)
+                << quint32(AuthenticationPhase::SessionAuthorized) << QStringLiteral("session_committed");
+        });
+        QTRY_VERIFY(proxy->authenticationBusy());
+        int selectedIndex = sessions->indexOfSession(selected.session.type(), selected.session.fileName());
+        QTRY_COMPARE(policy->sessionIndex(), selectedIndex);
+        QCOMPARE(view->rootObject()->property("currentSessionsIndex").toInt(), selectedIndex);
+        QCOMPARE(proxy->fingerprintRequestId(), request(selected));
+        const auto identity = proxy->authenticationSessionIdentity();
+        QCOMPARE(identity.value("type").toInt(), int(selected.session.type()));
+        QCOMPARE(identity.value("file").toString(), selected.session.fileName());
+        QCOMPARE(password(*view)->property("text").toString(), QString());
+        QVERIFY(!policy->select(view.get(), "bob", 0));
+        if (removeSelected) {
+            QVERIFY(!policy->valid());
+            QVERIFY(changeSessionFile(QFileInfo(selected.session.fileName()).fileName(), true));
+            selectedIndex = sessions->indexOfSession(selected.session.type(), selected.session.fileName());
+            QTRY_VERIFY(policy->valid());
+            QCOMPARE(policy->sessionIndex(), selectedIndex);
+        }
+        QVERIFY(sessions->sessionIdentity(selectedIndex) != other);
+        policy->retry(view.get()); policy->cancel(view.get());
+        QTest::qWait(30); QCOMPARE(starts(), 1);
+        QCOMPARE(context().serial, clear.serial);
+        QCOMPARE(count(GreeterMessages::CancelAuthenticationMethod), 0);
+        QCOMPARE(count(GreeterMessages::Login), 0);
+        QCOMPARE(proxy->fingerprintRequestId(), request(selected));
+        QSignalSpy finished(proxy.get(), &GreeterProxy::authenticationFinished);
+        finish(selected, AuthenticationResult::Succeeded, AuthenticationMethod::Fingerprint);
+        QTRY_COMPARE(finished.size(), 1); QCOMPARE(starts(), 1);
     }
     void rapidABARejectsLateAcknowledgement() {
         start(); const auto a = context();

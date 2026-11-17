@@ -1,6 +1,7 @@
 {
   "schema_version": 1,
-  "status": "tested offline automatic-start prototype; not installed, packaged, independently accepted or Sprint 3 accepted",
+  "current_candidate_manifest": "adapters/sddm/integrations/where-is-my-sddm-qt5/lifecycle.json",
+  "status": "historical tested offline automatic-start prototype at 33fbaeeb; current candidate and lifecycle corrections in lifecycle.json; not installed, packaged, independently accepted or Sprint 3 accepted",
   "owner_choices": {
     "hidden_current_selection": "automatic scan without Enter after exposed root, ACK and positive availability; do not reveal/restyle labels",
     "cancel": "Escape",

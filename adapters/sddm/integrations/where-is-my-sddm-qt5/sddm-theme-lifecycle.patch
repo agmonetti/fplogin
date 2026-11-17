@@ -1,0 +1,68 @@
+diff --git a/src/greeter/GreeterProxy.cpp b/src/greeter/GreeterProxy.cpp
+index f86373a..477183f 100644
+--- a/src/greeter/GreeterProxy.cpp
++++ b/src/greeter/GreeterProxy.cpp
+@@ -150,6 +150,11 @@ namespace SDDM {
+     bool GreeterProxy::authenticationMethodsAvailable() const { return d->methodsAvailable; }
+     const QString &GreeterProxy::authenticationUser() const { return d->snapshot.user; }
+     int GreeterProxy::authenticationSessionIndex() const { return d->snapshot.sessionIndex; }
++    QVariantMap GreeterProxy::authenticationSessionIdentity() const {
++        if (d->snapshot.user.isEmpty() || d->snapshot.sessionFile.isEmpty()) return {};
++        return {{QStringLiteral("type"), int(d->snapshot.sessionType)},
++                {QStringLiteral("file"), d->snapshot.sessionFile}};
++    }
+     bool GreeterProxy::fingerprintAvailable() const { return d->snapshot.available; }
+     const QString &GreeterProxy::fingerprintDetailCode() const { return d->snapshot.detail; }
+     bool GreeterProxy::authenticationBusy() const { return d->snapshot.busy; }
+@@ -175,12 +180,10 @@ namespace SDDM {
+ 
+     void GreeterProxy::sessionModelChanged() {
+         if (d->snapshot.user.isEmpty()) return;
+-        if (!d->sessionModel) {
+-            clearAuthenticationContext();
+-            return;
+-        }
+-        const int index = d->sessionModel->indexOfSession(d->snapshot.sessionType, d->snapshot.sessionFile);
+-        if (index < 0 && d->pending != GreeterProxyPrivate::Clear) {
++        const int index = d->sessionModel
++            ? d->sessionModel->indexOfSession(d->snapshot.sessionType, d->snapshot.sessionFile) : -1;
++        // Model availability cannot revoke an already committed authentication tuple.
++        if (index < 0 && !d->snapshot.busy && d->pending != GreeterProxyPrivate::Clear) {
+             clearAuthenticationContext();
+             return;
+         }
+diff --git a/src/greeter/GreeterProxy.h b/src/greeter/GreeterProxy.h
+index c2ec23e..36e2458 100644
+--- a/src/greeter/GreeterProxy.h
++++ b/src/greeter/GreeterProxy.h
+@@ -21,6 +21,7 @@
+ #define SDDM_GREETERPROXY_H
+ 
+ #include <QObject>
++#include <QVariantMap>
+ 
+ class QLocalSocket;
+ 
+@@ -61,6 +62,7 @@ namespace SDDM {
+         bool authenticationMethodsAvailable() const;
+         const QString &authenticationUser() const;
+         int authenticationSessionIndex() const;
++        QVariantMap authenticationSessionIdentity() const;
+         bool fingerprintAvailable() const;
+         const QString &fingerprintDetailCode() const;
+         bool authenticationBusy() const;
+diff --git a/src/greeter/ThemeAuthentication.cpp b/src/greeter/ThemeAuthentication.cpp
+index 361415e..bd34870 100644
+--- a/src/greeter/ThemeAuthentication.cpp
++++ b/src/greeter/ThemeAuthentication.cpp
+@@ -238,8 +238,8 @@ void ThemeAuthentication::modelChanged() {
+ }
+ 
+ void ThemeAuthentication::restoreCommitted() {
+-    if (!m_proxy || !m_proxy->authenticationBusy() || !m_sessions) return;
+-    const auto identity = m_sessions->sessionIdentity(m_proxy->authenticationSessionIndex());
++    if (!m_proxy || !m_proxy->authenticationBusy()) return;
++    const auto identity = m_proxy->authenticationSessionIdentity();
+     if (identity.isEmpty() || m_proxy->authenticationUser().isEmpty()) return;
+     changeTarget(m_proxy->authenticationUser(), identity.value(QStringLiteral("type")).toInt(),
+                  identity.value(QStringLiteral("file")).toString());
