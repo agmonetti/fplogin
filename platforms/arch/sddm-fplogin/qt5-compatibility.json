@@ -458,6 +458,35 @@
     "source_bundle_sha256": "bbd060b7df5f01a1c7df10716c2785e11f24a952f577ff48c621efe7fc00fc39",
     "evidence_directory": ".work/evidence/sprint3-qt5/e6/"
   },
+  "e6_abi_preflight": {
+    "date_utc": "2026-11-17",
+    "status": "BLOCKED - diagnostic and preventive guard only; guest ABI correction and E6 retest NOT performed",
+    "checker_sha256": "3a25f8dae67c8bbd73c995d2ec5f436176456cda6815fdb168e6631cd2491603",
+    "tests_sha256": "998a6bc153faaf7c24101b2b82882b03c24063aa932d33bff53884b0599f0297",
+    "unit_regressions": "5 PASS; no host ELF execution",
+    "cause": "Pinned signed qt5-base lacks an OpenSSL dependency declaration, while its Qt5Network ELF requires libssl.so.4/libcrypto.so.4",
+    "sandbox_only": "Read-only stopped-guest extraction; actual candidate/Qt5 and openssl4.1.0 plus openssl-3 3.5.9 transactions in isolated private root, not the VM",
+    "scoped_result": "PASS8 SDDM/Xcb/SVG ELFs with provider/file hashes; synthetic hidden-so4 negative control FAIL as expected. Not global closure, QML render or login",
+    "broad_result": "FAIL: 124/128 ELF pass; four optional SQL plugins have missing database libraries. No exemption/total PASS",
+    "blockers": "Global consumer/symbol compatibility of old3.6.5 to compat3.5.9 unverified; direct pacman remove-compat rejects dependencies before mutation, and old signed openssl does not conflict/replace compat. Initial chroot candidate tmpfiles hook failed without proc. Healthy candidate hooks/final rollback NOT RUN",
+    "safety": "No guest boot/disk/manifest mutation, host package/PAM/service changes or reader use; no nodeps/overwrite/DB workaround. Source/recipe/candidate unchanged. E5 historical offline PASS retained",
+    "guest_disk_sha256_unchanged": "900ce200f255a19827e9dc6c279a10c6b1b5cf106c48436ad6143cbf61885a97",
+    "evidence_root": ".work/evidence/sprint3-qt5/e6-abi/",
+    "report": ".work/evidence/sprint3-qt5/e6-abi/report.md",
+    "evidence_index": ".work/evidence/sprint3-qt5/e6-abi/evidence-integrity.json",
+    "evidence_index_sha256": "1c3e1344fb12e2fc9fd61452cb2cd952ac6e5db6b7911346460359499dc4f62e",
+    "evidence_artifacts": 48,
+    "rejected_proposals": "Private ssl-inventory.py unexecuted/incomplete; verify.sh stopped at first package removal, subsequent audit/hooks/rollback steps NOT RUN",
+    "source_bundle": {
+      "path": ".work/checkpoints/sddm-sprint3-e6-abi-20261117T180314Z.bundle",
+      "sha256": "40c327ec28eab88008ed66a7cec9316623ef0c629d72dac52d5792869bab3edf",
+      "verification_log": ".work/evidence/sprint3-qt5/e6-abi/bundle-verify.txt"
+    },
+    "architect_review": ".work/evidence/sprint3-qt5/e6-abi/architect-final.txt",
+    "architect_review_sha256": "51584580249563d66549f55040d93b8639b01b9825e72c91a457314c8a5992a9",
+    "architect_verdict": "READY FOR SEPARATE COMMITS / BLOCKED HANDOFF; no guest correction or GO E6. Review stored separately from unchanged48-artifact index",
+    "next": "Owner chooses reviewed supported recovery route for an explicit guest ABI migration or coherent signed Qt5/OpenSSL3 runtime; revalidate affected gates if rebuilding. Do not deploy experimental set or repeat E6 now"
+  },
   "remaining": [
     "E6 reviewed coherent guest dependency/ELF-closure prerequisite before rerunning the four real theme password logins and intentional broken-greeter/stock-login recovery; no implicit guest OpenSSL replacement or disk recreation",
     "E7 final package/evidence review and explicit owner acceptance",
