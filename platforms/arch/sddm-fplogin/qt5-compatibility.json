@@ -455,8 +455,7 @@
     "shutdown": "ACPI completed, exit0; lab container absent and no current-UID QEMU process. Earlier pgrep warning and timed-out read-only proc probe are not process proof. Disk retained, not byte-restored.",
     "preservation": "Accepted Sprint2 disk/source37, ten accepted inputs, source clone cleanliness, original192 corrected E5 indexed artifacts and S3 original backup/kernel/initramfs/runtime hashes verified unchanged; source/recipe/candidate not modified",
     "source_bundle": ".work/checkpoints/sddm-sprint3-e6-blocked-20261117.bundle",
-    "source_bundle_sha256": "bbd060b7df5f01a1c7df10716c2785e11f24a952f577ff48c621efe7fc00fc39",
-    "evidence_directory": ".work/evidence/sprint3-qt5/e6/"
+    "source_bundle_sha256": "bbd060b7df5f01a1c7df10716c2785e11f24a952f577ff48c621efe7fc00fc39"
   },
   "e6_abi_preflight": {
     "date_utc": "2026-11-17",
@@ -487,8 +486,77 @@
     "architect_verdict": "READY FOR SEPARATE COMMITS / BLOCKED HANDOFF; no guest correction or GO E6. Review stored separately from unchanged48-artifact index",
     "next": "Owner chooses reviewed supported recovery route for an explicit guest ABI migration or coherent signed Qt5/OpenSSL3 runtime; revalidate affected gates if rebuilding. Do not deploy experimental set or repeat E6 now"
   },
+  "e6_openssl3_runtime": {
+    "date_utc": "2026-11-17",
+    "status": "PASS - bounded sandbox ABI/rendering/recovery prerequisite; actual guest deployment and E6 login NOT RUN",
+    "owner_decision": "Approved seeking/verifying signed Qt5 compatible with guest OpenSSL3, preserving current VM and exact E5 candidate; not a guest deployment authorization",
+    "scope": "Operational laboratory runtime pin only, not a recipe/dependency-declaration fix, general installation policy, CVE/security audit or release recommendation",
+    "snapshot": "2026/10/23",
+    "repository_snapshot_base_url": "https://archive.archlinux.org/repos/2026/10/23/extra/os/x86_64/",
+    "package_url_rule": "base URL plus filename; detached signature URL adds .sig",
+    "repository_db_sha256": "4b850817259ae2c33399ec0c32252e2940ee137e7961eb251c1786fbbf27b49a",
+    "packages": {
+      "qt5-base": {
+        "version": "5.15.19+kde+r96-1",
+        "filename": "qt5-base-5.15.19+kde+r96-1-x86_64.pkg.tar.zst",
+        "sha256": "c772c6d18c29b58443cee96d9a6012baf8cb9622a14553e4759fdc418b93cf3c",
+        "signature_sha256": "2a010be5ae158b39e7de3b6aa54a7e5f1e5391c57d1c27734da4f474f757c851"
+      },
+      "qt5-declarative": {
+        "version": "5.15.19+kde+r23-1",
+        "filename": "qt5-declarative-5.15.19+kde+r23-1-x86_64.pkg.tar.zst",
+        "sha256": "8b207369843d9603a87420279ddacf025718dcdb47a7ea4ad703e4c70357ea78",
+        "signature_sha256": "ba31eb2be5a74805c5a9d0cda7a97f99b509e6372476b0ca12f603699eddd77e"
+      },
+      "qt5-quickcontrols2": {
+        "version": "5.15.19+kde+r5-1",
+        "filename": "qt5-quickcontrols2-5.15.19+kde+r5-1-x86_64.pkg.tar.zst",
+        "sha256": "d40691ffba09e2dae8da22b02db8aae76e700528f4954b4b0be00afa58876e11",
+        "signature_sha256": "cc448d6c98ebba1295f4e3af5da2e14ef37494b95eacfbe3d24130441567b16d"
+      },
+      "qt5-svg": {
+        "version": "5.15.19+kde+r5-1",
+        "filename": "qt5-svg-5.15.19+kde+r5-1-x86_64.pkg.tar.zst",
+        "sha256": "874d631c937bbca955257cd47af9199864479a07772e99cc480775b1efb6ea1f",
+        "signature_sha256": "651be85d3fe7562300d2d6d94f40f91a5ec411695403e4733d5ffc83c81c7bb9"
+      },
+      "qt5-translations": {
+        "version": "5.15.19-1",
+        "filename": "qt5-translations-5.15.19-1-any.pkg.tar.zst",
+        "sha256": "5031b69a16673fa44d5d9285276960e8b6f93df38211a60977a288b661008c88",
+        "signature_sha256": "0975f74f32c0502b9329c7daa0d4c0960a4beb259de3bff05b0db65fc74ed0aa"
+      }
+    },
+    "signatures": "All5 Qt5 archives and original stock rollback archive verified good/full in guest-derived trusted keyring; no imported trust. All5 package bytes match selected snapshot DB; four non-base archives identical to retained E5 inputs",
+    "actual_elf": "r96-1 Qt5Network needs ssl3/crypto3; Qt5Core needs ICU78. Static128 ELF/versioned imports includes7524 PRIVATE_API checks; actual scoped ldd-r8/8 PASS with provider hashes",
+    "shared_runtime_unchanged": "OpenSSL3.6.5-1, ICU78.3-1, Qt6base6.12.0-2/declarative6.12.0-1 and all existing shared package versions unchanged;5694 original shared-library/Qt6 paths also match installed state content/type/mode/ownership",
+    "candidate_sha256": "e461b3a9cca1c991ba4cc9537b7101009a06cbdf72d7b0eb3e0765b6d4e411a6",
+    "rendering": "PASS4 themes with guest-derived loader/libs/QML, absolute executable/PID-owned mapped1280x800 roots live2s,263 installed payload hashes/root ownership, Maya SVG, Qt6 module fixture and broken-module negative control. Test-mode/no peer, NOT metadata selection/PAM/password login",
+    "broad_abi_limit": "FAIL4/128 optional SQL plugins missing MariaDB/ODBC/PostgreSQL/TDS.124/128 pass, no global ABI PASS or dependency waiver",
+    "sandbox_recovery": "Signed stock pacman transaction then one plain-R of exactly5 new Qt5 packages, checks/hooks intact; entire package inventory and69015 recorded usr/PAM/SSL/passwd/group paths restored exactly; stock251files/0altered;10 original stock/core ELF PASS. Not whole-disk restore or stock password login",
+    "hook_limits": "Real global package hooks complete without error/warning in final r4; manager/bus/service effects explicitly skipped because root not booted. Fixture UID/mailbox warnings retained, cleanup0. Not real guest service acceptance",
+    "original_failures": "r96-2 signed runtime requiresSSL4, rejected. Initial root extraction UID error and donor IPC create failure preserved. r2 candidate hook guardFAIL missing identity then separate recoveryPASS; r3 full dry-run preflight73 before pacman. Fresh r4 private identity/relevant-only dry-run correction reviewed; no ignored failed product checks",
+    "prepared_payload": ".work/labs/sprint3/e6-qt5-openssl3/payload.tar",
+    "prepared_payload_sha256": "8c1687edc4fb4d434973863e88b584867792636e1bc893cf21651ab3f921afc7",
+    "payload_manifest": ".work/labs/sprint3/e6-qt5-openssl3/payload-files.json",
+    "payload_manifest_sha256": "9d3c7c209c47edcdcd24f49a2f5bf63d69cbc041342804ba96341d05e69fc6d7",
+    "payload_scope": "15 exact members:5positive packages+5sigs+unchanged candidate+inspection+2verifiers+lock. No r96-2/r97/SSL4 archive, credentials or disk. Prepared only, not deployed",
+    "evidence_root": ".work/evidence/sprint3-qt5/e6-qt5-openssl3/",
+    "evidence_artifacts": 175,
+    "evidence_index_sha256": "2f1504fc3612987834f05fe3e7086640e9ad715df11ef0b2717a1002921d9dc1",
+    "source_bundle": ".work/checkpoints/sddm-sprint3-e6-qt5-openssl3-20261117T185650Z.bundle",
+    "source_bundle_sha256": "759489d16ca7c0cbde781bd0b93de2969fc87100a3d1c62e62dc34a6d40c47f6",
+    "source_bundle_verification": ".work/evidence/sprint3-qt5/e6-qt5-openssl3/bundle-verify.txt",
+    "private_tooling_backup": ".work/checkpoints/sprint3-e6-qt5-openssl3-tools-20261117T190615Z.tar",
+    "private_tooling_backup_sha256": "d9c8ba50243b154821586526c75626e70637b16dfd293fd0a83c08ad15ed5b8b",
+    "preservation": "Original stopped guest disk900ce200f255a19827e9dc6c279a10c6b1b5cf106c48436ad6143cbf61885a97 unchanged;89 preserved-input/source hashes including37 accepted Sprint2 sources rechecked. Both source clones clean; source/recipe/candidate unchanged; original E5 offline PASS not expanded",
+    "architect_review": ".work/evidence/sprint3-qt5/e6-qt5-openssl3/architect-final.txt",
+    "architect_review_sha256": "01712c162d3c78e4bf8a42f3f4adef1e23e9466aeaa2a9b5a3b1c9c432a78697",
+    "architect_verdict": "READY FOR SEPARATE COMMITS / HANDOFF of bounded offline runtime prerequisite; no GO VM/E6/E7/release/acceptance. Review stored separately from unchanged175-artifact index",
+    "next": "Fresh explicit owner E6 VM authorization, backup/tty/stock/installed-closure prerequisites, then actual per-theme metadata-correlated logins and broken-greeter/stock-login recovery. Never implicitly recreate VM or update shared OpenSSL/Qt6/host/reader"
+  },
   "remaining": [
-    "E6 reviewed coherent guest dependency/ELF-closure prerequisite before rerunning the four real theme password logins and intentional broken-greeter/stock-login recovery; no implicit guest OpenSSL replacement or disk recreation",
+    "E6 fresh explicit guest deployment authorization and real per-theme login/recovery using the exact sandbox-verified Qt5/OpenSSL3 runtime; offline prerequisite PASS does not pass E6 or authorize implicit disk/OpenSSL replacement",
     "E7 final package/evidence review and explicit owner acceptance",
     "Separate physical packaged-stack gate not run"
   ]
