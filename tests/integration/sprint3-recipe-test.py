@@ -49,10 +49,11 @@ class RecipeTest(unittest.TestCase):
                    "bash", str(first / "PKGBUILD"))
         self.assertEqual(deps.returncode, 0, deps.stdout)
         self.assertIn("qt5-svg", deps.stdout.splitlines())
-        self.assertEqual(sources[1:5], ["0000-cmake-raise-required-version.patch",
+        self.assertEqual(sources[1:6], ["0000-cmake-raise-required-version.patch",
                                       "0001-concurrent-authentication-methods.patch",
                                       "0002-greeter-api-and-theme-lifecycle.patch",
-                                      "0003-qt5-compatibility.patch"])
+                                      "0003-qt5-compatibility.patch",
+                                      "0004-availability-deadline-and-fixture-cleanup.patch"])
         self.assertEqual({p.name for p in first.iterdir()}, set(sources[1:]) | {"PKGBUILD"})
         for source, digest in zip(sources[1:], sums[1:], strict=True):
             self.assertEqual(hashlib.sha256((first / source).read_bytes()).hexdigest(), digest)
@@ -62,12 +63,17 @@ class RecipeTest(unittest.TestCase):
     def test_missing_supplement_stops_staging(self):
         root = self.base / "repo"
         shutil.copytree(ROOT / RECIPE, root / RECIPE)
-        (root / RECIPE / "0003-qt5-compatibility.patch").unlink()
-        out = self.base / "out"
-        out.mkdir()
-        result = run("sh", str(root / RECIPE / "stage.sh"), str(out))
-        self.assertNotEqual(result.returncode, 0)
-        self.assertFalse((out / "PKGBUILD").exists())
+        for patch in ("0003-qt5-compatibility.patch",
+                      "0004-availability-deadline-and-fixture-cleanup.patch"):
+            with self.subTest(patch=patch):
+                original = (root / RECIPE / patch).read_bytes()
+                (root / RECIPE / patch).unlink()
+                out = self.base / patch
+                out.mkdir()
+                result = run("sh", str(root / RECIPE / "stage.sh"), str(out))
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse((out / "PKGBUILD").exists())
+                (root / RECIPE / patch).write_bytes(original)
 
     def test_check_result_validation(self):
         staged = self.base / "src"
@@ -132,10 +138,13 @@ chown -R verifier /home/verifier/pkg
 printf '\nsource=("${source[@]:1}"); sha256sums=("${sha256sums[@]:1}")\n' >> /home/verifier/pkg/PKGBUILD
 verify() { su verifier -c 'cd /home/verifier/pkg && makepkg --verifysource --noconfirm'; }
 verify
-printf '\ntampered\n' >> /home/verifier/pkg/0003-qt5-compatibility.patch
-if verify; then echo 'tampered supplement accepted'; exit 1; fi
-rm /home/verifier/pkg/0003-qt5-compatibility.patch
-if verify; then echo 'missing supplement accepted'; exit 1; fi
+for patch in 0003-qt5-compatibility.patch 0004-availability-deadline-and-fixture-cleanup.patch; do
+  printf '\ntampered\n' >> /home/verifier/pkg/"$patch"
+  if verify; then echo 'tampered supplement accepted'; exit 1; fi
+  rm /home/verifier/pkg/"$patch"
+  if verify; then echo 'missing supplement accepted'; exit 1; fi
+  cp /pkg/src/"$patch" /home/verifier/pkg/
+done
 # Exercise the whole build wrapper with real makepkg and an intentionally failing check().
 printf '#!/bin/sh\nexit 0\n' > /usr/local/bin/pacman
 chmod +x /usr/local/bin/pacman

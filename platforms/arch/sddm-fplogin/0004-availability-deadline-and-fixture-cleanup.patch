@@ -1,0 +1,140 @@
+diff --git a/src/daemon/Display.cpp b/src/daemon/Display.cpp
+index 2dda6d8..e3aeafb 100644
+--- a/src/daemon/Display.cpp
++++ b/src/daemon/Display.cpp
+@@ -544,8 +544,9 @@ namespace SDDM {
+                         QStringLiteral("/org/freedesktop/DBus"), QStringLiteral("org.freedesktop.DBus"),
+                         QStringLiteral("StartServiceByName"));
+                 activate << QStringLiteral("net.reactivated.Fprint") << quint32(0);
++                // The overall probe deadline owns the budget; a second 5s timer races its terminal reason.
+                 auto *activationWatcher = new QDBusPendingCallWatcher(
+-                        QDBusConnection::systemBus().asyncCall(activate, 5000), this);
++                        QDBusConnection::systemBus().asyncCall(activate), this);
+                 m_probeWatchers.insert(activationWatcher);
+                 connect(activationWatcher, &QDBusPendingCallWatcher::finished, this,
+                         [this, activationWatcher, generation, serial, requestId] {
+diff --git a/test/DaemonContextTest.cpp b/test/DaemonContextTest.cpp
+index b721e43..a3fc32c 100644
+--- a/test/DaemonContextTest.cpp
++++ b/test/DaemonContextTest.cpp
+@@ -16,6 +16,7 @@
+ #include <QDBusConnectionInterface>
+ #include <QDBusMessage>
+ #include <QDBusReply>
++#include <QDBusPendingReply>
+ #include <QProcess>
+ #include <memory>
+ #include <functional>
+@@ -174,10 +175,14 @@ class DaemonContextTest : public QObject {
+     std::unique_ptr<QTemporaryDir> busDirectory;
+     QProcess privateBus;
+     QStringList fixtureOwners;
++    QString startupGate;
+     QString serviceFile() const {
+         return busDirectory->filePath(QStringLiteral("services/net.reactivated.Fprint.service"));
+     }
+     void enableService(const QStringList &args = {}) {
++        const int gateIndex = args.indexOf(QStringLiteral("--startup-gate"));
++        if (gateIndex >= 0 && gateIndex + 1 < args.size())
++            startupGate = args.at(gateIndex + 1);
+         QFile service(serviceFile());
+         QVERIFY(service.open(QIODevice::WriteOnly));
+         const auto executable = QCoreApplication::applicationDirPath() + QStringLiteral("/FingerprintAvailabilityService");
+@@ -280,15 +285,43 @@ private slots:
+         QVERIFY(QDBusConnection::systemBus().isConnected());
+     }
+     void cleanup() {
++        // Cleanup may start an unused fixture to drain activation before reusing the private bus.
++        if (!startupGate.isEmpty()) {
++            QFile release(startupGate);
++            if (!release.open(QIODevice::WriteOnly))
++                qFatal("Cannot release private availability fixture");
++            release.close();
++            auto activate = QDBusMessage::createMethodCall(QStringLiteral("org.freedesktop.DBus"),
++                    QStringLiteral("/org/freedesktop/DBus"), QStringLiteral("org.freedesktop.DBus"),
++                    QStringLiteral("StartServiceByName"));
++            activate << QStringLiteral("net.reactivated.Fprint") << quint32(0);
++            QDBusPendingReply<quint32> pending = QDBusConnection::systemBus().asyncCall(activate, 6000);
++            if (!QTest::qWaitFor([&] { return pending.isFinished(); }, 6500)
++                || pending.isError() || (pending.value() != 1 && pending.value() != 2)
++                || fixtureOwner().isEmpty())
++                qFatal("Private gated activation did not drain; refusing to reuse the bus");
++            startupGate.clear();
++        }
+         const auto current = fixtureOwner();
+         Q_UNUSED(current);
+-        for (const auto &owner : qAsConst(fixtureOwners))
++        if (QFile::exists(serviceFile()) && !QFile::remove(serviceFile()))
++            qFatal("Cannot remove private availability fixture service");
++        const auto reload = QDBusConnection::systemBus().interface()->call(QStringLiteral("ReloadConfig"));
++        if (reload.type() == QDBusMessage::ErrorMessage)
++            qFatal("Cannot disable private availability fixture activation");
++        for (const auto &owner : qAsConst(fixtureOwners)) {
+             fixtureCall(owner, QStringLiteral("Quit"));
++            if (!QTest::qWaitFor([&] {
++                    const auto registered = QDBusConnection::systemBus().interface()->isServiceRegistered(owner);
++                    return registered.isValid() && !registered.value();
++                }, 6500))
++                qFatal("Private availability fixture connection survived cleanup");
++        }
+         fixtureOwners.clear();
+-        QTRY_VERIFY(!QDBusConnection::systemBus().interface()->isServiceRegistered(
+-                QStringLiteral("net.reactivated.Fprint")).value());
+-        QFile::remove(serviceFile());
+-        QDBusConnection::systemBus().interface()->call(QStringLiteral("ReloadConfig"));
++        const auto registered = QDBusConnection::systemBus().interface()->isServiceRegistered(
++                QStringLiteral("net.reactivated.Fprint"));
++        if (!registered.isValid() || registered.value())
++            qFatal("Private availability fixture still owns its service after cleanup");
+     }
+     void cleanupTestCase() {
+         privateBus.terminate();
+@@ -338,6 +371,35 @@ private slots:
+         QCOMPARE(display.m_fingerprintAuth->launchGeneration(), quint64(0));
+         QVERIFY(!client.state(FingerprintState::Ready));
+     }
++    void abandonedGatedActivationIsCleanedBeforeColdStart_data() {
++        QTest::addColumn<bool>("waitForChild");
++        QTest::newRow("child-waiting") << true;
++        QTest::newRow("startup-pending") << false;
++    }
++    void abandonedGatedActivationIsCleanedBeforeColdStart() {
++        QFETCH(bool, waitForChild);
++        const auto gate = directory->filePath(QStringLiteral("abandoned-start"));
++        enableService({QStringLiteral("--startup-gate"), gate});
++        auto activate = QDBusMessage::createMethodCall(QStringLiteral("org.freedesktop.DBus"),
++                QStringLiteral("/org/freedesktop/DBus"), QStringLiteral("org.freedesktop.DBus"),
++                QStringLiteral("StartServiceByName"));
++        activate << QStringLiteral("net.reactivated.Fprint") << quint32(0);
++        auto pending = QDBusConnection::systemBus().asyncCall(activate);
++        if (waitForChild)
++            QTRY_VERIFY(QFile::exists(gate + QStringLiteral(".waiting")));
++        QVERIFY(!QFile::exists(gate));
++        cleanup();
++        QFile waiting(gate + QStringLiteral(".waiting"));
++        QVERIFY(waiting.open(QIODevice::ReadOnly));
++        const auto abandonedOwner = QString::fromUtf8(waiting.readAll());
++        QVERIFY(abandonedOwner.startsWith(QLatin1Char(':')));
++        QTRY_VERIFY(pending.isFinished());
++        QVERIFY(!pending.isError());
++        QVERIFY(!QDBusConnection::systemBus().interface()->isServiceRegistered(abandonedOwner).value());
++        coldAvailabilityActivatesOnceAndStartsQueuedFingerprint();
++        QVERIFY(!fixtureOwner().isEmpty());
++        QVERIFY(fixtureOwner() != abandonedOwner);
++    }
+     void coldAvailabilityActivatesOnceAndStartsQueuedFingerprint() {
+         enableService();
+         Harness display(directory->filePath(QStringLiteral("control")));
+diff --git a/test/FingerprintAvailabilityService.cpp b/test/FingerprintAvailabilityService.cpp
+index 041dbf8..7ccc297 100644
+--- a/test/FingerprintAvailabilityService.cpp
++++ b/test/FingerprintAvailabilityService.cpp
+@@ -80,6 +80,8 @@ int main(int argc, char **argv) {
+         const auto path = args.at(gateIndex + 1);
+         QFile waiting(path + QStringLiteral(".waiting"));
+         if (!waiting.open(QIODevice::WriteOnly)) return 5;
++        const auto identity = bus.baseService().toUtf8();
++        if (waiting.write(identity) != identity.size()) return 5;
+         waiting.close();
+         QObject::connect(&gate, &QTimer::timeout, &app, [&, path] {
+             if (QFile::exists(path)) { gate.stop(); acquire(); }

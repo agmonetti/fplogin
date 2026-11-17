@@ -1,9 +1,11 @@
 {
   "schema_version": 1,
-  "status": "UNACCEPTED; E0-E4 PASS (offline scope); E5 attempted FAIL on fresh B Qt5 DaemonContext check; progression BLOCKED; E6-E7 NOT RUN; real guest login unverified",
+  "status": "UNACCEPTED; E5 original attempt FAIL; correction source/container and recipe regressions PASS, ready for downstream revalidation; corrected package E2-E4 revalidation and new E5 pair NOT RUN; progression BLOCKED; E6-E7 NOT RUN",
   "plan_commit": "0486d7517d1667c1e2aee17e9f6054cdbceeaccb",
   "upstream_commit": "63780fcd79f1dbf81a30eef48c28c699ab15aded",
-  "source_commit": "eda38c6a95ab78c52d74ce8b6b4ca73ebe0a4105",
+  "source_commit": "deaee9b94c79486a7b7e65715c3b438cabe9e09e",
+  "historical_verified_source_commit": "eda38c6a95ab78c52d74ce8b6b4ca73ebe0a4105",
+  "historical_results_scope": "Original E0-E4 verification/review/test_suites and failed E5 records below retain their original source/recipe scope; they do not verify the corrected package. Current correction results are in e5_correction.",
   "baseline_source_commit": "ef4a441f213f267fe898febe2faf23a8a70180c7",
   "patches": [
     {
@@ -21,6 +23,10 @@
     {
       "path": "platforms/arch/sddm-fplogin/0003-qt5-compatibility.patch",
       "sha256": "2a47b5d2c988f24ba686ee15b71f43c233cfc3b090f213a9d5d0a1c44c2d080f"
+    },
+    {
+      "path": "platforms/arch/sddm-fplogin/0004-availability-deadline-and-fixture-cleanup.patch",
+      "sha256": "04cd745cdef6d0ed4ccf57f2b7f417a88ed38eafffb0cb7e03fd57a6021bf565"
     }
   ],
   "preserved_inputs_sha256": {
@@ -48,7 +54,7 @@
     "src/common/SocketWriter.h": "bebb067d10c6531135447829ac46e1bd3ee35168794b1c3f27ff1cbc32de9c72",
     "src/daemon/AuthAttemptGate.h": "772370a803ac96304f8b4e1945ba05cc145c17ce74b74e809e62565339d4054c",
     "src/daemon/DaemonApp.cpp": "616961893bc9d23cee5678d76234389a8d3949133709ac580361484210a16517",
-    "src/daemon/Display.cpp": "644f4af1ca6f79c464675511960a9a5cd4654af329b5222fae43056491e965d4",
+    "src/daemon/Display.cpp": "e819e8ac9ce0add59c5a37c9647903fd185d907e9ad3c082b1119dbf35c65ee7",
     "src/daemon/Display.h": "bf5acf705e03ef045884686a29fe2de407fb216cb55b7673d37023572d710c7e",
     "src/daemon/SocketServer.cpp": "b60cfc24c3bc09e31d09d18d63d449d2f54a5c03fa50bb8a86038b2c034cef6e",
     "src/daemon/SocketServer.h": "3902815038d26079fa58a5225a5c458a28d8d4f0eeed7485e38efcab89c243eb",
@@ -73,8 +79,8 @@
     "test/AuthTransportTest.cpp": "61b6d78df96a2fa4184d7934b56001b627cd66c036139cbea1d9c7f437462725",
     "test/CMakeLists.txt": "16162b44f2f8e7af0fa657ae9e3793ea9c181481e9a405c4dcdb13b49ac46e31",
     "test/DaemonContextHelper.cpp": "3e2af386ebd3aa0decb1bd328b20e695a822bf87f578cecf106ac20fdbb98c90",
-    "test/DaemonContextTest.cpp": "604e3d3567b00e8afc7e8a97989cf74b04b5d55632763d355fdf7cc8c2913876",
-    "test/FingerprintAvailabilityService.cpp": "218cfebd5032b62bfa891f1094d7614cef9cfea4df45f6cbc973d7e34d790331",
+    "test/DaemonContextTest.cpp": "c5db1e78f374b479e92d25a82d1714f1df82ce523ba616c5838e99d487946667",
+    "test/FingerprintAvailabilityService.cpp": "e88e06645b93dcd738ea46ae0e69e08c089c018b96834f73363aab880217e2e4",
     "test/FploginThemeTest.cpp": "6cf3206afee881efe64f3af304ba290f6cb9db1962c208bb47929a17ce36b1fd",
     "test/GreeterAppTest.cpp": "ed7ab5ef292958768cc5864460cae8d80ead9c4ea7d11aea402ee13c793f7bda",
     "test/GreeterProxyTest.cpp": "2625571ec0a477141e556c5ed14f1a1518964f4a8f5f4e2f09d33e44d55db728"
@@ -83,7 +89,7 @@
     "tracked_files_compared": 370,
     "result": "PASS",
     "recipe": ".work/evidence/sprint3-qt5/reconstruct.sh",
-    "supplement": "git apply 0003 after the baseline recipe"
+    "supplement": "Current source: pinned upstream plus ordered 0000/0001/0002/0003/0004, all370 hashes match independent full and incremental replays; see e5-diagnostic/verification.json. Original E1 reconstruction recipe remains historical."
   },
   "environment": {
     "base_image": "sha256:70d777aaeb45befc04150df137c4d7c1b5042be442b4c904c38c6f6880bb7844",
@@ -177,6 +183,11 @@
     "qt5_details": ".work/evidence/sprint3-qt5/qt5-with-controls-tests-detail.log"
   },
   "source_bundle": {
+    "path": "/home/agus-hy/Documentos/fplogin/.work/checkpoints/sddm-sprint3-e5-correction-20261117.bundle",
+    "sha256": "759489d16ca7c0cbde781bd0b93de2969fc87100a3d1c62e62dc34a6d40c47f6",
+    "verification_log": ".work/evidence/sprint3-qt5/e5-diagnostic/bundle-verify.log"
+  },
+  "historical_e1_source_bundle": {
     "path": "/home/agus-hy/Documentos/fplogin/.work/checkpoints/sddm-sprint3-qt5-20261114T200311Z.bundle",
     "sha256": "86fda62c20b11fa858c38d5851eaa1a2297ac166eb29bad08148ad398f61f72f",
     "verification_log": ".work/evidence/sprint3-qt5/bundle-verify.log"
@@ -351,8 +362,31 @@
     "source_bundle": ".work/checkpoints/sddm-sprint3-qt5-20261117T122939Z.bundle",
     "source_bundle_sha256": "6ae9c9bbe9f06185a7a86e1743f0604c371bbcd2989726f0e0175e00447cd42a"
   },
+  "e5_correction": {
+    "date_utc": "2026-11-17",
+    "status": "READY FOR DOWNSTREAM REVALIDATION; source/container and recipe regressions PASS, not E5 acceptance",
+    "source_commit": "deaee9b94c79486a7b7e65715c3b438cabe9e09e",
+    "pkgrel": 3,
+    "reproduced_mechanism": "Logging-only overlay naturally reproduced activation NoReply before overall timer callback, publishing service_unavailable; failed assertion left pre-name gated child, cleanup saw no well-known owner, following cold activation failed; isolated cold passed. Original B exact chronology remains unproven; logging perturbs timing.",
+    "production_fix": "Use default activation D-Bus timeout instead of competing explicit5000ms; existing overall5000ms deadline, terminal assertion/codes and generation guards unchanged. Watcher invalidation does not cancel bus activation or kill service.",
+    "fixture_fix": "Track startup gate before assertions; cleanup releases and explicitly drains/possibly initiates private activation with bounded reply1/2; disable service with checked removal/reload, Quit tracked unique owners and await disconnect; qFatal stops cascade on uncertainty. Both gated users share this path.",
+    "regressions": "abandonedGatedActivationIsCleanedBeforeColdStart child-waiting/startup-pending rows prove original activation drained, unique connection gone and fresh cold owner/helper; original deadline/late-owner/fail-start assertions unchanged",
+    "final_tests": "Qt5 9/9 suites,118 QTest; Qt6 10/10 incl theme,131 QTest; zero failures/skips. Final incremental compilation and complete suites after test-only review nits; initial fresh full builds also passed. Recipe4 real-container controls PASS,no skips.",
+    "replay": "Independent incremental and full pinned ordered0000-through0004 application match all370 final source hashes; accepted inputs/Sprint2 and210 indexed original E4/E5 artifacts unchanged",
+    "evidence_directory": ".work/evidence/sprint3-qt5/e5-diagnostic/",
+    "evidence_artifacts_indexed": 79,
+    "evidence_integrity_sha256": "250c22c3a6f76264886fe6491c8ca0ede9a30c04bc85a49e801f3889f441ffba",
+    "architect_model": "openai-codex/gpt-6.1-sol",
+    "architect_review": ".work/evidence/sprint3-qt5/e5-diagnostic/architect-final.txt",
+    "architect_review_sha256": "9105566759cbe95033096d222c3b93a2c26ebc28636263d61108a7c370c91941",
+    "diagnostic_only_source_commit": "59f7625bab2c33285c1d0b2bfbfaebdbcdf48a84",
+    "diagnostic_bundle": ".work/checkpoints/sddm-sprint3-e5-diagnostic-20261117.bundle",
+    "diagnostic_bundle_sha256": "1a17a2678e76f1fc7549d5beb58d5b26ae48dfe47b4e84752a465b63dcd021e0",
+    "not_run": "Corrected production makepkg/merge/canonical reference/archive inspection/installed rendering, new E5 fresh pair/full archive comparison, E6/E7/VM/reader. Historical E4/A archive is not current corrected candidate.",
+    "tooling_limits": "Host C++ LSP lacks Qt/generated headers; actual pinned-container compilation authoritative. Initial observer builder-identity precondition failures preserved before cases; initial build tool wait timed out but per-suite exits0 retained; final runner/container0. Helper-path reporting error preserved and corrected without product/test rerun."
+  },
   "remaining": [
-    "E5 failed-check investigation and reviewed correction/revalidation before two fresh successful builds and full package comparison",
+    "Revalidate corrected production package E2-E4, including new provenance-matched canonical reference/inspector and installed rendering; then new E5 fresh successful pair/full main+debug archive comparison",
     "E6 fresh VM authorization, real theme password login and broken-greeter rollback",
     "E7 final package/evidence review and explicit owner acceptance",
     "Separate physical packaged-stack gate not run"
