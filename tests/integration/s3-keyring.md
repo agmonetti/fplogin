@@ -1,4 +1,4 @@
-# Sprint 3 keyring evidence (guest only; live path not yet verified)
+# Sprint 3 keyring evidence (guest only; desktop observation pending)
 
 This collector traces only entry/return, guest monotonic time, PID/TID and numeric return codes for `pam_open_session` and both real `pam_sm_open_session` hooks. It does not read PAM arguments, conversations, memory, keyring contents or raw journal. Trace the actual authorized candidate, not an altered PAM stack or substitute modules.
 
@@ -20,4 +20,12 @@ This collector traces only entry/return, guest monotonic time, PID/TID and numer
    Wait for the next heartbeat after the snapshot, then send `kill -TERM TRACER_PID` to the verified guest tracer PID, not SDDM or the wrapper. Check successful wrapper exit. Preserve the allowlisted result files outside the guest before shutdown; inspect any unexpected stderr locally for secrets before exporting it. Record controlled guest shutdown and owner-only handback separately.
 4. Offline, run `python3 tests/integration/s3-keyring.py verify EVIDENCE_DIR fplab`. The verifier requires clean capture, a shared boot, both call/return pairs inside one successful libpam call on the same thread, and a later active Wayland `sddm-fingerprint` `seat0` logind snapshot with that helper as session leader. If there is ambiguity, incomplete coverage, a dropped-event warning, or missing invocation, report **BLOCKED**. Operator no-prompt/no-block is visual testimony, not inferred from this metadata. Review optional-module return codes as recorded; they do not by themselves prove keyring unlock, nor is unlock required by this check. This does not replace the fingerprint `VerifyStart`/result collector or full PAM and Sprint 3 review.
 
-Synthetic verifier checks only: `python3 tests/integration/s3-keyring-test.py`. They do not attach probes, validate the guest kernel/tool compatibility, or run PAM.
+For the prepared `fplab`/Hyprland guest, `s3-keyring-physical.sh` automates the capture. Stage it next to the current capture wrapper, probe and verifier. After a fresh authorized handoff, run from the guest's ttyS0 recovery shell:
+
+```sh
+bash ./s3-keyring-physical.sh EXPECTED_GUEST_MACHINE_ID EXPECTED_BOOT_ID
+```
+
+The runner leaves the confirmed session open even if trace verification reports **BLOCKED**. This preserves the desktop observation, not a passing trace verdict. Before manually logging out, note whether the desktop responds and whether a prompt appears on its own. Then request a disposable test credential from an application and record whether a prompt appears and allows later unlock. Do not capture or record passwords. Export evidence, stop the guest and complete owner handback explicitly.
+
+Offline checks: `python3 tests/integration/s3-keyring-test.py`. They do not attach probes, validate the guest kernel/tool compatibility, or run PAM.
