@@ -1,6 +1,6 @@
 # Maintainer: Agustin Monetti <agmonetti@github>
 pkgname=fplogin-git
-pkgver=0.2.0.r6.39dd7cf
+pkgver=0.2.0.r7.42422af
 pkgrel=1
 pkgdesc="Biometric Fingerprint Authentication Suite for Linux Display Managers"
 arch=('x86_64' 'aarch64')
@@ -14,10 +14,10 @@ optdepends=(
 )
 provides=('fplogin')
 conflicts=('fplogin')
-_commit=39dd7cf10a2d07c39c567aae9712555450cf591e
+_commit=42422af991c96a9de713315dcf7176a484941b3c
 # Stage with git archive --format=tar --prefix=fplogin/ at this exact revision.
 source=("fplogin-${_commit}.tar")
-sha256sums=('744021f764af299214245738ce7277826976a2fee98e19e93b39a8ab084be71a')
+sha256sums=('4c04d763f21b0b1ff989584b4c35affe0bbf50b3004f44c1952abf12af539031')
 
 build() {
     cd "${srcdir}/fplogin"
