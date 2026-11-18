@@ -243,7 +243,8 @@ func queryServices(ctx context.Context, packages []platformv1.PackageCandidate, 
 		}
 	}
 	if bootService != "" {
-		if !present["display-manager.service"] {
+		// The stock Wants may name the unresolved alias when no manager is enabled.
+		if bootService != "display-manager.service" && !present["display-manager.service"] {
 			return nil, fmt.Errorf("graphical.target display-manager dependency %q has no standard alias", bootService)
 		}
 		if err := checkGraphicalAlias(ctx, query, graphicalProps); err != nil {

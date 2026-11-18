@@ -27,7 +27,7 @@ func TestServiceInventory(t *testing.T) {
 		name, files, loaded, id, active, enabled, graphical, dropIn, want string
 		dependencyDir                                                     bool
 	}{
-		{name: "no display manager", files: "dbus.service static -\n", loaded: "dbus.service loaded active running D-Bus\n"},
+		{name: "no display manager", files: "dbus.service static -\n", loaded: "dbus.service loaded active running D-Bus\n", graphical: "Wants=display-manager.service\nRequires=multi-user.target\n"},
 		{name: "stock", files: "sddm.service enabled disabled\ndisplay-manager.service alias -\n", id: "sddm.service", active: "active", enabled: "enabled", want: "yes/yes"},
 		{name: "enabled inactive", files: "gdm.service enabled disabled\n", id: "gdm.service", active: "inactive", enabled: "enabled", want: "no/yes"},
 		{name: "active disabled", loaded: "lightdm.service loaded active running LightDM\n", id: "lightdm.service", active: "active", enabled: "disabled", want: "yes/no"},
