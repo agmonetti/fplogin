@@ -38,23 +38,31 @@ args=" $* "
 if [[ "$args" == *' list-unit-files '* ]]; then
     case "$case" in
         stock) printf 'sddm.service enabled disabled\ndisplay-manager.service alias -\n';;
-        alternate|active) printf 'gdm.service enabled disabled\ndisplay-manager.service alias -\n';;
+        alternate|active|graphical-wants-enabled) printf 'gdm.service enabled disabled\ndisplay-manager.service alias -\n';;
         graphical-wants-disabled) printf 'gdm.service disabled disabled\n';;
         unknown) printf 'display-manager.service alias -\n';;
     esac
 elif [[ "$args" == *' list-units '* ]]; then
     printf 'dbus.service loaded active running D-Bus\n'
+elif [[ "$args" == *' --property=UnitPath ' ]]; then
+    printf 'UnitPath=/etc/systemd/system\n'
 elif [[ "$args" == *' graphical.target ' ]]; then
+    printf 'LoadState=loaded\nNeedDaemonReload=no\nFragmentPath=/usr/lib/systemd/system/graphical.target\nBindsTo=\nUpholds=\n'
+    if [[ "$case" == graphical-wants-enabled ]]; then
+        printf 'DropInPaths=/etc/systemd/system/graphical.target.d/dm.conf\n'
+    else
+        printf 'DropInPaths=\n'
+    fi
     case "$case" in
         fresh) printf 'Requires=multi-user.target\nWants=\n';;
-        graphical-wants-disabled) printf 'Requires=multi-user.target\nWants=gdm.service\n';;
+        graphical-wants-disabled|graphical-wants-enabled) printf 'Requires=multi-user.target\nWants=gdm.service\n';;
         *) printf 'Requires=multi-user.target\nWants=display-manager.service\n';;
     esac
 elif [[ "$args" == *' show '* ]]; then
     enabled=enabled
     case "$case" in
         stock) unit=sddm; state=active;;
-        alternate) unit=gdm; state=inactive;;
+        alternate|graphical-wants-enabled) unit=gdm; state=inactive;;
         active) unit=gdm; state=active;;
         graphical-wants-disabled) unit=gdm; state=inactive; enabled=disabled;;
         unknown) unit=custom; state=inactive;;
@@ -80,7 +88,7 @@ package_fixture() {
     mkdir "/var/lib/pacman/local/$1-$2"
     printf '%%NAME%%\n%s\n\n%%VERSION%%\n%s\n\n%%PROVIDES%%\ndisplay-manager\n' "$1" "$2" >"/var/lib/pacman/local/$1-$2/desc"
 }
-for case in fresh stock alternate active graphical-wants-disabled unknown; do
+for case in fresh stock alternate active graphical-wants-disabled graphical-wants-enabled unknown; do
     echo "$case" >/run/preflight-case
     case "$case" in
         stock) package_fixture sddm 0.21.0-7;;
@@ -93,14 +101,16 @@ for case in fresh stock alternate active graphical-wants-disabled unknown; do
         out=$(user install --dry-run 2>&1) || rc=$?
         test "$rc" -eq 1
         grep -Fq 'unknown display-manager unit' <<< "$out"
-    elif [[ "$case" == graphical-wants-disabled ]]; then
+    elif [[ "$case" == graphical-wants-* ]]; then
+        reason='has no standard alias'
+        if [[ "$case" == graphical-wants-enabled ]]; then reason='nonstandard fragment or drop-ins'; fi
         for target in '' org.fplogin.adapter.sddm/sddm-local; do
             args=()
             if [[ -n "$target" ]]; then args=(--target "$target"); fi
             rc=0
             out=$(user install --dry-run "${args[@]}" 2>&1) || rc=$?
             test "$rc" -eq 1
-            grep -Fq "despite unit-file state" <<< "$out"
+            grep -Fq "$reason" <<< "$out"
             if grep -Fq "Preview SHA-256:" <<< "$out"; then exit 1; fi
         done
     else

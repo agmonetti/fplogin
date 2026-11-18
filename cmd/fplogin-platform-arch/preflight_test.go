@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -22,7 +24,8 @@ func TestParsePackages(t *testing.T) {
 
 func TestServiceInventory(t *testing.T) {
 	for _, tc := range []struct {
-		name, files, loaded, id, active, enabled, graphical, want string
+		name, files, loaded, id, active, enabled, graphical, dropIn, want string
+		dependencyDir                                                     bool
 	}{
 		{name: "no display manager", files: "dbus.service static -\n", loaded: "dbus.service loaded active running D-Bus\n"},
 		{name: "stock", files: "sddm.service enabled disabled\ndisplay-manager.service alias -\n", id: "sddm.service", active: "active", enabled: "enabled", want: "yes/yes"},
@@ -30,7 +33,11 @@ func TestServiceInventory(t *testing.T) {
 		{name: "active disabled", loaded: "lightdm.service loaded active running LightDM\n", id: "lightdm.service", active: "active", enabled: "disabled", want: "yes/no"},
 		{name: "unknown alias", files: "display-manager.service alias -\n", id: "custom.service", active: "active", enabled: "enabled", want: "error"},
 		{name: "runtime enabled", files: "gdm.service enabled-runtime -\n", id: "gdm.service", active: "active", enabled: "enabled-runtime", want: "error"},
-		{name: "canonical stock dependency", files: "sddm.service enabled disabled\n", id: "sddm.service", active: "inactive", enabled: "enabled", graphical: "Wants=sddm.service\nRequires=multi-user.target\n", want: "no/yes"},
+		{name: "canonical stock dependency", files: "sddm.service enabled disabled\ndisplay-manager.service alias -\n", id: "sddm.service", active: "inactive", enabled: "enabled", graphical: "Wants=sddm.service\nRequires=multi-user.target\n", want: "no/yes"},
+		{name: "duplicate explicit want of enabled alias target", files: "display-manager.service alias -\n", id: "greetd.service", active: "inactive", enabled: "enabled", graphical: "Wants=greetd.service\nRequires=multi-user.target\n", dropIn: "/etc/systemd/system/graphical.target.d/dm.conf", want: "error"},
+		{name: "dependency directory also pulls in enabled alias target", files: "display-manager.service alias -\n", id: "greetd.service", active: "inactive", enabled: "enabled", graphical: "Wants=greetd.service\nRequires=multi-user.target\n", dependencyDir: true, want: "error"},
+		{name: "graphical binds to DM", graphical: "Wants=\nRequires=multi-user.target\nBindsTo=greetd.service\nUpholds=\n", want: "error"},
+		{name: "graphical upholds DM", graphical: "Wants=\nRequires=multi-user.target\nBindsTo=\nUpholds=greetd.service\n", want: "error"},
 		{name: "graphical wants disabled DM", files: "greetd.service disabled disabled\n", id: "greetd.service", active: "inactive", enabled: "disabled", graphical: "Wants=greetd.service\nRequires=multi-user.target\n", want: "error"},
 		{name: "graphical requires static DM", files: "greetd.service static -\n", id: "greetd.service", active: "inactive", enabled: "static", graphical: "Wants=\nRequires=greetd.service multi-user.target\n", want: "error"},
 		{name: "graphical dependency not in inventory", graphical: "Wants=ly@tty2.service\nRequires=multi-user.target\n", want: "error"},
@@ -38,6 +45,16 @@ func TestServiceInventory(t *testing.T) {
 		{name: "bus failure", loaded: "error", want: "error"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			unitPath := t.TempDir()
+			if tc.dependencyDir {
+				dir := filepath.Join(unitPath, "graphical.target.wants")
+				if err := os.Mkdir(dir, 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink("../greetd.service", filepath.Join(dir, "greetd.service")); err != nil {
+					t.Fatal(err)
+				}
+			}
 			query := func(_ context.Context, path string, args ...string) (string, error) {
 				if path != "/usr/bin/systemctl" {
 					t.Fatalf("unexpected command: %s", path)
@@ -51,11 +68,17 @@ func TestServiceInventory(t *testing.T) {
 						return "", errors.New("system bus unavailable")
 					}
 					return tc.loaded, nil
+				case strings.HasSuffix(text, " --property=UnitPath"):
+					return "UnitPath=" + unitPath + "\n", nil
 				case strings.HasSuffix(text, " graphical.target"):
-					if tc.graphical != "" {
-						return tc.graphical, nil
+					deps := tc.graphical
+					if deps == "" {
+						deps = "Wants=\nRequires=multi-user.target\n"
 					}
-					return "Wants=\nRequires=multi-user.target\n", nil
+					if !strings.Contains(deps, "BindsTo=") {
+						deps += "BindsTo=\nUpholds=\n"
+					}
+					return deps + "LoadState=loaded\nNeedDaemonReload=no\nFragmentPath=/usr/lib/systemd/system/graphical.target\nDropInPaths=" + tc.dropIn + "\n", nil
 				case strings.Contains(text, " show "):
 					return "Id=" + tc.id + "\nLoadState=loaded\nActiveState=" + tc.active + "\nUnitFileState=" + tc.enabled + "\n", nil
 				default:

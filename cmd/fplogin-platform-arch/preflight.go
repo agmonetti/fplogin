@@ -132,7 +132,41 @@ func parsePackages(text string, hints []string) ([]platformv1.PackageCandidate, 
 
 var unitName = regexp.MustCompile(`^[a-zA-Z0-9_.@-]+\.service$`)
 
-func queryServices(ctx context.Context, packages []platformv1.PackageCandidate, query func(context.Context, string, ...string) (string, error)) ([]platformv1.ServiceCandidate, error) {
+type systemQuery func(context.Context, string, ...string) (string, error)
+
+func checkGraphicalAlias(ctx context.Context, query systemQuery, props map[string]string) error {
+	if props["FragmentPath"] != "/usr/lib/systemd/system/graphical.target" || props["DropInPaths"] != "" {
+		return fmt.Errorf("cannot verify graphical.target display-manager dependency: nonstandard fragment or drop-ins")
+	}
+	// systemd presents merged, canonicalized dependencies, not their source.
+	text, err := query(ctx, "/usr/bin/systemctl", "--system", "--no-pager", "show", "--all", "--property=UnitPath")
+	if err != nil {
+		return err
+	}
+	value, ok := strings.CutPrefix(strings.TrimSpace(text), "UnitPath=")
+	paths := strings.Fields(value)
+	if !ok || len(paths) == 0 || strings.ContainsAny(value, "\r\n") {
+		return fmt.Errorf("unknown systemd unit search path")
+	}
+	for _, path := range paths {
+		if !filepath.IsAbs(path) {
+			return fmt.Errorf("invalid systemd unit search path %q", path)
+		}
+		for _, suffix := range []string{".wants", ".requires", ".upholds"} {
+			dir := filepath.Join(path, "graphical.target"+suffix)
+			entries, err := os.ReadDir(dir)
+			if err != nil && !os.IsNotExist(err) {
+				return fmt.Errorf("cannot inspect graphical.target dependencies in %s: %w", dir, err)
+			}
+			if len(entries) != 0 {
+				return fmt.Errorf("cannot verify graphical.target display-manager dependency: additional dependencies in %s", dir)
+			}
+		}
+	}
+	return nil
+}
+
+func queryServices(ctx context.Context, packages []platformv1.PackageCandidate, query systemQuery) ([]platformv1.ServiceCandidate, error) {
 	refs := map[string][]string{}
 	for _, pkg := range packages {
 		if pkg.Installed != "yes" || len(pkg.ProvidedCapabilities) == 0 {
@@ -156,18 +190,30 @@ func queryServices(ctx context.Context, packages []platformv1.PackageCandidate, 
 	if err != nil {
 		return nil, err
 	}
-	graphical, err := query(ctx, "/usr/bin/systemctl", "--system", "--no-pager", "show", "--all", "--property=Wants,Requires", "--", "graphical.target")
+	graphical, err := query(ctx, "/usr/bin/systemctl", "--system", "--no-pager", "show", "--all", "--property=Wants,Requires,BindsTo,Upholds,LoadState,FragmentPath,DropInPaths,NeedDaemonReload", "--", "graphical.target")
 	if err != nil {
 		return nil, err
 	}
-	bootServices := map[string]bool{}
-	dependencies := map[string]bool{}
+	graphicalProps := map[string]string{}
 	for _, line := range strings.Split(strings.TrimSpace(graphical), "\n") {
 		key, value, ok := strings.Cut(line, "=")
-		if !ok || !protocol.OneOf(key, "Wants", "Requires") || dependencies[key] {
+		if _, duplicate := graphicalProps[key]; !ok || duplicate {
 			return nil, fmt.Errorf("unknown graphical.target dependencies")
 		}
-		dependencies[key] = true
+		graphicalProps[key] = value
+	}
+	if graphicalProps["LoadState"] != "loaded" || graphicalProps["NeedDaemonReload"] != "no" || graphicalProps["FragmentPath"] == "" {
+		return nil, fmt.Errorf("unknown or stale graphical.target configuration")
+	}
+	if _, ok := graphicalProps["DropInPaths"]; !ok {
+		return nil, fmt.Errorf("incomplete graphical.target dependencies")
+	}
+	bootService := ""
+	for _, property := range []string{"Wants", "Requires", "BindsTo", "Upholds"} {
+		value, ok := graphicalProps[property]
+		if !ok {
+			return nil, fmt.Errorf("incomplete graphical.target dependencies: missing %s", property)
+		}
 		for _, unit := range strings.Fields(value) {
 			if !strings.HasSuffix(unit, ".service") {
 				continue
@@ -175,13 +221,11 @@ func queryServices(ctx context.Context, packages []platformv1.PackageCandidate, 
 			if !known[unit] && !strings.HasPrefix(unit, "ly@") {
 				return nil, fmt.Errorf("unclassified graphical.target service %q", unit)
 			}
-			if unit != "display-manager.service" {
-				bootServices[unit] = true
+			if property != "Wants" || bootService != "" {
+				return nil, fmt.Errorf("unexpected graphical.target display-manager dependency: %s=%s", property, unit)
 			}
+			bootService = unit
 		}
-	}
-	if len(dependencies) != 2 {
-		return nil, fmt.Errorf("incomplete graphical.target dependencies")
 	}
 	present := map[string]bool{}
 	for _, list := range []string{files, loaded} {
@@ -196,6 +240,14 @@ func queryServices(ctx context.Context, packages []platformv1.PackageCandidate, 
 			if known[fields[0]] || strings.HasPrefix(fields[0], "ly@") && fields[0] != "ly@.service" {
 				present[fields[0]] = true
 			}
+		}
+	}
+	if bootService != "" {
+		if !present["display-manager.service"] {
+			return nil, fmt.Errorf("graphical.target display-manager dependency %q has no standard alias", bootService)
+		}
+		if err := checkGraphicalAlias(ctx, query, graphicalProps); err != nil {
+			return nil, err
 		}
 	}
 	for unit := range refs {
@@ -256,12 +308,9 @@ func queryServices(ctx context.Context, packages []platformv1.PackageCandidate, 
 		case "static":
 			s.Enabled, s.Configurable = "no", "no"
 		}
-		// shortcut: systemd can canonicalize the alias to an enabled unit; verify dependency provenance before supporting mutation.
-		if (bootServices[unit] || bootServices[id]) && s.Enabled != "yes" {
-			return nil, fmt.Errorf("graphical.target starts %q despite unit-file state %q", id, enabled)
+		if unit == "display-manager.service" && bootService != "" && bootService != unit && bootService != id {
+			return nil, fmt.Errorf("graphical.target dependency %q differs from display-manager.service (%q)", bootService, id)
 		}
-		delete(bootServices, unit)
-		delete(bootServices, id)
 		if unit == "display-manager.service" && s.Enabled != "yes" || s.Active == "unknown" || s.Enabled == "unknown" {
 			return nil, fmt.Errorf("unknown or contradictory service state: %s -> %s (%s/%s)", unit, id, active, enabled)
 		}
@@ -272,9 +321,6 @@ func queryServices(ctx context.Context, packages []platformv1.PackageCandidate, 
 			s.Evidence = append(prior.Evidence, s.Evidence...)
 		}
 		found[id] = s
-	}
-	if len(bootServices) != 0 {
-		return nil, fmt.Errorf("graphical.target display-manager dependency missing from service inventory")
 	}
 	result := make([]platformv1.ServiceCandidate, 0, len(found))
 	for _, s := range found {

@@ -33,11 +33,15 @@ preview() {
     local target=org.fplogin.adapter.sddm/sddm-local
     inventory=$(user fplogin install --dry-run 2>&1) || rc=$?
     printf '%s\n' "$inventory"
-    if [[ $case == unknown || $case == graphical-wants-disabled ]]; then
-        local reason='unclassified graphical.target service "custom-dm.service"'
-        if [[ $case == graphical-wants-disabled ]]; then
-            reason='graphical.target starts "greetd.service" despite unit-file state "disabled"'
-        fi
+    if [[ $case == unknown || $case == graphical-* ]]; then
+        local reason
+        case $case in
+            unknown) reason='unclassified graphical.target service "custom-dm.service"';;
+            graphical-wants-disabled) reason='has no standard alias';;
+            graphical-wants-enabled) reason='nonstandard fragment or drop-ins';;
+            graphical-wants-link) reason='additional dependencies in';;
+            graphical-binds|graphical-upholds) reason='unexpected graphical.target display-manager dependency';;
+        esac
         [[ $rc == 1 ]]
         out=$inventory
         match "$reason"
@@ -121,6 +125,23 @@ mkdir -p /etc/systemd/system/graphical.target.d
 printf '[Unit]\nWants=greetd.service\n' >/etc/systemd/system/graphical.target.d/95-f03.conf
 systemctl daemon-reload
 preview graphical-wants-disabled
+systemctl enable greetd.service
+preview graphical-wants-enabled
+rm /etc/systemd/system/graphical.target.d/95-f03.conf
+mkdir -p /etc/systemd/system/graphical.target.wants
+ln -s /usr/lib/systemd/system/greetd.service /etc/systemd/system/graphical.target.wants/greetd.service
+systemctl daemon-reload
+preview graphical-wants-link
+rm /etc/systemd/system/graphical.target.wants/greetd.service
+systemctl disable greetd.service
+for dependency in BindsTo Upholds; do
+    printf '[Unit]\n%s=greetd.service\n' "$dependency" >/etc/systemd/system/graphical.target.d/95-f03.conf
+    systemctl daemon-reload
+    case $dependency in
+        BindsTo) preview graphical-binds;;
+        Upholds) preview graphical-upholds;;
+    esac
+done
 rm /etc/systemd/system/graphical.target.d/95-f03.conf
 systemctl daemon-reload
 printf '[Service]\nExecStart=/usr/bin/true\n' >/etc/systemd/system/custom-dm.service
