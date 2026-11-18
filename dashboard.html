@@ -1784,28 +1784,28 @@
           "id": "S4-01",
           "title": "Preflight de Solo Lectura y Generador de Planes",
           "status": "partial",
-          "description": "Hay l\u00f3gica de planificaci\u00f3n en core, pero el preflight de solo lectura no est\u00e1 conectado a la CLI (S4-F03).",
-          "evidence": "internal/core/install/installer.go"
+          "description": "El paquete Arch incluye install --dry-run. La matriz con systemd real pas\u00f3 en x86_64; no acepta aprobaciones ni ejecuta cambios (S4-F03).",
+          "evidence": "docs/SPRINT_4_EXECUTION_PLAN.md"
         },
         {
           "id": "S4-02",
           "title": "Detecci\u00f3n Din\u00e1mica de Display Managers",
           "status": "partial",
-          "description": "Existe descubrimiento de descriptores; falta detectar por separado los gestores instalados, habilitados y activos (S4-F02/F03).",
-          "evidence": "internal/core/discovery/discovery.go"
+          "description": "El proveedor distingue paquete instalado, unidad habilitada y servicio activo. Verificado con SDDM y greetd en una VM Arch x86_64 (S4-F03).",
+          "evidence": "docs/SPRINT_4_EXECUTION_PLAN.md"
         },
         {
           "id": "S4-03",
           "title": "Negociaci\u00f3n de Compatibilidad de Adaptadores",
           "status": "partial",
-          "description": "Hay pruebas del componente, pero faltan conectar el contexto del host, el handshake y la selecci\u00f3n en la CLI (S4-F03).",
-          "evidence": "docs/reviews/cli-provider-audit-2026-11-12.md"
+          "description": "La CLI usa el contexto del host y el handshake de componentes. Con dos opciones compatibles no elige por el usuario (S4-F03).",
+          "evidence": "docs/SPRINT_4_EXECUTION_PLAN.md"
         },
         {
           "id": "S4-04",
           "title": "Descubrimiento y Ejecuci\u00f3n de Plataforma",
           "status": "partial",
-          "description": "El proveedor Arch era un stub (candidatos fijos, ApplyOperation siempre exitoso). Desde 76648e5 rechaza esas operaciones con unsupported_operation; falta la implementaci\u00f3n real (auditor\u00eda A2).",
+          "description": "El proveedor Arch ejecuta consultas de solo lectura a pacman y systemd. Las operaciones de mutaci\u00f3n siguen sin implementar (S4-F05).",
           "evidence": "docs/reviews/cli-provider-audit-2026-11-12.md"
         },
         {
@@ -1819,7 +1819,7 @@
           "id": "S4-06",
           "title": "Confirmaci\u00f3n Expl\u00edcita ante Migraci\u00f3n de DM",
           "status": "pending",
-          "description": "Falta ligar la aprobaci\u00f3n al plan y pedir una confirmaci\u00f3n separada para reemplazar otro gestor habilitado (S4-F03).",
+          "description": "El dry-run identifica el plan por SHA-256 e indica si reemplazar otro gestor habilitado requerir\u00eda una aprobaci\u00f3n separada. No recibe ni persiste aprobaciones.",
           "evidence": "docs/SPRINT_4_EXECUTION_PLAN.md"
         },
         {
