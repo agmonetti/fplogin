@@ -26,7 +26,8 @@ class DeadlineTest(unittest.TestCase):
         for bad in (DAEMON.replace('fire 4 101\n',''), DAEMON.replace('101 30000','101 1000'),
                     DAEMON.replace('enter 3','enter 6'), DAEMON.replace('stop 6','stop 8'), DAEMON.replace('enter 3 102','enter 3 103'),
                     DAEMON.replace('fire 4', 'pam_timeout 3 102\nfire 4'), DAEMON + 'arm 10 101 30000\n',
-                    DAEMON.replace('end 9',''), PAM.replace('pam_timeout 4 102\n',''), DAEMON + 'lost events'):
+                    DAEMON.replace('end 9',''), PAM.replace('pam_timeout 4 102\n',''), DAEMON + 'lost events',
+                    DAEMON.replace('tick 8', 'finger map cleanup failed\ntick 8')):
             with self.subTest(bad=bad), self.assertRaises(ValueError):
                 judge(bad, 101, 102)
 

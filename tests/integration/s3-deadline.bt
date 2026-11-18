@@ -12,5 +12,6 @@ uprobe:/usr/lib/security/pam_fprintd.so:pam_sm_authenticate /comm == "sddm-helpe
 uprobe:/usr/lib/security/pam_fprintd.so:0x31cd /@finger[pid]/ { printf("pam_timeout %llu %u\n", nsecs(monotonic), pid); }
 uretprobe:/usr/lib/libpam.so.0:pam_authenticate /@finger[pid]/ { printf("pam_return %llu %u %d\n", nsecs(monotonic), pid, (int32)retval); }
 tracepoint:sched:sched_process_exit /pid == tid && @finger[pid]/ {
-  printf("exit %llu %u\n", nsecs(monotonic), pid); delete(@finger[pid]);
+  printf("exit %llu %u\n", nsecs(monotonic), pid);
+  if (!delete(@finger[pid])) { printf("finger map cleanup failed\n"); }
 }
