@@ -50,11 +50,7 @@ func listComponents() error {
 		return fmt.Errorf("no packaged components found")
 	}
 	ctx := context.Background()
-	host := protocol.HostContext{
-		Root: "/", Platform: protocol.Object{}, Architecture: runtime.GOARCH,
-		InvokingUID: uint32(os.Getuid()), InvokingGID: uint32(os.Getgid()), Locale: "C", DryRun: true,
-		Deadline: time.Now().Add(10 * time.Second).UTC().Format(time.RFC3339),
-	}
+	host := componentHost()
 	packageProviders, err := providers.Discover(ctx, providerPaths, host)
 	if err != nil {
 		return err
@@ -70,6 +66,21 @@ func listComponents() error {
 		fmt.Printf("adapter %s: %s (assets: %s)\n", a.Descriptor.AdapterID, a.ExecutablePath, a.AssetRootPath)
 	}
 	return nil
+}
+
+func componentHost() protocol.HostContext {
+	arch := runtime.GOARCH
+	switch arch {
+	case "amd64":
+		arch = "x86_64"
+	case "arm64":
+		arch = "aarch64"
+	}
+	return protocol.HostContext{
+		Root: "/", Platform: protocol.Object{}, Architecture: arch,
+		InvokingUID: uint32(os.Getuid()), InvokingGID: uint32(os.Getgid()), Locale: "C", DryRun: true,
+		Deadline: time.Now().Add(10 * time.Second).UTC().Format(time.RFC3339),
+	}
 }
 
 func packagedDescriptors(dir string) ([]string, error) {

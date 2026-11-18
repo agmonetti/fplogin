@@ -69,7 +69,7 @@ func (d Descriptor) Validate() error {
 	if err := protocol.ValidRelativePath(d.AssetRoot); err != nil {
 		return fmt.Errorf("asset_root: %w", err)
 	}
-	if len(d.ProtocolVersions) == 0 || len(d.SupportedPlatforms) == 0 || len(d.Capabilities) == 0 || len(d.OperationKinds) == 0 {
+	if len(d.ProtocolVersions) == 0 || len(d.SupportedPlatforms) == 0 || len(d.Capabilities) == 0 || d.OperationKinds == nil {
 		return errors.New("platform descriptor lists must not be empty")
 	}
 	for _, version := range d.ProtocolVersions {
@@ -375,6 +375,14 @@ type PlatformHostReport struct {
 	Services         []ServiceCandidate  `json:"services"`
 	Evidence         []protocol.Evidence `json:"evidence"`
 }
+type PackageCandidateReport struct {
+	Packages []PackageCandidate `json:"packages"`
+}
+
+type ServiceCandidateReport struct {
+	Services []ServiceCandidate `json:"services"`
+}
+
 type PackageCandidate struct {
 	PackageReference     string              `json:"package_reference"`
 	DisplayName          string              `json:"display_name"`

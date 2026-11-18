@@ -43,7 +43,7 @@ func main() {
 			os.Exit(1)
 		}
 	case "install":
-		disabledCommand(subcommand, args, "host installation is disabled and --dry-run is not available yet")
+		runInstall(args)
 	case "uninstall":
 		disabledCommand(subcommand, args, "host uninstallation is disabled")
 	case "help", "--help", "-h":
@@ -71,7 +71,7 @@ Usage:
   fplogin <subcommand> [flags]
 
 Subcommands:
-  install     Disabled (--dry-run also unavailable)
+  install     Disabled except for unprivileged --dry-run (read-only)
   uninstall   Disabled
   status      Display current installation state from manifest (read-only)
   analyze     Inspect password-derived facilities impacted by biometric login (read-only, experimental)

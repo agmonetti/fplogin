@@ -107,7 +107,6 @@
     },
     "operation_kinds": {
       "type": "array",
-      "minItems": 1,
       "items": {
         "type": "string",
         "enum": [

@@ -40,7 +40,12 @@ const staticAdapterDescriptor = `{
   "descriptor_schema_version": "1.0",
   "adapter_id": "org.fplogin.adapter.sddm",
   "adapter_version": "0.1.0",
-  "protocol_versions": [{"major": 1, "minor": 0}],
+  "protocol_versions": [
+    {
+      "major": 1,
+      "minor": 0
+    }
+  ],
   "minimum_core_version": "0.1.0",
   "name": "SDDM Biometric Login Adapter",
   "vendor": "fplogin",
@@ -49,32 +54,54 @@ const staticAdapterDescriptor = `{
     {
       "dm_id": "sddm",
       "name": "Simple Desktop Display Manager",
-      "version_policy": ">= 0.20, <= 0.21",
-      "target_aliases": ["sddm.service", "display-manager.service"]
+      "version_policy": "0.21.0",
+      "target_aliases": [
+        "sddm.service",
+        "display-manager.service"
+      ]
     }
   ],
-  "integration_strategies": ["source_patch", "configuration"],
+  "integration_strategies": [
+    "source_patch",
+    "configuration"
+  ],
   "capabilities": [
     {
-      "id": "auth.concurrent_methods",
+      "id": "install.preview",
       "status": "provided",
       "level": 1,
       "constraints": {},
-      "evidence_requirements": ["pam_service_sddm_fingerprint"]
+      "evidence_requirements": [
+        "package_inventory",
+        "service_inventory"
+      ]
     }
   ],
   "prerequisites": [
     {
-      "id": "service.fprintd",
-      "kind": "service",
+      "id": "package.fprintd",
+      "kind": "package",
       "required": true,
-      "reason": "Biometric authentication requires fprintd daemon",
-      "remediation_policy": "Install and start fprintd"
+      "reason": "Biometric authentication requires fprintd",
+      "remediation_policy": "Install fprintd if missing"
+    },
+    {
+      "id": "hardware.fingerprint_reader",
+      "kind": "hardware",
+      "required": true,
+      "reason": "Supported fingerprint sensor must be present",
+      "remediation_policy": "Connect compatible fingerprint sensor"
     }
   ],
-  "supported_platforms": ["any"],
-  "packaging_backends": ["arch"],
-  "operation_modes": ["fresh_install", "upgrade", "repair", "reinstall", "uninstall"],
+  "supported_platforms": [
+    "arch"
+  ],
+  "packaging_backends": [
+    "arch"
+  ],
+  "operation_modes": [
+    "fresh_install"
+  ],
   "asset_root": "assets"
 }`
 
@@ -82,8 +109,9 @@ func handleRequest(req adapterv1.Request) (json.RawMessage, error) {
 	switch req.Operation {
 	case "Describe":
 		return json.RawMessage(staticAdapterDescriptor), nil
-	case "Detect", "CheckPrerequisites", "InspectState", "PlanInstall",
-		"PrepareArtifacts", "PlanUninstall", "Verify":
+	case "Detect", "CheckPrerequisites", "InspectState", "PlanInstall":
+		return preflight(req)
+	case "PrepareArtifacts", "PlanUninstall", "Verify":
 		// Fail closed: no fabricated detection, prerequisite, plan or
 		// verification result may be reported before a verified implementation.
 		return nil, fmt.Errorf("adapter operation %q is not implemented (fail-closed; no display-manager state was read or changed)", req.Operation)

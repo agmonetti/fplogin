@@ -10,6 +10,22 @@ import (
 	adapterv1 "fplogin/internal/protocol/adapter/v1"
 )
 
+func TestPreviewChoicesDoesNotTreatUnmetPrerequisitesAsInstallable(t *testing.T) {
+	capabilities := []protocol.Capability{{ID: "install.preview", Status: "provided"}}
+	targets := []adapterv1.DetectedTarget{{InstanceID: "same-target", Compatibility: "compatible"}}
+	detections := []selection.AdapterDetection{
+		{AdapterID: "adapter.b", Capabilities: capabilities, Targets: targets},
+		{AdapterID: "adapter.a", Capabilities: capabilities, Targets: targets},
+	}
+	preview, err := selection.PreviewChoices(detections, []string{"install.preview"})
+	if err != nil || !preview.RequiresUserChoice || len(preview.Targets) != 2 || preview.Targets[0].AdapterID != "adapter.a" {
+		t.Fatalf("expected both previews in deterministic order: %+v, %v", preview, err)
+	}
+	if _, err = selection.Build(detections, []string{"install.preview"}); !errors.Is(err, selection.ErrNoCompatibleTarget) {
+		t.Fatalf("unmet prerequisites must still block regular selection: %v", err)
+	}
+}
+
 func TestBuild_EmptyDetections(t *testing.T) {
 	_, err := selection.Build(nil, []string{"auth.concurrent_methods"})
 	if !errors.Is(err, selection.ErrNoCompatibleTarget) {

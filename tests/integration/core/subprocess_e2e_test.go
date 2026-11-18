@@ -165,13 +165,12 @@ func TestE2E_Subprocess_PlatformAndAdapter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("adapterclient Invoke Detect failed: %v", err)
 	}
-	// Fail-closed contract: without a verified implementation, Detect must not
-	// fabricate a "confirmed active SDDM" target.
+	// Without a supported host and inventory, Detect cannot propose a target.
 	if adapResp.OK {
-		t.Fatalf("Detect must fail closed until implemented, got OK result %s", string(adapResp.Result))
+		t.Fatalf("Detect must fail closed without preflight facts, got OK result %s", string(adapResp.Result))
 	}
-	if adapResp.Error == nil || !strings.Contains(adapResp.Error.Message, "not implemented") {
-		t.Fatalf("expected explicit not-implemented adapter error, got %+v", adapResp.Error)
+	if adapResp.Error == nil || !strings.Contains(adapResp.Error.Message, "requires read-only Arch") {
+		t.Fatalf("expected explicit host-context error, got %+v", adapResp.Error)
 	}
 
 	// No mutation may report success: ApplyOperation must refuse with a contract code.

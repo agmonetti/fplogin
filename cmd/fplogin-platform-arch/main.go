@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"runtime"
 	"strings"
 
 	"fplogin/internal/protocol"
@@ -46,14 +45,25 @@ const staticPlatformDescriptor = `{
   "descriptor_schema_version": "1.0",
   "platform_id": "org.fplogin.platform.arch",
   "platform_version": "0.1.0",
-  "protocol_versions": [{"major": 1, "minor": 0}],
+  "protocol_versions": [
+    {
+      "major": 1,
+      "minor": 0
+    }
+  ],
   "minimum_core_version": "0.1.0",
   "name": "Arch Linux Platform Provider",
   "vendor": "fplogin",
   "executable": "bin/fplogin-platform-arch",
   "supported_platforms": [
-    {"distribution": "arch", "architecture": "x86_64"},
-    {"distribution": "arch", "architecture": "aarch64"}
+    {
+      "distribution": "arch",
+      "architecture": "x86_64"
+    },
+    {
+      "distribution": "arch",
+      "architecture": "aarch64"
+    }
   ],
   "capabilities": [
     {
@@ -61,58 +71,40 @@ const staticPlatformDescriptor = `{
       "status": "provided",
       "level": 1,
       "constraints": {},
-      "evidence_requirements": ["os_release"]
+      "evidence_requirements": [
+        "os_release"
+      ]
     },
     {
       "id": "package.query",
       "status": "provided",
       "level": 1,
       "constraints": {},
-      "evidence_requirements": ["pacman_db"]
+      "evidence_requirements": [
+        "pacman_db"
+      ]
     },
     {
       "id": "service.query",
       "status": "provided",
       "level": 1,
       "constraints": {},
-      "evidence_requirements": ["systemd_dbus"]
-    },
-    {
-      "id": "analyzer.collect_facts",
-      "status": "provided",
-      "level": 1,
-      "constraints": {},
-      "evidence_requirements": ["pam_config", "systemd_units"]
-    },
-    {
-      "id": "artifact.stage",
-      "status": "provided",
-      "level": 1,
-      "constraints": {},
-      "evidence_requirements": ["staging_directory"]
-    },
-    {
-      "id": "op.apply",
-      "status": "provided",
-      "level": 1,
-      "constraints": {},
-      "evidence_requirements": ["pacman_transaction"]
+      "evidence_requirements": [
+        "systemd_dbus"
+      ]
     }
   ],
-  "operation_kinds": [
-    "create_directory",
-    "write_file_atomic",
-    "remove_owned_file",
-    "install_package_artifact",
-    "remove_owned_package",
-    "set_service_enabled",
-    "set_service_active",
-    "restore_service_state"
+  "operation_kinds": [],
+  "package_formats": [
+    "pkg.tar.zst",
+    "pkg.tar.xz"
   ],
-  "package_formats": ["pkg.tar.zst", "pkg.tar.xz"],
   "service_manager": {
     "kind": "systemd",
-    "capabilities": ["enable", "disable", "start", "stop", "status", "alias"]
+    "capabilities": [
+      "status",
+      "alias"
+    ]
   },
   "asset_root": "assets"
 }`
@@ -136,8 +128,11 @@ func notImplemented(operation string) error {
 func osReleaseID(paths ...string) (string, error) {
 	for _, path := range paths {
 		data, err := os.ReadFile(path)
-		if err != nil {
+		if os.IsNotExist(err) {
 			continue
+		}
+		if err != nil {
+			return "", err
 		}
 		for _, line := range strings.Split(string(data), "\n") {
 			if value, ok := strings.CutPrefix(strings.TrimSpace(line), "ID="); ok {
@@ -155,23 +150,20 @@ func handleRequest(req platformv1.Request) (json.RawMessage, error) {
 		return json.RawMessage(staticPlatformDescriptor), nil
 
 	case "InspectHost":
-		arch := runtime.GOARCH
-		if arch == "amd64" {
-			arch = "x86_64"
-		}
-		id, err := osReleaseID("/etc/os-release", "/usr/lib/os-release")
+		report, err := inspectHost()
 		if err != nil {
 			return nil, &opError{code: "host_read_failed", message: err.Error()}
 		}
-		result := map[string]any{
-			"host_facts": map[string]any{
-				"distribution": id,
-				"architecture": arch,
-			},
-		}
-		return json.Marshal(result)
+		return json.Marshal(report)
 
-	case "ListPackageCandidates", "ListServiceCandidates", "CollectAnalyzerFacts",
+	case "ListPackageCandidates", "ListServiceCandidates":
+		result, err := preflightQuery(req)
+		if err != nil {
+			return nil, &opError{code: "host_read_failed", message: err.Error()}
+		}
+		return result, nil
+
+	case "CollectAnalyzerFacts",
 		"PrepareArtifactInstall", "ApplyOperation", "VerifyOperation":
 		return nil, notImplemented(req.Operation)
 

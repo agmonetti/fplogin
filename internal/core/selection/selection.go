@@ -47,9 +47,18 @@ type Result struct {
 }
 
 func Build(detections []AdapterDetection, requiredCapabilities []string) (Result, error) {
+	return build(detections, requiredCapabilities, false)
+}
+
+// PreviewChoices lists targets to inspect, not targets eligible for installation.
+func PreviewChoices(detections []AdapterDetection, requiredCapabilities []string) (Result, error) {
+	return build(detections, requiredCapabilities, true)
+}
+
+func build(detections []AdapterDetection, requiredCapabilities []string, previewOnly bool) (Result, error) {
 	selectable := make([]SelectableTarget, 0)
 	for _, detection := range detections {
-		if detection.AdapterID == "" || !detection.HardPrerequisitesSatisfied {
+		if detection.AdapterID == "" || (!previewOnly && !detection.HardPrerequisitesSatisfied) {
 			continue
 		}
 		offered := make(map[string]struct{}, len(detection.Capabilities))

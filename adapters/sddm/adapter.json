@@ -16,7 +16,7 @@
     {
       "dm_id": "sddm",
       "name": "Simple Desktop Display Manager",
-      "version_policy": ">= 0.20, <= 0.21",
+      "version_policy": "0.21.0",
       "target_aliases": [
         "sddm.service",
         "display-manager.service"
@@ -29,69 +29,23 @@
   ],
   "capabilities": [
     {
-      "id": "auth.concurrent_methods",
+      "id": "install.preview",
       "status": "provided",
       "level": 1,
       "constraints": {},
-      "evidence_requirements": ["pam_service_sddm_fingerprint"]
-    },
-    {
-      "id": "auth.password_fallback",
-      "status": "provided",
-      "level": 1,
-      "constraints": {},
-      "evidence_requirements": ["pam_service_sddm"]
-    },
-    {
-      "id": "auth.biometric_auto_start",
-      "status": "provided",
-      "level": 1,
-      "constraints": {},
-      "evidence_requirements": ["theme_greeter_proxy"]
-    },
-    {
-      "id": "auth.request_identity_binding",
-      "status": "provided",
-      "level": 1,
-      "constraints": {},
-      "evidence_requirements": ["helper_request_id"]
-    },
-    {
-      "id": "auth.cancellable_attempts",
-      "status": "provided",
-      "level": 1,
-      "constraints": {},
-      "evidence_requirements": ["helper_cancel_signal"]
-    },
-    {
-      "id": "auth.password_only_degradation",
-      "status": "provided",
-      "level": 1,
-      "constraints": {},
-      "evidence_requirements": ["fallback_to_password"]
-    },
-    {
-      "id": "auth.observable_method_state",
-      "status": "provided",
-      "level": 1,
-      "constraints": {},
-      "evidence_requirements": ["greeter_auth_state_events"]
+      "evidence_requirements": [
+        "package_inventory",
+        "service_inventory"
+      ]
     }
   ],
   "prerequisites": [
     {
-      "id": "service.fprintd",
-      "kind": "service",
-      "required": true,
-      "reason": "Biometric authentication requires fprintd daemon",
-      "remediation_policy": "Install and start fprintd"
-    },
-    {
-      "id": "package.sddm",
+      "id": "package.fprintd",
       "kind": "package",
       "required": true,
-      "reason": "SDDM must be present or candidate for installation",
-      "remediation_policy": "Install SDDM package"
+      "reason": "Biometric authentication requires fprintd",
+      "remediation_policy": "Install fprintd if missing"
     },
     {
       "id": "hardware.fingerprint_reader",
@@ -102,17 +56,13 @@
     }
   ],
   "supported_platforms": [
-    "any"
+    "arch"
   ],
   "packaging_backends": [
     "arch"
   ],
   "operation_modes": [
-    "fresh_install",
-    "upgrade",
-    "repair",
-    "reinstall",
-    "uninstall"
+    "fresh_install"
   ],
   "asset_root": "assets"
 }
