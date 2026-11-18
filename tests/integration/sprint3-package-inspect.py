@@ -79,7 +79,7 @@ def needed(content):
     return re.findall(r'\(NEEDED\).*?\[(.*?)\]', text)
 
 
-def inspect(candidate, reference, report, repo):
+def inspect(candidate, reference, report, repo, pkgver='0.21.0-3'):
     entries, canonical = archive(candidate), payload(archive(reference))
     files = payload(entries)
     additions = report['additions']
@@ -118,7 +118,7 @@ def inspect(candidate, reference, report, repo):
         if ' = ' in line:
             key, value = line.split(' = ', 1)
             meta.setdefault(key, set()).add(value)
-    for key, values in {'pkgname': {'sddm-fplogin'}, 'pkgver': {'0.21.0-3'}, 'arch': {'x86_64'},
+    for key, values in {'pkgname': {'sddm-fplogin'}, 'pkgver': {pkgver}, 'arch': {'x86_64'},
                         'provides': {'sddm=0.21.0', 'display-manager'}, 'conflict': {'sddm'},
                         'backup': {f'etc/pam.d/{n}' for n in ('sddm', 'sddm-autologin', 'sddm-greeter', 'sddm-fingerprint')}}.items():
         require(meta.get(key) == values, f'wrong metadata: {key}')
@@ -140,9 +140,10 @@ def main():
     parser.add_argument('--merge-sha256', required=True)
     parser.add_argument('--repo-root', type=Path, default=Path(__file__).resolve().parents[2])
     parser.add_argument('--output', type=Path)
+    parser.add_argument('--pkgver', default='0.21.0-3', help='expected full package version (including pkgrel)')
     args = parser.parse_args()
     result = inspect(pinned(args.package, args.sha256), pinned(args.reference, args.reference_sha256),
-                     json.loads(pinned(args.merge_report, args.merge_sha256)), args.repo_root)
+                     json.loads(pinned(args.merge_report, args.merge_sha256)), args.repo_root, args.pkgver)
     text = json.dumps(result, indent=2) + '\n'
     if args.output:
         args.output.write_text(text)
