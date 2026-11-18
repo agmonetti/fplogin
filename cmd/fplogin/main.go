@@ -31,6 +31,17 @@ func main() {
 		runStatus(args)
 	case "analyze":
 		runAnalyze(args)
+	case "components":
+		fs := flag.NewFlagSet("components", flag.ExitOnError)
+		_ = fs.Parse(args)
+		if fs.NArg() != 0 {
+			fs.Usage()
+			os.Exit(2)
+		}
+		if err := listComponents(); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: components: %v\n", err)
+			os.Exit(1)
+		}
 	case "install":
 		disabledCommand(subcommand, args, "host installation is disabled and --dry-run is not available yet")
 	case "uninstall":
@@ -64,6 +75,7 @@ Subcommands:
   uninstall   Disabled
   status      Display current installation state from manifest (read-only)
   analyze     Inspect password-derived facilities impacted by biometric login (read-only, experimental)
+  components  List packaged providers and adapters (read-only, unprivileged)
   version     Show version information
   help        Show this help message
 
