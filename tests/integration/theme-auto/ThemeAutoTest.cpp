@@ -668,7 +668,9 @@ private slots:
         auto *root = view->rootObject();
         auto *originalParent = root->parentItem();
         root->setParentItem(detached ? nullptr : destination.contentItem());
-        const bool moved = root->window() == (detached ? nullptr : &destination) && root->isVisible();
+        // A detached item has no surface; Qt versions differ in its effective visibility.
+        const bool moved = detached ? root->window() == nullptr
+                                    : root->window() == &destination && root->isVisible();
         QTest::qWait(100);
         const auto afterMove = context();
         const int afterPublications = count(GreeterMessages::SetAuthenticationContext);
@@ -755,11 +757,11 @@ private slots:
         password(baseline)->setProperty("text", input); password(baseline)->setProperty("cursorVisible", false);
         QTest::qWait(100); const QImage before = baseline.grabWindow();
         QCOMPARE(QRectF(password(baseline)->position(), password(baseline)->size()), bounds);
-        QCOMPARE(before, after);
         const auto evidence = qEnvironmentVariable("THEME_CONTEXT_EVIDENCE"); QVERIFY(!evidence.isEmpty());
         const QString suffix = QString::fromLatin1(QTest::currentDataTag()) + ".png";
         QVERIFY(before.save(evidence + "/original-" + suffix));
         QVERIFY(after.save(evidence + "/adapted-" + suffix));
+        QCOMPARE(before, after);
     }
 };
 QTEST_MAIN(ThemeAutoTest)

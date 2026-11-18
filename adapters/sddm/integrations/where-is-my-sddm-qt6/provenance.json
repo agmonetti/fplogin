@@ -1,0 +1,15 @@
+{
+  "upstream": "https://github.com/stepanzubkov/where-is-my-sddm-theme",
+  "commit": "2fddf85ec80ff02a8e20fdcba51a30b436d76e6c",
+  "theme_dir": "where_is_my_sddm_theme",
+  "status": "unverified Qt6 opt-in integration; not installable",
+  "base_sha256": {
+    "LICENSE": "aa21514db9a40275d6293278e67e14ac71ee95d3020ea7830e124f4daa4e61cd",
+    "Main.qml": "2d4bd5522742cbbd8c7776a8f338bae31736c7c05e5601aee0785d5305dc159f",
+    "SessionsChoose.qml": "9abfe746c459bafebb5b97942dcb930bdd428d725cf3d583ab98e6f1c90f3c6d",
+    "UsersChoose.qml": "fd8356c0a169080b1f99d5e64eefa40dbf680edfc7306197f24a6a676687b7e9",
+    "metadata.desktop": "77c05c07bfb1cc7c5c3d9197d256dc392990d93fb8c86d02c2a26947fc5395af",
+    "theme.conf": "5c8eb8f4a2288a5a27aaae21ed8de6e3b7e4b11d6d9c72ed5358edbba132861f"
+  },
+  "patch_sha256": "80e7dd11dfd29ab3376957569e6bb963b2f2a3b804718552309895a73b446b83"
+}

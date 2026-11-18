@@ -1,0 +1,118 @@
+--- a/Main.qml
++++ b/Main.qml
+@@ -1,6 +1,6 @@
+ import QtQuick 2.15
+ import QtQuick.Controls 2.0
+-import SddmComponents 2.0
++import QtQuick.Window 2.2
+ 
+ import Qt5Compat.GraphicalEffects
+ 
+@@ -27,7 +27,69 @@
+     property string helpFont: config.stringValue("helpFont") || defaultFont
+ 
+ 
++    // Selection/presentation stay in the theme; one greeter-owned policy owns scanning.
++    readonly property bool policySupported: typeof themeAuthentication !== "undefined"
++    readonly property bool contextOwner: typeof authenticationController !== "undefined" && authenticationController
++    readonly property bool contextBusy: typeof sddm.authenticationBusy !== "undefined" && sddm.authenticationBusy
++    property bool contextComponentReady: false
++    property bool syncingSelection: false
++    readonly property var policyWindow: root.Window.window
++    readonly property string loginUsername: currentUsersIndex >= 0 && currentUsersIndex < userModel.count
++        ? String(userModel.data(userModel.index(currentUsersIndex, 0), usernameRole) || "") : ""
++    readonly property bool validLoginSelection: loginUsername.length > 0 && currentSessionsIndex >= 0 &&
++                                               currentSessionsIndex < sessionModel.rowCount()
++
++    function selectedLoginName() {
++        return currentUsersIndex >= 0 && currentUsersIndex < userModel.count
++            ? String(userModel.data(userModel.index(currentUsersIndex, 0), usernameRole) || "") : "";
++    }
++    function syncSelection() {
++        if (!policySupported) return;
++        syncingSelection = true;
++        currentUsersIndex = themeAuthentication.userIndex;
++        currentSessionsIndex = themeAuthentication.sessionIndex;
++        syncingSelection = false;
++    }
++    function attachPolicy() {
++        if (policySupported && contextComponentReady && policyWindow) {
++            themeAuthentication.attach(policyWindow, root, selectedLoginName(), currentSessionsIndex);
++            syncSelection();
++        }
++    }
++    function selectTarget() {
++        if (!contextComponentReady || syncingSelection) return;
++        if (policySupported) {
++            themeAuthentication.select(policyWindow, selectedLoginName(), currentSessionsIndex);
++            syncSelection();
++        } else {
++            passwordInput.clear();
++        }
++    }
++    onCurrentUsersIndexChanged: selectTarget()
++    onCurrentSessionsIndexChanged: selectTarget()
++    onPolicyWindowChanged: attachPolicy()
++    Component.onCompleted: {
++        contextComponentReady = true;
++        attachPolicy();
++    }
++    Connections {
++        target: root.policySupported ? themeAuthentication : null
++        function onSelectionChanged() { root.syncSelection(); }
++        function onIdentityChanged() { passwordInput.clear(); }
++    }
++    Shortcut {
++        sequence: "Escape"
++        enabled: root.policySupported && root.contextOwner
++        onActivated: themeAuthentication.cancel(root.policyWindow)
++    }
++    Shortcut {
++        sequence: "F4"
++        enabled: root.policySupported && root.contextOwner
++        onActivated: themeAuthentication.retry(root.policyWindow)
++    }
++
+     function usersCycleSelectPrev() {
++        if (contextBusy || (policySupported && !contextOwner)) return;
+         if (currentUsersIndex - 1 < 0) {
+             currentUsersIndex = userModel.count - 1;
+         } else {
+@@ -36,6 +98,7 @@
+     }
+ 
+     function usersCycleSelectNext() {
++        if (contextBusy || (policySupported && !contextOwner)) return;
+         if (currentUsersIndex >= userModel.count - 1) {
+             currentUsersIndex = 0;
+         } else {
+@@ -64,6 +127,7 @@
+     }
+ 
+     function sessionsCycleSelectPrev() {
++        if (contextBusy || (policySupported && !contextOwner)) return;
+         if (currentSessionsIndex - 1 < 0) {
+             currentSessionsIndex = sessionModel.rowCount() - 1;
+         } else {
+@@ -72,6 +136,7 @@
+     }
+ 
+     function sessionsCycleSelectNext() {
++        if (contextBusy || (policySupported && !contextOwner)) return;
+         if (currentSessionsIndex >= sessionModel.rowCount() - 1) {
+             currentSessionsIndex = 0;
+         } else {
+@@ -240,9 +305,10 @@
+             passwordCharacter: config.stringValue("passwordCharacter") || "*"
+             cursorVisible: config.boolValue("passwordInputCursorVisible")
+             onAccepted: {
+-                if (text != "" || config.boolValue("passwordAllowEmpty")) {
+-                    sddm.login(userModel.data(userModel.index(currentUsersIndex, 0), usernameRole)
+- || "123test", text, currentSessionsIndex);
++                if (validLoginSelection && !contextBusy && (!policySupported ||
++                        (contextOwner && themeAuthentication.valid && sddm.authenticationSubmissionAllowed)) &&
++                        (text != "" || config.boolValue("passwordAllowEmpty"))) {
++                    sddm.login(loginUsername, text, currentSessionsIndex);
+                 }
+             }
+             Rectangle {
