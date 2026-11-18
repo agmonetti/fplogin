@@ -28,6 +28,12 @@ docker run --rm --pull never --network none --cap-drop ALL --cap-add SETUID --ca
         test "$rc" -eq 1
     }
     expect_disabled install
-    expect_disabled install --dry-run
     expect_disabled uninstall
+    # A container without a system bus cannot establish display-manager state.
+    rc=0
+    preview=$(run_user /usr/bin/fplogin install --dry-run 2>&1) || rc=$?
+    printf "%s\n" "$preview"
+    test "$rc" -eq 1
+    grep -Fq "Preflight stopped: ListServiceCandidates: host_read_failed:" <<< "$preview"
+    grep -Fxq "No changes were made." <<< "$preview"
 '
