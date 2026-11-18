@@ -4,7 +4,7 @@ Biometric login for Linux, under active development. The v1 target is fingerprin
 
 [![fplogin Project Telemetry & Milestone Matrix](docs/assets/dashboard.png)](dashboard.html)
 
-The updated capture reflects [Sprint 3 E7 on 2026-11-17](docs/reviews/sprint-3-e7-2026-11-17.md): **independent technical review PASS**, covering offline verification and real Qt5/Qt6 password login/recovery. Explicit owner compatibility acceptance and physical packaged-stack verification remain pending; Sprint 3 is unaccepted. [Sprint 2 remains accepted and closed](docs/reviews/sprint-2-acceptance-2026-11-12.md). All physical hardware test cases were manually executed and verified on reference hardware by the project owner; G12 multi-monitor is formally recorded as a known laboratory constraint for v1; the localized theme fix `28dd731` is accepted; and the [G16 secret audit](docs/reviews/sprint-2-g16-audit-2026-11-12.md) is approved with zero credentials leaked.
+The dashboard reflects the [Sprint 3 physical closeout review](docs/reviews/sprint-3-physical-closure.md) and the [independent Qt5/Qt6 technical review](docs/reviews/sprint-3-e7-2026-11-17.md) (PASS). SDDM timed out before PAM, and GNOME Keyring did not block Hyprland and could be unlocked manually on demand. KWallet unlock was not tested; automatic wallet unlock by fingerprint is outside v1. Explicit owner acceptance of Qt5/Qt6 compatibility and Sprint 3 closure remains pending. [Sprint 2 remains accepted and closed](docs/reviews/sprint-2-acceptance-2026-11-12.md).
 
 ## The problem
 

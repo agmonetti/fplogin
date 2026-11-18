@@ -1043,11 +1043,11 @@
     "tagline": "Biometric Fingerprint Authentication for Linux Display Managers",
     "target_v1": "Arch Linux \u00b7 systemd \u00b7 SDDM 0.21.0 \u00b7 fprintd / libfprint \u00b7 Hyprland",
     "reference_hardware": "Synaptics 06cb:00bd (match-on-sensor USB)",
-    "last_updated": "2026-11-17",
+    "last_updated": "2026-11-18",
     "current_gate": "Sprint 3 (Servicio PAM y Empaquetado Arch/SDDM)",
     "current_gate_status": "in_progress",
-    "latest_achievement": "Sprint 3 E7: revisión técnica independiente PASS; Qt5 verificado offline y con login real/recuperación en VM. Aceptación de compatibilidad por el dueño pendiente; Sprint 3 no aceptado.",
-    "next_step": "Decisión del dueño sobre compatibilidad Qt5; luego gate físico del stack empaquetado con nueva autorización del lector. Sin instalación en host, release ni avance a Sprint 4; Sprint 3 sigue sin aceptar.",
+    "latest_achievement": "Sprint 3: E7 técnico PASS. SDDM venció antes que PAM; GNOME Keyring no bloqueó Hyprland y se desbloqueó manualmente a demanda. KWallet no probado para desbloqueo.",
+    "next_step": "Aceptación explícita del dueño de la compatibilidad Qt5/Qt6 y del cierre de Sprint 3. No se requiere repetir pruebas ni reconectar el lector. Sin instalación en host ni release.",
     "summary": {
       "total_items": 152,
       "done": 131,
@@ -1711,35 +1711,35 @@
           "id": "S3-01",
           "title": "Definici\u00f3n de Servicio PAM sddm-fingerprint",
           "status": "partial",
-          "description": "Servicio sddm-fingerprint empaquetado (preparatorio, no aceptado): requisite shells/nologin/faillock antes de pam_fprintd, sin pedir contrase\u00f1a; corrige el bypass de faillock del servicio del lab. Falta el camino de huella con lector.",
-          "evidence": "docs/SPRINT_3_EXECUTION_PLAN.md"
+          "description": "Login físico por huella con el servicio empaquetado en la VM; el rechazo no abrió sesión ni alteró la línea base vacía de faillock.",
+          "evidence": "docs/reviews/sprint-3-physical-closure.md"
         },
         {
           "id": "S3-02",
           "title": "Pol\u00edtica de Cuentas y Sesi\u00f3n de la Distribuci\u00f3n",
           "status": "partial",
-          "description": "account/session v\u00eda la pol\u00edtica stock de sddm: en contenedor, cuenta v\u00e1lida 0, pam_access 6, expirada 13, sesi\u00f3n 0; login real por contrase\u00f1a en la VM con el paquete.",
-          "evidence": "docs/SPRINT_3_EXECUTION_PLAN.md"
+          "description": "Política stock de cuentas y sesión, con restricciones verificadas en contenedor. GNOME Keyring no bloqueó Hyprland; desbloqueo manual a demanda. KWallet no probado para desbloqueo; desbloqueo automático por huella fuera de v1.",
+          "evidence": "docs/reviews/sprint-3-physical-closure.md"
         },
         {
           "id": "S3-03",
           "title": "Par\u00e1metros de M\u00f3dulo de Reintento y Timeout",
           "status": "partial",
-          "description": "max-tries=3, timeout=35 (respaldo por encima del plazo de 30 s del daemon). Falta verificarlo con lector.",
-          "evidence": "docs/SPRINT_3_EXECUTION_PLAN.md"
+          "description": "Tres rechazos observados. En la prueba instrumentada sin toque venció primero SDDM (30 s nominales), antes del timeout de PAM (35 s); sin sesión ni cambio en faillock.",
+          "evidence": "docs/reviews/sprint-3-physical-closure.md"
         },
         {
           "id": "S3-04",
           "title": "Receta Arch para el Stack SDDM Parcheado",
           "status": "partial",
-          "description": "Paquete dual Qt5/Qt6, suplementos 0003/0004 y serie aceptada intacta. E2–E5 offline, E6 login/recuperación y E7 revisión técnica PASS. Runtime Qt5/OpenSSL3 fijado; pendientes aceptación del dueño y gate físico.",
+          "description": "Paquete dual Qt5/Qt6, suplementos 0003/0004 y serie aceptada intacta. E2–E5 offline, E6 login/recuperación y E7 revisión técnica PASS. Runtime Qt5/OpenSSL3 fijado; verificación física registrada y aceptación del dueño pendiente.",
           "evidence": "docs/SPRINT_3_EXECUTION_PLAN.md"
         },
         {
           "id": "S3-05",
           "title": "Reglas de Conflicts / Provides en Gestor de Paquetes",
           "status": "partial",
-          "description": "VM sin lector: pacman -U reemplaza sddm limpio; provides/conflicts correctos. Falta el camino de huella.",
+          "description": "pacman -U reemplazó SDDM stock limpiamente en la VM; provides/conflicts correctos. Login por huella verificado después en la pila empaquetada.",
           "evidence": "docs/SPRINT_3_EXECUTION_PLAN.md"
         },
         {
