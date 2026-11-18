@@ -5,17 +5,17 @@
     "target_v1": "Arch Linux \u00b7 systemd \u00b7 SDDM 0.21.0 \u00b7 fprintd / libfprint \u00b7 Hyprland",
     "reference_hardware": "Synaptics 06cb:00bd (match-on-sensor USB)",
     "last_updated": "2026-11-18",
-    "current_gate": "Sprint 3 (Servicio PAM y Empaquetado Arch/SDDM)",
-    "current_gate_status": "done",
-    "latest_achievement": "Sprint 3 cerrado: compatibilidad Qt5/Qt6 aceptada y E7 técnico PASS. SDDM venció antes que PAM; GNOME Keyring no bloqueó Hyprland y se desbloqueó manualmente a demanda. KWallet no probado para desbloqueo.",
-    "next_step": "Sprint 4 (instalador transaccional) pendiente de autorización. Sin instalación en host ni release.",
+    "current_gate": "Sprint 4 (instalador transaccional)",
+    "current_gate_status": "blocked",
+    "latest_achievement": "S4-F01 verificado: install y uninstall deshabilitados antes de cualquier cambio. Sprint 3 sigue cerrado en su alcance Qt5/Qt6.",
+    "next_step": "S4-F02: corregir y comprobar el paquete de herramientas Arch. Sin instalaci\u00f3n en host ni release.",
     "summary": {
       "total_items": 152,
-      "done": 139,
-      "partial": 3,
+      "done": 124,
+      "partial": 17,
       "blocked": 4,
-      "pending": 6,
-      "percentage": 91.4
+      "pending": 7,
+      "percentage": 81.6
     }
   },
   "sprints": [
@@ -672,56 +672,56 @@
           "id": "S3-01",
           "title": "Definici\u00f3n de Servicio PAM sddm-fingerprint",
           "status": "done",
-          "description": "Login físico por huella con el servicio empaquetado en la VM; el rechazo no abrió sesión ni alteró la línea base vacía de faillock.",
+          "description": "Login f\u00edsico por huella con el servicio empaquetado en la VM; el rechazo no abri\u00f3 sesi\u00f3n ni alter\u00f3 la l\u00ednea base vac\u00eda de faillock.",
           "evidence": "docs/reviews/sprint-3-physical-closure.md"
         },
         {
           "id": "S3-02",
           "title": "Pol\u00edtica de Cuentas y Sesi\u00f3n de la Distribuci\u00f3n",
           "status": "done",
-          "description": "Política stock de cuentas y sesión, con restricciones verificadas en contenedor. GNOME Keyring no bloqueó Hyprland; desbloqueo manual a demanda. KWallet no probado para desbloqueo; desbloqueo automático por huella fuera de v1.",
+          "description": "Pol\u00edtica stock de cuentas y sesi\u00f3n, con restricciones verificadas en contenedor. GNOME Keyring no bloque\u00f3 Hyprland; desbloqueo manual a demanda. KWallet no probado para desbloqueo; desbloqueo autom\u00e1tico por huella fuera de v1.",
           "evidence": "docs/reviews/sprint-3-physical-closure.md"
         },
         {
           "id": "S3-03",
           "title": "Par\u00e1metros de M\u00f3dulo de Reintento y Timeout",
           "status": "done",
-          "description": "Tres rechazos observados. En la prueba instrumentada sin toque venció primero SDDM (30 s nominales), antes del timeout de PAM (35 s); sin sesión ni cambio en faillock.",
+          "description": "Tres rechazos observados. En la prueba instrumentada sin toque venci\u00f3 primero SDDM (30 s nominales), antes del timeout de PAM (35 s); sin sesi\u00f3n ni cambio en faillock.",
           "evidence": "docs/reviews/sprint-3-physical-closure.md"
         },
         {
           "id": "S3-04",
           "title": "Receta Arch para el Stack SDDM Parcheado",
           "status": "done",
-          "description": "Paquete dual Qt5/Qt6, suplementos 0003/0004 y serie aceptada intacta. E2–E5 offline, E6 login/recuperación y E7 revisión técnica PASS. Runtime Qt5/OpenSSL3 fijado; verificación física registrada y compatibilidad aceptada.",
+          "description": "Paquete dual Qt5/Qt6, suplementos 0003/0004 y serie aceptada intacta. E2\u2013E5 offline, E6 login/recuperaci\u00f3n y E7 revisi\u00f3n t\u00e9cnica PASS. Runtime Qt5/OpenSSL3 fijado; verificaci\u00f3n f\u00edsica registrada y compatibilidad aceptada.",
           "evidence": "docs/SPRINT_3_EXECUTION_PLAN.md"
         },
         {
           "id": "S3-05",
           "title": "Reglas de Conflicts / Provides en Gestor de Paquetes",
           "status": "done",
-          "description": "pacman -U reemplazó SDDM stock limpiamente en la VM; provides/conflicts correctos. Login por huella verificado después en la pila empaquetada.",
+          "description": "pacman -U reemplaz\u00f3 SDDM stock limpiamente en la VM; provides/conflicts correctos. Login por huella verificado despu\u00e9s en la pila empaquetada.",
           "evidence": "docs/SPRINT_3_EXECUTION_PLAN.md"
         },
         {
           "id": "S3-06",
           "title": "Empaquetado de Tema y Assets de Interfaz",
           "status": "done",
-          "description": "263 hashes instalados/root:root; metadata selecciona Qt5 para elarun/maldives/maya y Qt6 para fplogin, con login real en cada caso. Revisión técnica E7 PASS; compatibilidad aceptada por el dueño.",
+          "description": "263 hashes instalados/root:root; metadata selecciona Qt5 para elarun/maldives/maya y Qt6 para fplogin, con login real en cada caso. Revisi\u00f3n t\u00e9cnica E7 PASS; compatibilidad aceptada por el due\u00f1o.",
           "evidence": "docs/SPRINT_3_EXECUTION_PLAN.md"
         },
         {
           "id": "S3-07",
           "title": "Recuperaci\u00f3n TTY y Retorno a SDDM Stock",
           "status": "done",
-          "description": "E6 recuperación ttyS0/rollback firmado/login stock PASS, corroborado en E7. Inventario y 69015 rutas restaurados, cuenta temporal eliminada y VM apagada; no restauración byte a byte del disco.",
+          "description": "E6 recuperaci\u00f3n ttyS0/rollback firmado/login stock PASS, corroborado en E7. Inventario y 69015 rutas restaurados, cuenta temporal eliminada y VM apagada; no restauraci\u00f3n byte a byte del disco.",
           "evidence": "docs/SPRINT_3_EXECUTION_PLAN.md"
         },
         {
           "id": "S3-08",
           "title": "Verificaci\u00f3n de Compilaci\u00f3n en Chroot Limpio",
           "status": "done",
-          "description": "E5 corregido PASS: dos builds limpios dual Qt con tests; main/debug idénticos byte a byte, candidato main e461b3a9…411a6. Corroborado en revisión E7; no reproducibilidad entre mirrors arbitrarios.",
+          "description": "E5 corregido PASS: dos builds limpios dual Qt con tests; main/debug id\u00e9nticos byte a byte, candidato main e461b3a9\u2026411a6. Corroborado en revisi\u00f3n E7; no reproducibilidad entre mirrors arbitrarios.",
           "evidence": "docs/SPRINT_3_EXECUTION_PLAN.md"
         }
       ],
@@ -737,29 +737,29 @@
     {
       "id": "sprint-4",
       "name": "Sprint 4",
-      "subtitle": "Motor Transaccional \u2014 avances registrados, sprint no aceptado",
+      "subtitle": "Instalador y desinstalador no verificados en Arch",
       "status": "blocked",
       "goal": "Construir el motor de transacciones con escritura anticipada (WAL), compensaci\u00f3n de rollback ante ca\u00eddas, validaci\u00f3n estricta de rutas can\u00f3nicas, orquestador de 13 fases y desinstalador verificado por checksums.",
       "items": [
         {
           "id": "S4-01",
           "title": "Preflight de Solo Lectura y Generador de Planes",
-          "status": "done",
-          "description": "Inspecci\u00f3n de pre-condiciones del sistema, c\u00e1lculo de acciones requeridas y validaci\u00f3n contra descriptores sin mutaci\u00f3n de disco.",
-          "evidence": "internal/core/install/ops.go"
+          "status": "partial",
+          "description": "Hay l\u00f3gica de planificaci\u00f3n en core, pero el preflight de solo lectura no est\u00e1 conectado a la CLI (S4-F03).",
+          "evidence": "internal/core/install/installer.go"
         },
         {
           "id": "S4-02",
           "title": "Detecci\u00f3n Din\u00e1mica de Display Managers",
-          "status": "done",
-          "description": "Descubrimiento de adaptadores de DM disponibles inspeccionando descriptores est\u00e1ticos en /usr/lib/fplogin/adapters/ y verificando UID 0.",
+          "status": "partial",
+          "description": "Existe descubrimiento de descriptores; falta detectar por separado los gestores instalados, habilitados y activos (S4-F02/F03).",
           "evidence": "internal/core/discovery/discovery.go"
         },
         {
           "id": "S4-03",
           "title": "Negociaci\u00f3n de Compatibilidad de Adaptadores",
           "status": "partial",
-          "description": "Componente con tests, pero en la CLI real el handshake falla: el contexto no lleva platform facts y el adaptador rechaza Describe (auditor\u00eda 2026-11-12, A4).",
+          "description": "Hay pruebas del componente, pero faltan conectar el contexto del host, el handshake y la selecci\u00f3n en la CLI (S4-F03).",
           "evidence": "docs/reviews/cli-provider-audit-2026-11-12.md"
         },
         {
@@ -772,95 +772,95 @@
         {
           "id": "S4-05",
           "title": "Validaci\u00f3n de Prerrequisitos y Rutas Seguras",
-          "status": "done",
-          "description": "Rechazo inmediato de rutas relativas o symlinks en cualquier directorio ancestro para neutralizar ataques de evasi\u00f3n de path.",
+          "status": "partial",
+          "description": "Existen validaciones de rutas, pero falta aplicar la pol\u00edtica de destinos en cada operaci\u00f3n (S4-F04).",
           "evidence": "internal/core/install/ops.go"
         },
         {
           "id": "S4-06",
           "title": "Confirmaci\u00f3n Expl\u00edcita ante Migraci\u00f3n de DM",
-          "status": "done",
-          "description": "Pausa interactiva y confirmaci\u00f3n con banderas CLI (--yes / --dry-run) antes de modificar servicios cr\u00edticos del sistema.",
-          "evidence": "cmd/fplogin/main.go"
+          "status": "pending",
+          "description": "Falta ligar la aprobaci\u00f3n al plan y pedir una confirmaci\u00f3n separada para reemplazar otro gestor habilitado (S4-F03).",
+          "evidence": "docs/SPRINT_4_EXECUTION_PLAN.md"
         },
         {
           "id": "S4-07",
           "title": "Diario de Transacciones Pre-Mutaci\u00f3n (WAL)",
-          "status": "done",
-          "description": "Registro secuencial en disco de cada mutaci\u00f3n planeada antes de su ejecuci\u00f3n para garantizar recuperabilidad post-crash.",
+          "status": "partial",
+          "description": "Existe un diario; falta registrar y sincronizar el estado real previo a cada cambio (S4-F04).",
           "evidence": "internal/core/transaction/journal.go"
         },
         {
           "id": "S4-08",
           "title": "Durabilidad con Fsync y M\u00e1quina de Estados Monot\u00f3nica",
-          "status": "done",
-          "description": "Llamada a fsync tras cada cambio de estado; transici\u00f3n monot\u00f3nica de estados (planning -> in_progress -> completed/aborted).",
+          "status": "partial",
+          "description": "Hay estados y llamadas a fsync; falta verificar los l\u00edmites de durabilidad y los fallos de sincronizaci\u00f3n (S4-F04).",
           "evidence": "internal/core/transaction/journal.go"
         },
         {
           "id": "S4-09",
           "title": "Motor de Operaciones de Archivo At\u00f3micas",
-          "status": "done",
-          "description": "Escritura en archivo temporal con permisos restringidos, fsync y rename() at\u00f3mico sobre el destino final.",
+          "status": "partial",
+          "description": "Hay primitivas de escritura at\u00f3mica; falta verificarlas en el ciclo real con la pol\u00edtica de destinos (S4-F04/F05).",
           "evidence": "internal/core/install/ops.go"
         },
         {
           "id": "S4-10",
           "title": "Creaci\u00f3n de Directorios con Seguimiento de Rollback",
-          "status": "done",
-          "description": "Registro de directorios creados por el instalador para su eliminaci\u00f3n limpia y ordenada durante una compensaci\u00f3n de marcha atr\u00e1s.",
+          "status": "partial",
+          "description": "Existe l\u00f3gica de creaci\u00f3n y limpieza de directorios; falta verificar la recuperaci\u00f3n tras una interrupci\u00f3n (S4-F04/F07).",
           "evidence": "internal/core/install/ops.go"
         },
         {
           "id": "S4-11",
           "title": "Rotaci\u00f3n Autom\u00e1tica de Respaldos (.fplogin.bak.<ts>)",
-          "status": "done",
-          "description": "Copia de seguridad con timestamp y checksum SHA-256 de cualquier archivo pre-existente antes de ser sobrescrito.",
+          "status": "partial",
+          "description": "Existe l\u00f3gica de respaldo; falta garantizar su durabilidad y conservar la l\u00ednea base al repetir instalaciones (S4-F04/F06).",
           "evidence": "internal/core/install/ops.go"
         },
         {
           "id": "S4-12",
           "title": "Motor de Compensaci\u00f3n y Rollback ante Ca\u00eddas",
-          "status": "done",
-          "description": "Capacidad de leer un diario interrumpido a mitad de mutaci\u00f3n y revertir en orden inverso exactamente las operaciones aplicadas.",
+          "status": "partial",
+          "description": "Hay compensaci\u00f3n probada con dobles de prueba; falta recuperaci\u00f3n desde disco y restauraci\u00f3n verificada tras fallos reales (S4-F04/F05/F07).",
           "evidence": "internal/core/install/installer.go"
         },
         {
           "id": "S4-13",
           "title": "Pipeline Instalador Monot\u00f3nico de 13 Fases",
-          "status": "done",
-          "description": "Orquestaci\u00f3n estricta en 13 fases desde InitTransaction hasta PublishManifest con validaci\u00f3n de contratos en cada paso.",
+          "status": "partial",
+          "description": "Existe un orquestador en core; la CLI no ejecuta instalaciones y falta verificar el ciclo real (S4-F05/F07).",
           "evidence": "internal/core/install/installer.go"
         },
         {
           "id": "S4-14",
           "title": "Publicador de Manifiesto con Checksums SHA-256",
-          "status": "done",
-          "description": "Generaci\u00f3n del install-manifest final con lista exhaustiva de archivos creados, modificados, respaldos y hashes criptogr\u00e1ficos.",
+          "status": "partial",
+          "description": "Existe publicaci\u00f3n de manifiesto; falta verificar su durabilidad y conservar la l\u00ednea base al repetir operaciones (S4-F06).",
           "evidence": "internal/core/manifest/manifest.go"
         },
         {
           "id": "S4-15",
           "title": "Desinstalador Verificado contra Manifiesto",
-          "status": "done",
-          "description": "Desinstalaci\u00f3n segura: compara hashes de archivos, rechaza eliminar archivos modificados externamente y restaura backups originales.",
+          "status": "partial",
+          "description": "Hay l\u00f3gica de comparaci\u00f3n de hashes y restauraci\u00f3n de archivos; falta desinstalaci\u00f3n transaccional y verificaci\u00f3n de la restauraci\u00f3n (S4-F06).",
           "evidence": "internal/core/manifest/manifest.go"
         },
         {
           "id": "S4-16",
           "title": "Suite de Pruebas de Integraci\u00f3n del Instalador E2E",
-          "status": "done",
-          "description": "Pruebas de ciclo de vida completo: instalaci\u00f3n limpia, dry-run, simulaci\u00f3n de fallo a mitad de mutaci\u00f3n con rollback y desinstalaci\u00f3n.",
+          "status": "partial",
+          "description": "Las pruebas de integraci\u00f3n usan dobles de prueba y simulaciones. Falta verificar el ciclo real en un hu\u00e9sped Arch desechable (S4-F07).",
           "evidence": "tests/integration/core/installer_test.go"
         }
       ],
       "summary": {
         "total": 16,
-        "done": 14,
-        "partial": 2,
+        "done": 0,
+        "partial": 15,
         "blocked": 0,
-        "pending": 0,
-        "percentage": 87.5
+        "pending": 1,
+        "percentage": 0.0
       }
     },
     {
@@ -1180,8 +1180,8 @@
         {
           "id": "S7-10",
           "title": "CLI Unificado de Control de fplogin",
-          "status": "done",
-          "description": "Punto de entrada cmd/fplogin con subcomandos install, uninstall, status y analyze con flags de seguridad.",
+          "status": "partial",
+          "description": "La CLI ofrece status y analyze en modo de solo lectura; install y uninstall est\u00e1n deshabilitados.",
           "evidence": "cmd/fplogin/main.go"
         },
         {
@@ -1229,11 +1229,11 @@
       ],
       "summary": {
         "total": 16,
-        "done": 10,
-        "partial": 0,
+        "done": 9,
+        "partial": 1,
         "blocked": 0,
         "pending": 6,
-        "percentage": 62.5
+        "percentage": 56.25
       }
     }
   ]

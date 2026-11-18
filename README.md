@@ -101,16 +101,13 @@ No existing system files will be modified in place. The installer will generate 
 
 ## CLI Usage
 
-> **Status (2026-11-12 audit, see [CLI and provider audit](docs/reviews/cli-provider-audit-2026-11-12.md)):** the `fplogin` CLI is **not ready for use**. `install` and `uninstall` cannot complete end to end: discovery fails before any change, and the SDDM adapter and Arch platform provider do not yet implement detection, planning, application or verification. These operations now refuse explicitly instead of reporting success. Do not run `sudo fplogin install` on a real system. `analyze` runs, but its "safe" conclusion is not yet backed by probes and must not be used to make an installation decision.
+> **Sprint 4: host installation and uninstallation are disabled.** `install` and `uninstall` return an error before discovery, subprocess execution, or manifest and journal access. `install --dry-run` also returns an error until read-only preflight is connected (S4-F03). See the [Sprint 4 execution plan](docs/SPRINT_4_EXECUTION_PLAN.md).
 
-Intended interface (target of Sprints 3–5, not yet verified):
+The separate read-only commands remain available:
 
 ```bash
-fplogin analyze [--json] [--user <username>]   # experimental; conclusions not yet trustworthy
-fplogin install --dry-run                        # not functional yet
-sudo fplogin install                             # not functional yet — do not run
-fplogin status                                   # reports the absence/presence of a manifest
-sudo fplogin uninstall                           # not functional yet
+fplogin status          # reads the manifest and checks recorded file integrity
+fplogin analyze --json  # experimental; do not rely on it for installation decisions
 ```
 
 ## Documentation
