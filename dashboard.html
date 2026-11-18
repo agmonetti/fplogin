@@ -1045,16 +1045,16 @@
     "reference_hardware": "Synaptics 06cb:00bd (match-on-sensor USB)",
     "last_updated": "2026-11-18",
     "current_gate": "Sprint 3 (Servicio PAM y Empaquetado Arch/SDDM)",
-    "current_gate_status": "in_progress",
-    "latest_achievement": "Sprint 3: E7 técnico PASS. SDDM venció antes que PAM; GNOME Keyring no bloqueó Hyprland y se desbloqueó manualmente a demanda. KWallet no probado para desbloqueo.",
-    "next_step": "Aceptación explícita del dueño de la compatibilidad Qt5/Qt6 y del cierre de Sprint 3. No se requiere repetir pruebas ni reconectar el lector. Sin instalación en host ni release.",
+    "current_gate_status": "done",
+    "latest_achievement": "Sprint 3 cerrado: compatibilidad Qt5/Qt6 aceptada y E7 técnico PASS. SDDM venció antes que PAM; GNOME Keyring no bloqueó Hyprland y se desbloqueó manualmente a demanda. KWallet no probado para desbloqueo.",
+    "next_step": "Sprint 4 (instalador transaccional) pendiente de autorización. Sin instalación en host ni release.",
     "summary": {
       "total_items": 152,
-      "done": 131,
-      "partial": 11,
+      "done": 139,
+      "partial": 3,
       "blocked": 4,
       "pending": 6,
-      "percentage": 86.2
+      "percentage": 91.4
     }
   },
   "sprints": [
@@ -1704,73 +1704,73 @@
       "id": "sprint-3",
       "name": "Sprint 3",
       "subtitle": "Servicio PAM y Empaquetado Arch/SDDM",
-      "status": "in_progress",
+      "status": "done",
       "goal": "Empaquetar reproduciblemente SDDM parcheado, servicio PAM dedicado y tema para Arch, con recuperaci\u00f3n TTY y retorno a SDDM stock. Alcance: docs/IMPLEMENTATION_PLAN.md, Sprint 3. Migraci\u00f3n automatizada corresponde a Sprint 4; nuevos adapters y distribuciones quedan fuera de v1.",
       "items": [
         {
           "id": "S3-01",
           "title": "Definici\u00f3n de Servicio PAM sddm-fingerprint",
-          "status": "partial",
+          "status": "done",
           "description": "Login físico por huella con el servicio empaquetado en la VM; el rechazo no abrió sesión ni alteró la línea base vacía de faillock.",
           "evidence": "docs/reviews/sprint-3-physical-closure.md"
         },
         {
           "id": "S3-02",
           "title": "Pol\u00edtica de Cuentas y Sesi\u00f3n de la Distribuci\u00f3n",
-          "status": "partial",
+          "status": "done",
           "description": "Política stock de cuentas y sesión, con restricciones verificadas en contenedor. GNOME Keyring no bloqueó Hyprland; desbloqueo manual a demanda. KWallet no probado para desbloqueo; desbloqueo automático por huella fuera de v1.",
           "evidence": "docs/reviews/sprint-3-physical-closure.md"
         },
         {
           "id": "S3-03",
           "title": "Par\u00e1metros de M\u00f3dulo de Reintento y Timeout",
-          "status": "partial",
+          "status": "done",
           "description": "Tres rechazos observados. En la prueba instrumentada sin toque venció primero SDDM (30 s nominales), antes del timeout de PAM (35 s); sin sesión ni cambio en faillock.",
           "evidence": "docs/reviews/sprint-3-physical-closure.md"
         },
         {
           "id": "S3-04",
           "title": "Receta Arch para el Stack SDDM Parcheado",
-          "status": "partial",
-          "description": "Paquete dual Qt5/Qt6, suplementos 0003/0004 y serie aceptada intacta. E2–E5 offline, E6 login/recuperación y E7 revisión técnica PASS. Runtime Qt5/OpenSSL3 fijado; verificación física registrada y aceptación del dueño pendiente.",
+          "status": "done",
+          "description": "Paquete dual Qt5/Qt6, suplementos 0003/0004 y serie aceptada intacta. E2–E5 offline, E6 login/recuperación y E7 revisión técnica PASS. Runtime Qt5/OpenSSL3 fijado; verificación física registrada y compatibilidad aceptada.",
           "evidence": "docs/SPRINT_3_EXECUTION_PLAN.md"
         },
         {
           "id": "S3-05",
           "title": "Reglas de Conflicts / Provides en Gestor de Paquetes",
-          "status": "partial",
+          "status": "done",
           "description": "pacman -U reemplazó SDDM stock limpiamente en la VM; provides/conflicts correctos. Login por huella verificado después en la pila empaquetada.",
           "evidence": "docs/SPRINT_3_EXECUTION_PLAN.md"
         },
         {
           "id": "S3-06",
           "title": "Empaquetado de Tema y Assets de Interfaz",
-          "status": "partial",
-          "description": "263 hashes instalados/root:root; metadata selecciona Qt5 para elarun/maldives/maya y Qt6 para fplogin, con login real en cada caso. Revisión técnica E7 PASS; aceptación del dueño pendiente.",
+          "status": "done",
+          "description": "263 hashes instalados/root:root; metadata selecciona Qt5 para elarun/maldives/maya y Qt6 para fplogin, con login real en cada caso. Revisión técnica E7 PASS; compatibilidad aceptada por el dueño.",
           "evidence": "docs/SPRINT_3_EXECUTION_PLAN.md"
         },
         {
           "id": "S3-07",
           "title": "Recuperaci\u00f3n TTY y Retorno a SDDM Stock",
-          "status": "partial",
-          "description": "E6 recuperación ttyS0/rollback firmado/login stock PASS, corroborado en E7. Inventario y 69015 rutas restaurados, cuenta temporal eliminada y VM apagada; no restauración byte a byte del disco ni aceptación de Sprint 3.",
+          "status": "done",
+          "description": "E6 recuperación ttyS0/rollback firmado/login stock PASS, corroborado en E7. Inventario y 69015 rutas restaurados, cuenta temporal eliminada y VM apagada; no restauración byte a byte del disco.",
           "evidence": "docs/SPRINT_3_EXECUTION_PLAN.md"
         },
         {
           "id": "S3-08",
           "title": "Verificaci\u00f3n de Compilaci\u00f3n en Chroot Limpio",
-          "status": "partial",
-          "description": "E5 corregido PASS: dos builds limpios dual Qt con tests; main/debug idénticos byte a byte, candidato main e461b3a9…411a6. Corroborado en revisión E7; no reproducibilidad entre mirrors arbitrarios ni aceptación de Sprint 3.",
+          "status": "done",
+          "description": "E5 corregido PASS: dos builds limpios dual Qt con tests; main/debug idénticos byte a byte, candidato main e461b3a9…411a6. Corroborado en revisión E7; no reproducibilidad entre mirrors arbitrarios.",
           "evidence": "docs/SPRINT_3_EXECUTION_PLAN.md"
         }
       ],
       "summary": {
         "total": 8,
-        "done": 0,
-        "partial": 8,
+        "done": 8,
+        "partial": 0,
         "blocked": 0,
         "pending": 0,
-        "percentage": 0.0
+        "percentage": 100.0
       }
     },
     {
