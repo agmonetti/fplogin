@@ -7,16 +7,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"time"
 
-	"fplogin/internal/adapterclient"
 	"fplogin/internal/core/analyze"
-	"fplogin/internal/core/install"
 	"fplogin/internal/core/manifest"
 	"fplogin/internal/core/report"
-	"fplogin/internal/platformclient"
-	"fplogin/internal/processrunner"
-	"fplogin/internal/protocol"
 )
 
 const version = "0.2.0"
@@ -38,9 +32,9 @@ func main() {
 	case "analyze":
 		runAnalyze(args)
 	case "install":
-		runInstall(args)
+		disabledCommand(subcommand, args, "host installation is disabled and --dry-run is not available yet")
 	case "uninstall":
-		runUninstall(args)
+		disabledCommand(subcommand, args, "host uninstallation is disabled")
 	case "help", "--help", "-h":
 		printUsage()
 	default:
@@ -50,6 +44,15 @@ func main() {
 	}
 }
 
+func disabledCommand(name string, args []string, reason string) {
+	if len(args) == 1 && (args[0] == "--help" || args[0] == "-h" || args[0] == "-help") {
+		fmt.Fprintf(os.Stderr, "Usage: fplogin %s\n\n%s.\n", name, reason)
+		return
+	}
+	fmt.Fprintf(os.Stderr, "Error: %s: %s.\n", name, reason)
+	os.Exit(1)
+}
+
 func printUsage() {
 	fmt.Fprintf(os.Stderr, `fplogin — Fingerprint display manager integration orchestrator
 
@@ -57,10 +60,10 @@ Usage:
   fplogin <subcommand> [flags]
 
 Subcommands:
-  install     Discover compatible display managers, plan, and install integration
-  uninstall   Safely remove fplogin-managed integration and restore previous DM
-  status      Display current installation state from manifest
-  analyze     Analyze password-derived facilities impacted by biometric login
+  install     Disabled (--dry-run also unavailable)
+  uninstall   Disabled
+  status      Display current installation state from manifest (read-only)
+  analyze     Inspect password-derived facilities impacted by biometric login (read-only, experimental)
   version     Show version information
   help        Show this help message
 
@@ -100,127 +103,6 @@ func runStatus(args []string) {
 			fmt.Printf("    - %s: %s\n", mm.Kind, mm.Path)
 		}
 	}
-}
-
-func runUninstall(args []string) {
-	fs := flag.NewFlagSet("uninstall", flag.ExitOnError)
-	manifestPath := fs.String("manifest", "/var/lib/fplogin/manifest.json", "Path to install manifest")
-	force := fs.Bool("force", false, "Force uninstall even if installed files have been modified")
-	_ = fs.Parse(args)
-
-	if os.Geteuid() != 0 {
-		fmt.Fprintf(os.Stderr, "Error: root privileges required to uninstall fplogin. Please run with sudo.\n")
-		os.Exit(1)
-	}
-
-	cfg := manifest.UninstallConfig{
-		ManifestPath: *manifestPath,
-		Force:        *force,
-	}
-
-	ctx := context.Background()
-	if err := manifest.Uninstall(ctx, cfg); err != nil {
-		fmt.Fprintf(os.Stderr, "Uninstall failed: %v\n", err)
-		os.Exit(1)
-	}
-
-	fmt.Println("fplogin successfully uninstalled.")
-}
-
-func runInstall(args []string) {
-	fs := flag.NewFlagSet("install", flag.ExitOnError)
-	dryRun := fs.Bool("dry-run", false, "Simulate planning and validation without modifying system")
-	target := fs.String("target", "", "Explicit target display manager ID (e.g. org.freedesktop.DisplayManager.sddm)")
-	yes := fs.Bool("yes", false, "Automatically approve package installations and DM replacement")
-	manifestPath := fs.String("manifest", "/var/lib/fplogin/manifest.json", "Path to install manifest")
-	journalDir := fs.String("journal-dir", "/var/lib/fplogin/transactions", "Directory for transaction journals")
-	adapterDir := fs.String("adapter-dir", "/usr/lib/fplogin/adapters", "Directory containing adapter descriptors")
-	providerDir := fs.String("provider-dir", "/usr/lib/fplogin/platforms", "Directory containing platform provider descriptors")
-	_ = fs.Parse(args)
-
-	// Set up runners and client adapters
-	runner, err := processrunner.New(processrunner.Config{
-		Timeout:        30 * time.Second,
-		MaxInputBytes:  1024 * 1024,
-		MaxStdoutBytes: 10 * 1024 * 1024,
-		MaxStderrBytes: 1024 * 1024,
-	})
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Initialize runner: %v\n", err)
-		os.Exit(1)
-	}
-
-	adClient, err := adapterclient.New(adapterclient.Config{
-		Runner:             runner,
-		DescriptorMaxBytes: 64 * 1024,
-		ProtocolMajor:      1,
-		CoreVersion:        version,
-	})
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Initialize adapter client: %v\n", err)
-		os.Exit(1)
-	}
-
-	prClient, err := platformclient.New(platformclient.Config{
-		Runner:             runner,
-		DescriptorMaxBytes: 64 * 1024,
-		ProtocolMajor:      1,
-		CoreVersion:        version,
-	})
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Initialize platform client: %v\n", err)
-		os.Exit(1)
-	}
-
-	host := protocol.HostContext{
-		Root:        "/",
-		InvokingUID: uint32(os.Getuid()),
-		InvokingGID: uint32(os.Getgid()),
-		Elevated:    os.Geteuid() == 0,
-		DryRun:      *dryRun,
-		Deadline:    time.Now().Add(60 * time.Second).UTC().Format(time.RFC3339),
-	}
-
-	cfg := install.Config{
-		AdapterDiscoverer:  adClient,
-		ProviderDiscoverer: prClient,
-		AdapterDirs:        []string{*adapterDir},
-		ProviderDirs:       []string{*providerDir},
-		TargetDMID:         *target,
-		DryRun:             *dryRun,
-		AutoApprove:        *yes,
-		JournalDir:         *journalDir,
-		ManifestPath:       *manifestPath,
-		BackupDir:          filepath.Join(filepath.Dir(*journalDir), "backups"),
-		Host:               host,
-		CoreVersion:        version,
-	}
-
-	ctx := context.Background()
-	res, err := install.Run(ctx, cfg)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Installation failed: %v\n", err)
-		os.Exit(1)
-	}
-
-	if res.DryRun {
-		fmt.Printf("fplogin Dry-Run Simulation Successful\n")
-		fmt.Printf("  Target DM:        %s (%s)\n", res.SelectedTarget.DisplayName, res.SelectedTarget.DMID)
-		fmt.Printf("  Adapter:          %s v%s\n", res.SelectedAdapter.Descriptor.AdapterID, res.SelectedAdapter.Descriptor.AdapterVersion)
-		fmt.Printf("  Platform:         %s v%s\n", res.SelectedProvider.Descriptor.PlatformID, res.SelectedProvider.Descriptor.PlatformVersion)
-		fmt.Printf("  Planned Actions:  %d operations\n", len(res.Plan.Operations))
-		for i, op := range res.Plan.Operations {
-			fmt.Printf("    [%d] %s (id: %s)\n", i+1, op.Kind, op.OperationID)
-		}
-		fmt.Printf("\nNo modifications were made to the system.\n")
-		return
-	}
-
-	fmt.Printf("fplogin Installation Completed Successfully\n")
-	fmt.Printf("  Target:           %s\n", res.SelectedTarget.DisplayName)
-	fmt.Printf("  Transaction ID:   %s\n", res.TransactionID)
-	fmt.Printf("  Manifest:         %s\n", res.ManifestPath)
-	fmt.Printf("  Operations:       %d applied and verified\n", len(res.AppliedReceipts))
 }
 
 func runAnalyze(args []string) {
@@ -264,4 +146,3 @@ func runAnalyze(args []string) {
 
 	fmt.Print(report.FormatTerminal(rep))
 }
-
