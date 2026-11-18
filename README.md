@@ -103,6 +103,8 @@ No existing system files will be modified in place. The installer will generate 
 
 > **Sprint 4: host installation and uninstallation are disabled.** `install` and `uninstall` return an error before discovery, subprocess execution, or manifest and journal access. `install --dry-run` also returns an error until read-only preflight is connected (S4-F03). See the [Sprint 4 execution plan](docs/SPRINT_4_EXECUTION_PLAN.md).
 
+To build the Arch tools package, run `make package` as an ordinary user in an isolated Arch environment with `base-devel`, Go, Git, and the recipe's runtime dependencies installed. It stages a pinned source archive and prints the package paths. Verify the main archive with `bash tests/integration/arch-tools-package.sh <package>` using a local Arch Docker image. The packaged `fplogin components` command only lists providers and adapters; it does not check installation readiness. The SDDM theme and PAM service are shipped separately in `sddm-fplogin`.
+
 The separate read-only commands remain available:
 
 ```bash
