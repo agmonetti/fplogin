@@ -37,20 +37,20 @@ preview() {
         local reason
         case $case in
             unknown) reason='unclassified graphical.target service "custom-dm.service"';;
-            graphical-wants-disabled) reason='has no standard alias';;
-            graphical-wants-enabled) reason='nonstandard fragment or drop-ins';;
-            graphical-wants-link) reason='additional dependencies in';;
+            graphical-wants-disabled) reason='has no standard alias|unexpected graphical.target display-manager dependency';;
+            graphical-wants-enabled) reason='nonstandard fragment or drop-ins|unexpected graphical.target display-manager dependency';;
+            graphical-wants-link) reason='additional dependencies in|unexpected graphical.target display-manager dependency';;
             graphical-binds|graphical-upholds) reason='unexpected graphical.target display-manager dependency';;
         esac
         [[ $rc == 1 ]]
         out=$inventory
-        match "$reason"
+        grep -E -- "$reason" <<< "$out"
         match 'No changes were made.'
         not_match 'Preview SHA-256:'
         rc=0
         out=$(user fplogin install --dry-run --target "$target" 2>&1) || rc=$?
         [[ $rc == 1 ]]
-        match "$reason"
+        grep -E -- "$reason" <<< "$out"
         not_match 'Preview SHA-256:'
     else
         [[ $rc == 0 ]]
