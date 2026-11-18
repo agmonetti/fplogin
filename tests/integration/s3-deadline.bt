@@ -1,0 +1,16 @@
+// Offsets are instruction boundaries in the exact x86_64 package pinned by the runner.
+// No passwords, PAM messages, biometrics, or pointed-to user data.
+interval:s:1 { printf("tick %llu\n", nsecs(monotonic)); }
+END { printf("end %llu\n", nsecs(monotonic)); }
+uprobe:/usr/bin/sddm:0x552bc { printf("arm %llu %u %d\n", nsecs(monotonic), pid, (int32)reg("si")); }
+uprobe:/usr/bin/sddm:0x5c4a9 { printf("fire %llu %u\n", nsecs(monotonic), pid); }
+uprobe:/usr/bin/sddm:0x5c54f { printf("stop %llu %u\n", nsecs(monotonic), pid); }
+uprobe:/usr/bin/sddm:0x515c9 { printf("disarm %llu %u\n", nsecs(monotonic), pid); }
+uprobe:/usr/lib/security/pam_fprintd.so:pam_sm_authenticate /comm == "sddm-helper"/ {
+  @finger[pid] = 1; printf("enter %llu %u\n", nsecs(monotonic), pid);
+}
+uprobe:/usr/lib/security/pam_fprintd.so:0x31cd /@finger[pid]/ { printf("pam_timeout %llu %u\n", nsecs(monotonic), pid); }
+uretprobe:/usr/lib/libpam.so.0:pam_authenticate /@finger[pid]/ { printf("pam_return %llu %u %d\n", nsecs(monotonic), pid, (int32)retval); }
+tracepoint:sched:sched_process_exit /pid == tid && @finger[pid]/ {
+  printf("exit %llu %u\n", nsecs(monotonic), pid); delete(@finger[pid]);
+}

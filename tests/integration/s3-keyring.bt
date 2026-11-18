@@ -1,0 +1,19 @@
+// Disposable Sprint 3 guest only. Do not add PAM arguments, pointers or strings.
+interval:s:1 { printf("heartbeat %llu\n", nsecs(monotonic)); }
+END { printf("end %llu\n", nsecs(monotonic)); }
+interval:s:180 { exit(1); }
+
+uprobe:/usr/lib/libpam.so.0:pam_open_session
+/comm == "sddm-helper"/ { printf("enter pam %llu %u %u\n", nsecs(monotonic), pid, tid); }
+uretprobe:/usr/lib/libpam.so.0:pam_open_session
+/comm == "sddm-helper"/ { printf("return pam %llu %u %u %d\n", nsecs(monotonic), pid, tid, (int32)retval); }
+
+uprobe:/usr/lib/security/pam_gnome_keyring.so:pam_sm_open_session
+/comm == "sddm-helper"/ { printf("enter gnome %llu %u %u\n", nsecs(monotonic), pid, tid); }
+uretprobe:/usr/lib/security/pam_gnome_keyring.so:pam_sm_open_session
+/comm == "sddm-helper"/ { printf("return gnome %llu %u %u %d\n", nsecs(monotonic), pid, tid, (int32)retval); }
+
+uprobe:/usr/lib/security/pam_kwallet5.so:pam_sm_open_session
+/comm == "sddm-helper"/ { printf("enter kwallet %llu %u %u\n", nsecs(monotonic), pid, tid); }
+uretprobe:/usr/lib/security/pam_kwallet5.so:pam_sm_open_session
+/comm == "sddm-helper"/ { printf("return kwallet %llu %u %u %d\n", nsecs(monotonic), pid, tid, (int32)retval); }
