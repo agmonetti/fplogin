@@ -155,12 +155,18 @@ class ThemeAutoTest : public QObject {
         return nullptr;
     }
     void load(QQuickView &v, QObject *greeter, const QString &path, bool controller, bool show = true,
-              bool extensions = true) {
+              bool extensions = true, bool steadyCursor = false) {
         v.rootContext()->setContextProperty("sddm", greeter);
         v.rootContext()->setContextProperty("userModel", &users);
         v.rootContext()->setContextProperty("sessionModel", sessions.get());
         v.rootContext()->setContextProperty("screenModel", new ScreenModel(QGuiApplication::primaryScreen(), &v));
-        v.rootContext()->setContextProperty("config", new ThemeConfig(original + "/theme.conf", &v));
+        auto *config = new ThemeConfig(original + "/theme.conf", &v);
+        // Compare the visible cursor with the same phase and color in both views.
+        if (steadyCursor) {
+            config->insert(QStringLiteral("cursorBlinkAnimation"), false);
+            config->insert(QStringLiteral("passwordCursorColor"), QStringLiteral("#1d4de6"));
+        }
+        v.rootContext()->setContextProperty("config", config);
         if (extensions) {
             v.rootContext()->setContextProperty("authenticationController", controller);
             v.rootContext()->setContextProperty("themeAuthentication", policy.get());
@@ -193,7 +199,7 @@ class ThemeAutoTest : public QObject {
         return changed && watched && QMetaObject::invokeMethod(watcher, "directoryChanged", Qt::DirectConnection,
                                                               Q_ARG(QString, paths.first()));
     }
-    void setup(bool methods = true, bool show = true) {
+    void setup(bool methods = true, bool show = true, bool steadyCursor = false) {
         QVERIFY(QDir().mkpath(temporary.filePath("sessions")));
         for (const auto &name : {"alpha", "beta"})
             QVERIFY(writeSession(QString(name) + ".desktop"));
@@ -214,10 +220,10 @@ class ThemeAutoTest : public QObject {
         view = std::make_unique<QQuickView>();
         policy->setControllerView(view.get());
         if (methods) capabilities();
-        load(*view, proxy.get(), adapted, true, show);
+        load(*view, proxy.get(), adapted, true, show, true, steadyCursor);
     }
-    void start() {
-        setup();
+    void start(bool steadyCursor = false) {
+        setup(true, true, steadyCursor);
         QTRY_COMPARE(count(GreeterMessages::SetAuthenticationContext), 1);
         acknowledge(context());
         QTRY_COMPARE(starts(), 1);
@@ -747,14 +753,13 @@ private slots:
     }
     void unchangedSurfacePixelsAndGeometry() {
         QFETCH(QString, input);
-        start();
+        start(/*steadyCursor=*/true);
         password(*view)->setProperty("text", input);
-        password(*view)->setProperty("cursorVisible", false);
         const QRectF bounds(password(*view)->position(), password(*view)->size());
         QTest::qWait(100); const QImage after = view->grabWindow(); QVERIFY(!after.isNull());
         policy->setControllerView(nullptr); view->hide();
-        QQuickView baseline; load(baseline, proxy.get(), original, false, true, false);
-        password(baseline)->setProperty("text", input); password(baseline)->setProperty("cursorVisible", false);
+        QQuickView baseline; load(baseline, proxy.get(), original, false, true, false, /*steadyCursor=*/true);
+        password(baseline)->setProperty("text", input);
         QTest::qWait(100); const QImage before = baseline.grabWindow();
         QCOMPARE(QRectF(password(baseline)->position(), password(baseline)->size()), bounds);
         const auto evidence = qEnvironmentVariable("THEME_CONTEXT_EVIDENCE"); QVERIFY(!evidence.isEmpty());
