@@ -39,21 +39,28 @@ if [[ "$args" == *' list-unit-files '* ]]; then
     case "$case" in
         stock) printf 'sddm.service enabled disabled\ndisplay-manager.service alias -\n';;
         alternate|active) printf 'gdm.service enabled disabled\ndisplay-manager.service alias -\n';;
+        graphical-wants-disabled) printf 'gdm.service disabled disabled\n';;
         unknown) printf 'display-manager.service alias -\n';;
     esac
 elif [[ "$args" == *' list-units '* ]]; then
     printf 'dbus.service loaded active running D-Bus\n'
 elif [[ "$args" == *' graphical.target ' ]]; then
-    printf 'Requires=multi-user.target\nWants=display-manager.service\n'
+    case "$case" in
+        fresh) printf 'Requires=multi-user.target\nWants=\n';;
+        graphical-wants-disabled) printf 'Requires=multi-user.target\nWants=gdm.service\n';;
+        *) printf 'Requires=multi-user.target\nWants=display-manager.service\n';;
+    esac
 elif [[ "$args" == *' show '* ]]; then
+    enabled=enabled
     case "$case" in
         stock) unit=sddm; state=active;;
         alternate) unit=gdm; state=inactive;;
         active) unit=gdm; state=active;;
+        graphical-wants-disabled) unit=gdm; state=inactive; enabled=disabled;;
         unknown) unit=custom; state=inactive;;
         *) exit 9;;
     esac
-    printf 'Id=%s.service\nLoadState=loaded\nActiveState=%s\nUnitFileState=enabled\n' "$unit" "$state"
+    printf 'Id=%s.service\nLoadState=loaded\nActiveState=%s\nUnitFileState=%s\n' "$unit" "$state" "$enabled"
 else
     exit 9
 fi
@@ -73,7 +80,7 @@ package_fixture() {
     mkdir "/var/lib/pacman/local/$1-$2"
     printf '%%NAME%%\n%s\n\n%%VERSION%%\n%s\n\n%%PROVIDES%%\ndisplay-manager\n' "$1" "$2" >"/var/lib/pacman/local/$1-$2/desc"
 }
-for case in fresh stock alternate active unknown; do
+for case in fresh stock alternate active graphical-wants-disabled unknown; do
     echo "$case" >/run/preflight-case
     case "$case" in
         stock) package_fixture sddm 0.21.0-7;;
@@ -86,6 +93,16 @@ for case in fresh stock alternate active unknown; do
         out=$(user install --dry-run 2>&1) || rc=$?
         test "$rc" -eq 1
         grep -Fq 'unknown display-manager unit' <<< "$out"
+    elif [[ "$case" == graphical-wants-disabled ]]; then
+        for target in '' org.fplogin.adapter.sddm/sddm-local; do
+            args=()
+            if [[ -n "$target" ]]; then args=(--target "$target"); fi
+            rc=0
+            out=$(user install --dry-run "${args[@]}" 2>&1) || rc=$?
+            test "$rc" -eq 1
+            grep -Fq "despite unit-file state" <<< "$out"
+            if grep -Fq "Preview SHA-256:" <<< "$out"; then exit 1; fi
+        done
     else
         select=$(user install --dry-run)
         grep -Fq 'Selectable preview: org.fplogin.adapter.sddm/sddm-local' <<< "$select"

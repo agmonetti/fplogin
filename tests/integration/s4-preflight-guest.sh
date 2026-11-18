@@ -33,16 +33,20 @@ preview() {
     local target=org.fplogin.adapter.sddm/sddm-local
     inventory=$(user fplogin install --dry-run 2>&1) || rc=$?
     printf '%s\n' "$inventory"
-    if [[ $case == unknown ]]; then
+    if [[ $case == unknown || $case == graphical-wants-disabled ]]; then
+        local reason='unclassified graphical.target service "custom-dm.service"'
+        if [[ $case == graphical-wants-disabled ]]; then
+            reason='graphical.target starts "greetd.service" despite unit-file state "disabled"'
+        fi
         [[ $rc == 1 ]]
         out=$inventory
-        match 'unclassified graphical.target service "custom-dm.service"'
+        match "$reason"
         match 'No changes were made.'
         not_match 'Preview SHA-256:'
         rc=0
         out=$(user fplogin install --dry-run --target "$target" 2>&1) || rc=$?
         [[ $rc == 1 ]]
-        match 'unclassified graphical.target service "custom-dm.service"'
+        match "$reason"
         not_match 'Preview SHA-256:'
     else
         [[ $rc == 0 ]]
@@ -111,6 +115,14 @@ systemctl disable greetd.service
 systemctl show -p LoadState,ActiveState,UnitFileState greetd.service
 preview active-disabled
 systemctl stop greetd.service
+test "$(systemctl show -p ActiveState --value greetd.service)" = inactive
+test "$(systemctl show -p UnitFileState --value greetd.service)" = disabled
+mkdir -p /etc/systemd/system/graphical.target.d
+printf '[Unit]\nWants=greetd.service\n' >/etc/systemd/system/graphical.target.d/95-f03.conf
+systemctl daemon-reload
+preview graphical-wants-disabled
+rm /etc/systemd/system/graphical.target.d/95-f03.conf
+systemctl daemon-reload
 printf '[Service]\nExecStart=/usr/bin/true\n' >/etc/systemd/system/custom-dm.service
 ln -s custom-dm.service /etc/systemd/system/display-manager.service
 systemctl daemon-reload

@@ -156,20 +156,32 @@ func queryServices(ctx context.Context, packages []platformv1.PackageCandidate, 
 	if err != nil {
 		return nil, err
 	}
-	graphical, err := query(ctx, "/usr/bin/systemctl", "--system", "--no-pager", "show", "--property=Wants,Requires", "--", "graphical.target")
+	graphical, err := query(ctx, "/usr/bin/systemctl", "--system", "--no-pager", "show", "--all", "--property=Wants,Requires", "--", "graphical.target")
 	if err != nil {
 		return nil, err
 	}
+	bootServices := map[string]bool{}
+	dependencies := map[string]bool{}
 	for _, line := range strings.Split(strings.TrimSpace(graphical), "\n") {
 		key, value, ok := strings.Cut(line, "=")
-		if !ok || !protocol.OneOf(key, "Wants", "Requires") {
+		if !ok || !protocol.OneOf(key, "Wants", "Requires") || dependencies[key] {
 			return nil, fmt.Errorf("unknown graphical.target dependencies")
 		}
+		dependencies[key] = true
 		for _, unit := range strings.Fields(value) {
-			if strings.HasSuffix(unit, ".service") && !known[unit] && !strings.HasPrefix(unit, "ly@") {
+			if !strings.HasSuffix(unit, ".service") {
+				continue
+			}
+			if !known[unit] && !strings.HasPrefix(unit, "ly@") {
 				return nil, fmt.Errorf("unclassified graphical.target service %q", unit)
 			}
+			if unit != "display-manager.service" {
+				bootServices[unit] = true
+			}
 		}
+	}
+	if len(dependencies) != 2 {
+		return nil, fmt.Errorf("incomplete graphical.target dependencies")
 	}
 	present := map[string]bool{}
 	for _, list := range []string{files, loaded} {
@@ -244,6 +256,12 @@ func queryServices(ctx context.Context, packages []platformv1.PackageCandidate, 
 		case "static":
 			s.Enabled, s.Configurable = "no", "no"
 		}
+		// shortcut: systemd can canonicalize the alias to an enabled unit; verify dependency provenance before supporting mutation.
+		if (bootServices[unit] || bootServices[id]) && s.Enabled != "yes" {
+			return nil, fmt.Errorf("graphical.target starts %q despite unit-file state %q", id, enabled)
+		}
+		delete(bootServices, unit)
+		delete(bootServices, id)
 		if unit == "display-manager.service" && s.Enabled != "yes" || s.Active == "unknown" || s.Enabled == "unknown" {
 			return nil, fmt.Errorf("unknown or contradictory service state: %s -> %s (%s/%s)", unit, id, active, enabled)
 		}
@@ -254,6 +272,9 @@ func queryServices(ctx context.Context, packages []platformv1.PackageCandidate, 
 			s.Evidence = append(prior.Evidence, s.Evidence...)
 		}
 		found[id] = s
+	}
+	if len(bootServices) != 0 {
+		return nil, fmt.Errorf("graphical.target display-manager dependency missing from service inventory")
 	}
 	result := make([]platformv1.ServiceCandidate, 0, len(found))
 	for _, s := range found {

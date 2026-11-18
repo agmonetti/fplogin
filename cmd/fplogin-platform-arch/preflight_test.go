@@ -22,7 +22,7 @@ func TestParsePackages(t *testing.T) {
 
 func TestServiceInventory(t *testing.T) {
 	for _, tc := range []struct {
-		name, files, loaded, id, active, enabled, want string
+		name, files, loaded, id, active, enabled, graphical, want string
 	}{
 		{name: "no display manager", files: "dbus.service static -\n", loaded: "dbus.service loaded active running D-Bus\n"},
 		{name: "stock", files: "sddm.service enabled disabled\ndisplay-manager.service alias -\n", id: "sddm.service", active: "active", enabled: "enabled", want: "yes/yes"},
@@ -30,6 +30,11 @@ func TestServiceInventory(t *testing.T) {
 		{name: "active disabled", loaded: "lightdm.service loaded active running LightDM\n", id: "lightdm.service", active: "active", enabled: "disabled", want: "yes/no"},
 		{name: "unknown alias", files: "display-manager.service alias -\n", id: "custom.service", active: "active", enabled: "enabled", want: "error"},
 		{name: "runtime enabled", files: "gdm.service enabled-runtime -\n", id: "gdm.service", active: "active", enabled: "enabled-runtime", want: "error"},
+		{name: "canonical stock dependency", files: "sddm.service enabled disabled\n", id: "sddm.service", active: "inactive", enabled: "enabled", graphical: "Wants=sddm.service\nRequires=multi-user.target\n", want: "no/yes"},
+		{name: "graphical wants disabled DM", files: "greetd.service disabled disabled\n", id: "greetd.service", active: "inactive", enabled: "disabled", graphical: "Wants=greetd.service\nRequires=multi-user.target\n", want: "error"},
+		{name: "graphical requires static DM", files: "greetd.service static -\n", id: "greetd.service", active: "inactive", enabled: "static", graphical: "Wants=\nRequires=greetd.service multi-user.target\n", want: "error"},
+		{name: "graphical dependency not in inventory", graphical: "Wants=ly@tty2.service\nRequires=multi-user.target\n", want: "error"},
+		{name: "partial graphical report", graphical: "Requires=multi-user.target\n", want: "error"},
 		{name: "bus failure", loaded: "error", want: "error"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -47,7 +52,10 @@ func TestServiceInventory(t *testing.T) {
 					}
 					return tc.loaded, nil
 				case strings.HasSuffix(text, " graphical.target"):
-					return "Wants=display-manager.service\nRequires=multi-user.target\n", nil
+					if tc.graphical != "" {
+						return tc.graphical, nil
+					}
+					return "Wants=\nRequires=multi-user.target\n", nil
 				case strings.Contains(text, " show "):
 					return "Id=" + tc.id + "\nLoadState=loaded\nActiveState=" + tc.active + "\nUnitFileState=" + tc.enabled + "\n", nil
 				default:
