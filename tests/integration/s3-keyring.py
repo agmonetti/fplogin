@@ -69,6 +69,10 @@ def verify(directory, user):
     with (directory / 'trace.txt').open(encoding='ascii') as f:
         for i, line in enumerate(f):
             require(i < 500 and len(line) < 128, 'capture exceeds single-attempt bounds')
+            # bpftrace can emit empty lines while flushing after END.
+            if ends:
+                require(line == '\n', 'unexpected trace record after end')
+                continue
             health = HEALTH.fullmatch(line.rstrip('\n'))
             if health:
                 (heartbeats if health[1] == 'heartbeat' else ends).append(int(health[2]))
