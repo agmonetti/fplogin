@@ -9,8 +9,8 @@ BIN_ADAPTER := $(BIN_DIR)/fplogin-adapter-sddm
 
 all: build
 
-# Full CI target (lint, test, fuzz, package verification, binary compilation)
-ci: lint test fuzz package build
+# Portable CI target; the Arch package is verified separately.
+ci: lint test fuzz build
 
 
 # Build all three executables (Core CLI, Arch Platform Provider, SDDM Adapter)
@@ -52,8 +52,8 @@ coverage:
 	go tool cover -html=target/coverage/coverage.out -o target/coverage/coverage.html
 	@echo "Coverage HTML generated at target/coverage/coverage.html"
 
-# Package verification and staging validation
-package: build
+# Real Arch tools package build (run in an isolated Arch build environment)
+package:
 	@bash scripts/verify_package.sh
 
 # Clean build artifacts
