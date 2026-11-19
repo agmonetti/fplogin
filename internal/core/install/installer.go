@@ -22,10 +22,11 @@ import (
 var (
 	ErrNoCompatibleTargets = errors.New("no compatible display manager targets detected")
 	ErrPrerequisiteFailed  = errors.New("adapter prerequisite check failed")
-	ErrApprovalRequired    = errors.New("explicit approval required for package installation or DM replacement")
+	ErrApprovalRequired    = errors.New("explicit approval of the exact change plan is required")
 	ErrPrivilegesRequired  = errors.New("root privileges required to execute transaction mutations; run with sudo or elevated privileges")
 	ErrVerificationFailed  = errors.New("post-installation verification failed")
 	ErrTransactionAborted  = errors.New("installation transaction failed and was rolled back")
+	ErrRecoveryRequired    = errors.New("installation transaction needs recovery")
 )
 
 // AdapterInvoker provides the adapter protocol methods needed by the installer.
@@ -55,7 +56,7 @@ type Config struct {
 	ProviderDirs       []string
 	TargetDMID         string // Optional override from CLI (--target)
 	DryRun             bool
-	AutoApprove        bool   // --yes / non-interactive
+	ApprovePlan        func(planDigest string, replacesDM bool) error
 	JournalDir         string // defaults to /var/lib/fplogin/transactions
 	ManifestPath       string // defaults to /var/lib/fplogin/manifest.json
 	BackupDir          string
@@ -76,6 +77,21 @@ type Result struct {
 	JournalPath      string                        `json:"journal_path,omitempty"`
 }
 
+func rollbackAfterError(ctx context.Context, executor *Executor, cause error) error {
+	if _, err := executor.Rollback(ctx); err != nil {
+		return fmt.Errorf("%w: %w (rollback failed: %w)", ErrRecoveryRequired, cause, err)
+	}
+	return cause
+}
+
+func changePlanDigest(plan adapterv1.ChangePlan) (string, error) {
+	data, err := json.Marshal(plan)
+	if err != nil {
+		return "", err
+	}
+	return sha256Hex(data), nil
+}
+
 // Run executes the 13 phases of installation.
 func Run(ctx context.Context, cfg Config) (*Result, error) {
 	if cfg.CoreVersion == "" {
@@ -86,6 +102,24 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 	}
 	if cfg.ManifestPath == "" {
 		cfg.ManifestPath = "/var/lib/fplogin/manifest.json"
+	}
+
+	if !cfg.DryRun {
+		if !cfg.Host.Elevated && os.Geteuid() != 0 {
+			return nil, ErrPrivilegesRequired
+		}
+		stateRoot := filepath.Dir(cfg.JournalDir)
+		if cfg.JournalDir != filepath.Join(stateRoot, "transactions") || cfg.ManifestPath != filepath.Join(stateRoot, "manifest.json") {
+			return nil, errors.New("manifest and transactions must share the canonical transaction state root")
+		}
+		lock, err := transaction.AcquireLock(stateRoot)
+		if err != nil {
+			return nil, err
+		}
+		defer lock.Close()
+		if err := transaction.CheckNoUnresolved(cfg.JournalDir); err != nil {
+			return nil, err
+		}
 	}
 
 	// -------------------------------------------------------------------------
@@ -185,26 +219,30 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 	// -------------------------------------------------------------------------
 	// Fase 6: Barrera de aprobación explícita
 	// -------------------------------------------------------------------------
-	hasPackageInstall := false
-	for _, op := range plan.Operations {
-		if op.Kind == protocol.InstallPackageArtifact {
-			hasPackageInstall = true
-			break
-		}
+	planBytes, err := json.Marshal(plan)
+	if err != nil {
+		return nil, err
 	}
-	replacesDM := dmState.Active == "yes" && dmState.Enabled == "yes"
-
-	if (hasPackageInstall || replacesDM) && !cfg.AutoApprove {
+	// Freeze the approved content; later adapter calls cannot mutate this copy.
+	plan, err = adapterv1.DecodeChangePlan(planBytes)
+	if err != nil {
+		return nil, err
+	}
+	planDigest, err := changePlanDigest(plan)
+	if err != nil {
+		return nil, err
+	}
+	replacesDM := dmState.Active == "yes" || dmState.Enabled == "yes"
+	if cfg.ApprovePlan == nil {
 		return nil, ErrApprovalRequired
+	}
+	if err := cfg.ApprovePlan(planDigest, replacesDM); err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrApprovalRequired, err)
 	}
 
 	// -------------------------------------------------------------------------
 	// Fase 7: Persistir y fsync transaction journal ANTES de la mutación
 	// -------------------------------------------------------------------------
-	if !cfg.Host.Elevated && os.Geteuid() != 0 {
-		return nil, ErrPrivilegesRequired
-	}
-
 	txID := fmt.Sprintf("tx-%d", time.Now().UnixNano())
 	journalPath := filepath.Join(cfg.JournalDir, txID+".json")
 
@@ -212,9 +250,6 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 	for i, op := range plan.Operations {
 		opOrder[i] = op.OperationID
 	}
-
-	planBytes, _ := json.Marshal(plan)
-	planDigest := sha256Hex(planBytes)
 
 	now := time.Now().UTC().Format(time.RFC3339)
 	initJournal := manifestv1.TransactionJournal{
@@ -289,9 +324,9 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 		// Rollback compensatorio
 		rbReceipts, rbErr := executor.Rollback(ctx)
 		if rbErr != nil {
-			return nil, fmt.Errorf("%w: %v (rollback also failed: %v)", ErrTransactionAborted, mutationErr, rbErr)
+			return nil, fmt.Errorf("%w: %w (rollback also failed: %w)", ErrRecoveryRequired, mutationErr, rbErr)
 		}
-		return nil, fmt.Errorf("%w: %v (compensated %d operations)", ErrTransactionAborted, mutationErr, len(rbReceipts))
+		return nil, fmt.Errorf("%w: %w (compensated %d operations)", ErrTransactionAborted, mutationErr, len(rbReceipts))
 	}
 
 	// -------------------------------------------------------------------------
@@ -299,13 +334,11 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 	// -------------------------------------------------------------------------
 	verifyReport, err := cfg.AdapterInvoker.Verify(ctx, selectedAdapter, cfg.Host)
 	if err != nil {
-		_, _ = executor.Rollback(ctx)
-		return nil, fmt.Errorf("%w: %v", ErrVerificationFailed, err)
+		return nil, rollbackAfterError(ctx, executor, fmt.Errorf("%w: %w", ErrVerificationFailed, err))
 	}
 	for _, chk := range verifyReport.Checks {
 		if chk.Severity == "required" && chk.Status != "passed" {
-			_, _ = executor.Rollback(ctx)
-			return nil, fmt.Errorf("%w: check %q status is %s", ErrVerificationFailed, chk.CheckID, chk.Status)
+			return nil, rollbackAfterError(ctx, executor, fmt.Errorf("%w: check %q status is %s", ErrVerificationFailed, chk.CheckID, chk.Status))
 		}
 	}
 
@@ -390,12 +423,11 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 	}
 
 	if err := manifest.Publish(cfg.ManifestPath, installManifest); err != nil {
-		_, _ = executor.Rollback(ctx)
-		return nil, fmt.Errorf("phase 12 (publish manifest): %w", err)
+		return nil, rollbackAfterError(ctx, executor, fmt.Errorf("phase 12 (publish manifest): %w", err))
 	}
 
 	if err := j.Checkpoint(); err != nil {
-		return nil, fmt.Errorf("complete transaction %q: %w", txID, err)
+		return nil, fmt.Errorf("%w: complete transaction %q: %w", ErrRecoveryRequired, txID, err)
 	}
 
 	// -------------------------------------------------------------------------

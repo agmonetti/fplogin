@@ -118,7 +118,9 @@ func (e *Executor) Execute(ctx context.Context, op protocol.Operation) (manifest
 		if failedReceipt.BeforeState == nil {
 			failedReceipt.BeforeState = protocol.Object{"existed": json.RawMessage(`false`)}
 		}
-		_ = e.Journal.RecordResult(op.OperationID, failedReceipt)
+		if err := e.Journal.RecordResult(op.OperationID, failedReceipt); err != nil {
+			return failedReceipt, errors.Join(execErr, fmt.Errorf("record failed receipt for %q: %w", op.OperationID, err))
+		}
 		return failedReceipt, execErr
 	}
 
@@ -171,7 +173,7 @@ func (e *Executor) Rollback(ctx context.Context) ([]manifestv1.OperationReceipt,
 		}
 
 		if err := e.Journal.RecordRollback(receipt.OperationID, rbReceipt); err != nil {
-			rollbackErrors = append(rollbackErrors, fmt.Errorf("record rollback for %q: %w", receipt.OperationID, err))
+			return rollbackReceipts, errors.Join(errors.Join(rollbackErrors...), fmt.Errorf("record rollback for %q: %w", receipt.OperationID, err))
 		}
 
 		rollbackReceipts = append(rollbackReceipts, rbReceipt)

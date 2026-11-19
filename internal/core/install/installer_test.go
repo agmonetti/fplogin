@@ -13,6 +13,7 @@ import (
 	"fplogin/internal/adapterclient"
 	"fplogin/internal/core/discovery"
 	"fplogin/internal/core/manifest"
+	"fplogin/internal/core/transaction"
 	"fplogin/internal/platformclient"
 	"fplogin/internal/protocol"
 	adapterv1 "fplogin/internal/protocol/adapter/v1"
@@ -39,15 +40,15 @@ func (f *fakeProviderDiscoverer) Discover(ctx context.Context, paths []string, h
 }
 
 type fakeAdapterInvoker struct {
-	detectReport  adapterv1.DetectionReport
-	prereqReport  adapterv1.PrerequisiteReport
-	dmState       adapterv1.DisplayManagerState
-	plan          adapterv1.ChangePlan
-	artifacts     adapterv1.ArtifactSet
-	verifyReport  adapterv1.VerificationReport
-	planErr       error
-	verifyErr     error
-	beforeVerify  func()
+	detectReport adapterv1.DetectionReport
+	prereqReport adapterv1.PrerequisiteReport
+	dmState      adapterv1.DisplayManagerState
+	plan         adapterv1.ChangePlan
+	artifacts    adapterv1.ArtifactSet
+	verifyReport adapterv1.VerificationReport
+	planErr      error
+	verifyErr    error
+	beforeVerify func()
 }
 
 func (f *fakeAdapterInvoker) Detect(ctx context.Context, adapter discovery.Adapter, host protocol.HostContext) (adapterv1.DetectionReport, error) {
@@ -204,13 +205,13 @@ func setupTestFixtures(tmpDir string) (Config, *fakeAdapterInvoker, *fakePlatfor
 		PlatformInvoker:    platInvoker,
 		AdapterDirs:        []string{filepath.Join(tmpDir, "adapters")},
 		ProviderDirs:       []string{filepath.Join(tmpDir, "providers")},
-		JournalDir:         filepath.Join(tmpDir, "transactions"),
-		ManifestPath:       filepath.Join(tmpDir, "manifest.json"),
-		BackupDir:          filepath.Join(tmpDir, "backups"),
+		JournalDir:         filepath.Join(tmpDir, "state", "transactions"),
+		ManifestPath:       filepath.Join(tmpDir, "state", "manifest.json"),
+		BackupDir:          filepath.Join(tmpDir, "state", "backups"),
 		Host: protocol.HostContext{
 			Elevated: true,
 		},
-		AutoApprove: true,
+		ApprovePlan: func(string, bool) error { return nil },
 	}
 
 	return cfg, adInvoker, platInvoker
@@ -243,9 +244,23 @@ func TestRun_FullInstallSuccess(t *testing.T) {
 	tmpDir := t.TempDir()
 	cfg, _, _ := setupTestFixtures(tmpDir)
 
+	var approved string
+	cfg.ApprovePlan = func(digest string, _ bool) error { approved = digest; return nil }
 	res, err := Run(context.Background(), cfg)
 	if err != nil {
 		t.Fatalf("Run failed: %v", err)
+	}
+	j, err := transaction.Open(res.JournalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := j.Data()
+	if data.AcceptedPlan.PlanDigest != approved || approved == res.Plan.CanonicalPlanDigest {
+		t.Fatal("journal did not persist the core-approved digest")
+	}
+	res.Plan.Operations[0].Compensation = json.RawMessage(`{"kind":"remove_directory","path":"/another-directory"}`)
+	if digest, err := changePlanDigest(res.Plan); err != nil || digest == approved {
+		t.Fatalf("changing the operation did not produce a different digest: %v", err)
 	}
 
 	if res.DryRun {
@@ -280,7 +295,7 @@ func TestRun_CheckpointFailureDoesNotReportSuccess(t *testing.T) {
 		}
 	}
 	res, err := Run(context.Background(), cfg)
-	if res != nil || !errors.Is(err, syscall.ENOTDIR) {
+	if res != nil || !errors.Is(err, syscall.ENOTDIR) || !errors.Is(err, ErrRecoveryRequired) {
 		t.Fatalf("expected checkpoint failure and no success result, got %+v, %v", res, err)
 	}
 }
@@ -302,7 +317,7 @@ func TestRun_PrivilegesRequired(t *testing.T) {
 func TestRun_ApprovalRequired(t *testing.T) {
 	tmpDir := t.TempDir()
 	cfg, adInvoker, _ := setupTestFixtures(tmpDir)
-	cfg.AutoApprove = false
+	cfg.ApprovePlan = nil
 	// Simulate existing active DM that would be replaced
 	adInvoker.dmState.Active = "yes"
 	adInvoker.dmState.Enabled = "yes"
@@ -310,6 +325,45 @@ func TestRun_ApprovalRequired(t *testing.T) {
 	_, err := Run(context.Background(), cfg)
 	if !errors.Is(err, ErrApprovalRequired) {
 		t.Fatalf("expected ErrApprovalRequired, got %v", err)
+	}
+}
+
+func TestRun_BlocksConcurrentAndUnresolvedTransactions(t *testing.T) {
+	cfg, adapter, _ := setupTestFixtures(t.TempDir())
+	adapter.beforeVerify = func() {
+		res, err := Run(context.Background(), cfg)
+		if res != nil || !errors.Is(err, transaction.ErrTransactionBusy) {
+			t.Fatalf("second run got %+v, %v; want transaction busy", res, err)
+		}
+	}
+	res, err := Run(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	adapter.beforeVerify = nil
+	if err := os.WriteFile(res.JournalPath, []byte("broken journal"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if res, err := Run(context.Background(), cfg); res != nil || !errors.Is(err, transaction.ErrUnresolvedTransaction) {
+		t.Fatalf("run with corrupt journal got %+v, %v; want unresolved transaction", res, err)
+	}
+}
+
+func TestRun_VerificationAndRollbackFailure(t *testing.T) {
+	cfg, adapter, _ := setupTestFixtures(t.TempDir())
+	verifyFailure := errors.New("verification failed")
+	adapter.verifyErr = verifyFailure
+	adapter.beforeVerify = func() {
+		if err := os.Rename(cfg.JournalDir, cfg.JournalDir+".preserved"); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(cfg.JournalDir, nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	res, err := Run(context.Background(), cfg)
+	if res != nil || !errors.Is(err, ErrRecoveryRequired) || !errors.Is(err, verifyFailure) || !errors.Is(err, syscall.ENOTDIR) || errors.Is(err, ErrTransactionAborted) {
+		t.Fatalf("expected both causes and recovery required, got %+v, %v", res, err)
 	}
 }
 

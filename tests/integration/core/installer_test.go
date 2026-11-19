@@ -235,6 +235,9 @@ func buildIntegrationFixture(t *testing.T, tmpDir string, failOpID string) (inst
 
 	platInvoker := &fakePlatformInvoker{failOnOpID: failOpID}
 
+	if err := os.MkdirAll(filepath.Join(tmpDir, "var", "lib"), 0o700); err != nil {
+		t.Fatal(err)
+	}
 	cfg := install.Config{
 		AdapterDiscoverer:  &fakeDiscoverer[adapterclient.Discovered]{items: []adapterclient.Discovered{adDiscovered}},
 		ProviderDiscoverer: &fakeDiscoverer[platformclient.Discovered]{items: []platformclient.Discovered{prDiscovered}},
@@ -246,7 +249,7 @@ func buildIntegrationFixture(t *testing.T, tmpDir string, failOpID string) (inst
 		Host: protocol.HostContext{
 			Elevated: true,
 		},
-		AutoApprove: true,
+		ApprovePlan: func(string, bool) error { return nil },
 	}
 
 	return cfg, file1Path, file2Path

@@ -88,10 +88,11 @@ func (diskSyncer) WriteAndSync(path string, data []byte, perm os.FileMode) error
 
 // Journal manages the persistence of a single transaction journal.
 type Journal struct {
-	mu     sync.Mutex
-	path   string
-	syncer Syncer
-	data   manifestv1.TransactionJournal
+	mu       sync.Mutex
+	path     string
+	syncer   Syncer
+	data     manifestv1.TransactionJournal
+	writeErr error // A failed sync may follow rename; only reopening can reconcile it.
 }
 
 // SetSyncer sets a custom syncer, primarily for testing simulated fsync or write failures.
@@ -338,6 +339,9 @@ func (j *Journal) Recovery() ([]manifestv1.OperationReceipt, error) {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 
+	if j.writeErr != nil {
+		return nil, j.writeErr
+	}
 	var toCompensate []manifestv1.OperationReceipt
 	// Traverse in reverse order of application
 	for i := len(j.data.AppliedOperations) - 1; i >= 0; i-- {
@@ -351,7 +355,15 @@ func (j *Journal) Recovery() ([]manifestv1.OperationReceipt, error) {
 
 // flushLocked marshals, validates secrets, and writes/fsyncs j.data to disk.
 // Must be called with j.mu held.
-func (j *Journal) flushLocked() error {
+func (j *Journal) flushLocked() (err error) {
+	if j.writeErr != nil {
+		return j.writeErr
+	}
+	defer func() {
+		if err != nil {
+			j.writeErr = err
+		}
+	}()
 	if err := j.data.Validate(); err != nil {
 		return fmt.Errorf("journal validation failed before flush: %w", err)
 	}

@@ -291,6 +291,20 @@ func TestFsyncFailure_Injected(t *testing.T) {
 	if err == nil || !errors.Is(err, injectedErr) {
 		t.Fatalf("expected injected error %v, got %v", injectedErr, err)
 	}
+	j.SetSyncer(diskSyncer{})
+	if err := j.Checkpoint(); !errors.Is(err, injectedErr) {
+		t.Fatalf("checkpoint after failed sync returned %v", err)
+	}
+	if _, err := j.Recovery(); !errors.Is(err, injectedErr) {
+		t.Fatalf("recovery used speculative journal state: %v", err)
+	}
+	reopened, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reopened.State() != "prepared" {
+		t.Fatalf("on-disk state overwritten: %s", reopened.State())
+	}
 }
 
 func TestSecretsRejection(t *testing.T) {
