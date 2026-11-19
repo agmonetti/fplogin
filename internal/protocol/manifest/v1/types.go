@@ -79,7 +79,7 @@ type OperationReceipt struct {
 }
 
 func (r OperationReceipt) Validate(journal bool) error {
-	if r.OperationID == "" || r.Compensation == nil || !protocol.OneOf(r.Status, "success", "failed", "rolled_back", "rollback_failed") {
+	if r.OperationID == "" || r.Compensation == nil || !(protocol.OneOf(r.Status, "success", "failed", "rolled_back", "rollback_failed") || journal && r.Status == "pending" && IsRecoverableFileKind(r.Kind)) {
 		return errors.New("invalid operation receipt")
 	}
 	if err := r.Kind.Validate(); err != nil {
@@ -96,7 +96,12 @@ func (r OperationReceipt) Validate(journal bool) error {
 	return protocol.ValidTimestamp(r.CompletedAt)
 }
 
+func IsRecoverableFileKind(kind protocol.OperationKind) bool {
+	return kind == protocol.WriteFileAtomic || kind == protocol.RemoveOwnedFile
+}
+
 type TransactionJournal struct {
+	FileRecovery        bool               `json:"file_recovery,omitempty"`
 	SchemaVersion       string             `json:"schema_version"`
 	TransactionID       string             `json:"transaction_id"`
 	State               string             `json:"state"`
@@ -156,13 +161,30 @@ func (j TransactionJournal) Validate() error {
 		}
 		ordered[operationID] = struct{}{}
 	}
-	for _, receipt := range j.AppliedOperations {
+	seen := make(map[string]bool, len(j.AppliedOperations))
+	for i, receipt := range j.AppliedOperations {
+		if seen[receipt.OperationID] {
+			return fmt.Errorf("duplicate operation receipt %q", receipt.OperationID)
+		}
+		seen[receipt.OperationID] = true
+		if receipt.Status == "pending" && (!j.FileRecovery || i != len(j.AppliedOperations)-1 || !protocol.OneOf(j.State, "applying", "rolling_back")) {
+			return errors.New("invalid pending file intent")
+		}
+		if j.FileRecovery && (i >= len(j.OperationOrder) || j.OperationOrder[i] != receipt.OperationID || !IsRecoverableFileKind(receipt.Kind)) {
+			return errors.New("invalid order or operation kind in recoverable file journal")
+		}
+		if (j.State == "completed" && receipt.Status != "success") || (j.State == "rolled_back" && receipt.Status != "rolled_back" && (j.FileRecovery || receipt.Status != "failed")) {
+			return errors.New("unresolved receipt in terminal journal")
+		}
 		if _, exists := ordered[receipt.OperationID]; !exists {
 			return fmt.Errorf("receipt references unknown operation %q", receipt.OperationID)
 		}
 		if err := receipt.Validate(true); err != nil {
 			return err
 		}
+	}
+	if j.FileRecovery && j.State == "completed" && len(j.AppliedOperations) != len(j.OperationOrder) {
+		return errors.New("completed journal is missing operations")
 	}
 	return nil
 }

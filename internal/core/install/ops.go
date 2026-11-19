@@ -42,6 +42,7 @@ type Executor struct {
 	Journal   *transaction.Journal
 	Platform  PlatformApplier
 	BackupDir string
+	allowFile func(path string) bool
 }
 
 // NewExecutor creates a new Executor. If backupDir is empty, a directory
@@ -68,6 +69,10 @@ func NewExecutor(j *transaction.Journal, platform PlatformApplier, backupDir str
 func (e *Executor) Execute(ctx context.Context, op protocol.Operation) (manifestv1.OperationReceipt, error) {
 	if err := op.Validate(); err != nil {
 		return manifestv1.OperationReceipt{}, fmt.Errorf("validate operation %q: %w", op.OperationID, err)
+	}
+
+	if e.Journal.Data().FileRecovery {
+		return e.executeRecoverableFile(op)
 	}
 
 	startedAt := time.Now().UTC().Format(time.RFC3339)
@@ -152,7 +157,12 @@ func (e *Executor) Rollback(ctx context.Context) ([]manifestv1.OperationReceipt,
 
 	for _, receipt := range toCompensate {
 		startedAt := time.Now().UTC().Format(time.RFC3339)
-		compErr := e.compensateOperation(ctx, receipt)
+		var compErr error
+		if e.Journal.Data().FileRecovery {
+			compErr = e.restoreFile(receipt)
+		} else {
+			compErr = e.compensateOperation(ctx, receipt)
+		}
 		completedAt := time.Now().UTC().Format(time.RFC3339)
 
 		status := "rolled_back"
@@ -177,6 +187,9 @@ func (e *Executor) Rollback(ctx context.Context) ([]manifestv1.OperationReceipt,
 		}
 
 		rollbackReceipts = append(rollbackReceipts, rbReceipt)
+		if compErr != nil && e.Journal.Data().FileRecovery {
+			return rollbackReceipts, errors.Join(rollbackErrors...)
+		}
 	}
 
 	if len(rollbackErrors) > 0 {

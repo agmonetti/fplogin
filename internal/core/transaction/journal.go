@@ -206,6 +206,9 @@ func (j *Journal) RecordIntent(operationID string) error {
 		return fmt.Errorf("%w: %q", ErrUnknownOperation, operationID)
 	}
 
+	if j.data.FileRecovery {
+		return ErrInvalidState
+	}
 	// Must be in prepared or applying state to record intent
 	if j.data.State != "prepared" && j.data.State != "applying" {
 		return fmt.Errorf("%w: cannot record intent from state %q", ErrInvalidState, j.data.State)
@@ -214,6 +217,23 @@ func (j *Journal) RecordIntent(operationID string) error {
 	j.data.State = "applying"
 	j.data.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 
+	return j.flushLocked()
+}
+
+// RecordFileIntent appends the immutable recovery snapshot before a file change.
+func (j *Journal) RecordFileIntent(receipt manifestv1.OperationReceipt) error {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+
+	i := len(j.data.AppliedOperations)
+	if !j.data.FileRecovery || (j.data.State != "prepared" && j.data.State != "applying") ||
+		(i > 0 && j.data.AppliedOperations[i-1].Status != "success") ||
+		i >= len(j.data.OperationOrder) || j.data.OperationOrder[i] != receipt.OperationID || receipt.Status != "pending" {
+		return ErrInvalidState
+	}
+	j.data.AppliedOperations = append(j.data.AppliedOperations, receipt)
+	j.data.State = "applying"
+	j.data.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 	return j.flushLocked()
 }
 
@@ -233,6 +253,18 @@ func (j *Journal) RecordResult(operationID string, receipt manifestv1.OperationR
 	}
 	if err := receipt.Validate(true); err != nil {
 		return fmt.Errorf("invalid operation receipt: %w", err)
+	}
+
+	if j.data.FileRecovery {
+		i := len(j.data.AppliedOperations) - 1
+		if i < 0 || j.data.AppliedOperations[i].OperationID != operationID || j.data.AppliedOperations[i].Status != "pending" ||
+			(receipt.Status != "success" && receipt.Status != "failed") {
+			return ErrInvalidState
+		}
+		// Keep the durable before/after snapshots even when applying failed.
+		saved := j.data.AppliedOperations[i]
+		saved.Status, saved.CompletedAt = receipt.Status, receipt.CompletedAt
+		receipt = saved
 	}
 
 	// Update existing receipt or append new
@@ -276,12 +308,19 @@ func (j *Journal) RecordRollback(operationID string, receipt manifestv1.Operatio
 	found := false
 	for i, existing := range j.data.AppliedOperations {
 		if existing.OperationID == operationID {
+			if j.data.FileRecovery {
+				existing.Status, existing.CompletedAt = receipt.Status, receipt.CompletedAt
+				receipt = existing
+			}
 			j.data.AppliedOperations[i] = receipt
 			found = true
 			break
 		}
 	}
 	if !found {
+		if j.data.FileRecovery {
+			return ErrInvalidState
+		}
 		j.data.AppliedOperations = append(j.data.AppliedOperations, receipt)
 	}
 
@@ -346,7 +385,7 @@ func (j *Journal) Recovery() ([]manifestv1.OperationReceipt, error) {
 	// Traverse in reverse order of application
 	for i := len(j.data.AppliedOperations) - 1; i >= 0; i-- {
 		op := j.data.AppliedOperations[i]
-		if op.Status == "success" {
+		if op.Status == "success" || (j.data.FileRecovery && op.Status != "rolled_back") {
 			toCompensate = append(toCompensate, op)
 		}
 	}

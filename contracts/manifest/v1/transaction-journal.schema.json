@@ -19,6 +19,7 @@
   ],
   "additionalProperties": false,
   "properties": {
+    "file_recovery": { "type": "boolean" },
     "schema_version": {
       "type": "string",
       "pattern": "^[0-9]+\\.[0-9]+$"
@@ -161,7 +162,7 @@
         "completed_at": { "type": "string", "format": "date-time" },
         "status": {
           "type": "string",
-          "enum": ["success", "failed", "rolled_back", "rollback_failed"]
+          "enum": ["pending", "success", "failed", "rolled_back", "rollback_failed"]
         },
         "before_state": { "type": "object" },
         "after_state": { "type": "object" },

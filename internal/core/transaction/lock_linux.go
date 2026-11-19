@@ -42,6 +42,56 @@ func CheckNoUnresolved(dir string) error {
 	return nil
 }
 
+// OpenLocked opens a private journal while the caller holds the state lock.
+func OpenLocked(root, id string) (*Journal, error) {
+	if id == "" || filepath.Base(id) != id || id == "." || id == ".." {
+		return nil, ErrCorruptJournal
+	}
+	path := filepath.Join(root, "transactions", id+".json")
+	info, err := os.Lstat(path)
+	if err != nil {
+		return nil, err
+	}
+	st := info.Sys().(*syscall.Stat_t)
+	if info.Mode() != 0o600 || st.Uid != uint32(os.Geteuid()) || st.Nlink != 1 {
+		return nil, ErrCorruptJournal
+	}
+	j, err := Open(path)
+	if err == nil && j.Data().TransactionID != id {
+		return nil, ErrCorruptJournal
+	}
+	return j, err
+}
+
+// OpenBackupDir prepares and syncs the canonical private backup directory.
+// The caller must hold the shared state lock.
+func OpenBackupDir(root, id string) (string, error) {
+	if id == "" || filepath.Base(id) != id || id == "." || id == ".." {
+		return "", ErrCorruptJournal
+	}
+	state, err := os.Open(root)
+	if err != nil {
+		return "", err
+	}
+	defer state.Close()
+	backups, err := openPrivateDir(state, "backups")
+	if err != nil {
+		return "", err
+	}
+	defer backups.Close()
+	tx, err := openPrivateDir(backups, id)
+	if err != nil {
+		return "", err
+	}
+	defer tx.Close()
+	for _, dir := range []*os.File{tx, backups, state} {
+		if err := dir.Sync(); err != nil {
+			return "", err
+		}
+	}
+	return tx.Name(), nil
+}
+
 // AcquireLock prepares the private state root and transactions directory, and
 // takes the shared lock for install, uninstall and recovery. The absolute root
 // must be under an existing trusted parent (e.g. /var/lib in production).
