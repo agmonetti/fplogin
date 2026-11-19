@@ -21,7 +21,7 @@ var (
 	ErrMalformedOutput  = errors.New("adapter emitted malformed stdout")
 	ErrIdentityMismatch = errors.New("adapter runtime identity does not match descriptor")
 	ErrDuplicateID      = errors.New("duplicate adapter ID")
-	ErrElevatedAdapter  = errors.New("adapter execution from an elevated process is disabled")
+	ErrElevatedAdapter  = errors.New("elevated adapter execution requires a configured unprivileged identity")
 )
 
 type Config struct {
@@ -30,6 +30,9 @@ type Config struct {
 	DescriptorMaxBytes int64
 	ProtocolMajor      int
 	CoreVersion        string
+	// AdapterUID and AdapterGID must name a dedicated identity chosen by trusted core wiring.
+	AdapterUID uint32
+	AdapterGID uint32
 }
 
 type Client struct{ config Config }
@@ -45,6 +48,9 @@ type Discovered struct {
 func New(config Config) (Client, error) {
 	if config.DescriptorMaxBytes <= 0 || config.ProtocolMajor < 1 || config.CoreVersion == "" {
 		return Client{}, errors.New("adapter client limits, protocol major, and core version are required")
+	}
+	if (config.AdapterUID == 0) != (config.AdapterGID == 0) || config.AdapterUID == ^uint32(0) || config.AdapterGID == ^uint32(0) {
+		return Client{}, ErrElevatedAdapter
 	}
 	return Client{config: config}, nil
 }
@@ -101,8 +107,8 @@ func (c Client) Discover(ctx context.Context, paths []string, host protocol.Host
 }
 
 func (c Client) Invoke(ctx context.Context, adapter Discovered, request adapterv1.Request) (adapterv1.Response, error) {
-	if descriptortrust.Elevated() || request.Context.Elevated {
-		return adapterv1.Response{}, ErrElevatedAdapter
+	if err := c.checkInvocation(adapter, request.Context.Elevated); err != nil {
+		return adapterv1.Response{}, err
 	}
 	if err := request.Validate(); err != nil {
 		return adapterv1.Response{}, fmt.Errorf("invalid adapter request: %w", err)
@@ -117,7 +123,13 @@ func (c Client) Invoke(ctx context.Context, adapter Discovered, request adapterv
 	deadline, _ := time.Parse(time.RFC3339, request.Context.Deadline)
 	invocationContext, cancel := context.WithDeadline(ctx, deadline)
 	defer cancel()
-	processResult, err := c.config.Runner.Run(invocationContext, adapter.ExecutablePath, input)
+	run := c.config.Runner.Run
+	if descriptortrust.Elevated() {
+		run = func(ctx context.Context, executable string, input []byte) (processrunner.Result, error) {
+			return c.config.Runner.RunUnprivileged(ctx, executable, input, c.config.AdapterUID, c.config.AdapterGID)
+		}
+	}
+	processResult, err := run(invocationContext, adapter.ExecutablePath, input)
 	if err != nil {
 		if processResult.ExitCode == 65 {
 			return adapterv1.Response{}, ErrProtocolMismatch
@@ -138,6 +150,26 @@ func (c Client) Invoke(ctx context.Context, adapter Discovered, request adapterv
 		return adapterv1.Response{}, fmt.Errorf("adapter selected unsupported protocol minor %d", response.ProtocolVersion.Minor)
 	}
 	return response, nil
+}
+
+func (c Client) checkInvocation(adapter Discovered, elevatedContext bool) error {
+	if !descriptortrust.Elevated() {
+		if elevatedContext {
+			return ErrElevatedAdapter
+		}
+		return nil
+	}
+	if c.config.AdapterUID == 0 || c.config.AdapterGID == 0 {
+		return ErrElevatedAdapter
+	}
+	current, err := c.LoadDescriptor(adapter.DescriptorPath)
+	if err != nil {
+		return err
+	}
+	if current.DescriptorSHA256 != adapter.DescriptorSHA256 || current.ExecutablePath != adapter.ExecutablePath || current.ProtocolVersion != adapter.ProtocolVersion {
+		return ErrIdentityMismatch
+	}
+	return nil
 }
 
 func (c Client) handshake(ctx context.Context, adapter Discovered, host protocol.HostContext) error {

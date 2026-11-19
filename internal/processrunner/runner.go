@@ -9,8 +9,11 @@ import (
 	"fmt"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"syscall"
 	"time"
+
+	"fplogin/internal/descriptortrust"
 )
 
 var (
@@ -45,6 +48,27 @@ func New(config Config) (Runner, error) {
 }
 
 func (r Runner) Run(ctx context.Context, executable string, input []byte) (Result, error) {
+	return r.run(ctx, executable, input, r.config.Arguments, r.config.Environment, "")
+}
+
+// RunUnprivileged launches a validated adapter with credentials supplied by trusted core wiring.
+func (r Runner) RunUnprivileged(ctx context.Context, executable string, input []byte, uid, gid uint32) (Result, error) {
+	if uid == 0 || gid == 0 || uid == ^uint32(0) || gid == ^uint32(0) {
+		return Result{}, errors.New("adapter requires a non-root uid and gid")
+	}
+	if !filepath.IsAbs(executable) || filepath.Clean(executable) != executable {
+		return Result{}, errors.New("adapter executable must be canonical and absolute")
+	}
+	const helper = "/usr/bin/setpriv"
+	if err := descriptortrust.ValidatePackagedExecutable(helper); err != nil {
+		return Result{}, fmt.Errorf("validate adapter credential helper: %w", err)
+	}
+	args := []string{"--no-new-privs", "--clear-groups", "--inh-caps=-all", "--ambient-caps=-all", "--bounding-set=-all",
+		"--reuid", strconv.FormatUint(uint64(uid), 10), "--regid", strconv.FormatUint(uint64(gid), 10), "--", executable}
+	return r.run(ctx, helper, input, args, nil, "/")
+}
+
+func (r Runner) run(ctx context.Context, executable string, input []byte, args, env []string, dir string) (Result, error) {
 	if !filepath.IsAbs(executable) || filepath.Clean(executable) != executable {
 		return Result{}, errors.New("protocol executable path must be canonical and absolute")
 	}
@@ -56,8 +80,9 @@ func (r Runner) Run(ctx context.Context, executable string, input []byte) (Resul
 
 	stdout := newLimitedBuffer(r.config.MaxStdoutBytes)
 	stderr := newLimitedBuffer(r.config.MaxStderrBytes)
-	command := exec.CommandContext(deadlineContext, executable, r.config.Arguments...)
-	command.Env = append(append([]string(nil), r.config.Environment...), "LANG=C", "LC_ALL=C")
+	command := exec.CommandContext(deadlineContext, executable, args...)
+	command.Dir = dir
+	command.Env = append(append([]string(nil), env...), "LANG=C", "LC_ALL=C")
 	command.Stdin = bytes.NewReader(input)
 	command.Stdout = stdout
 	command.Stderr = stderr
