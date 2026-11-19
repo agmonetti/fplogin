@@ -1784,28 +1784,28 @@
           "id": "S4-01",
           "title": "Preflight de Solo Lectura y Generador de Planes",
           "status": "partial",
-          "description": "El paquete Arch incluye install --dry-run. La matriz con systemd real pas\u00f3 en x86_64; no acepta aprobaciones ni ejecuta cambios (S4-F03).",
+          "description": "Preflight de solo lectura verificado: 13/13 casos con el paquete r8 y systemd real en Arch x86_64. No acepta aprobaciones ni ejecuta cambios (S4-F03).",
           "evidence": "docs/SPRINT_4_EXECUTION_PLAN.md"
         },
         {
           "id": "S4-02",
           "title": "Detecci\u00f3n Din\u00e1mica de Display Managers",
           "status": "partial",
-          "description": "El proveedor distingue paquete instalado, unidad habilitada y servicio activo. Verificado con SDDM y greetd en una VM Arch x86_64 (S4-F03).",
+          "description": "Detecta por separado paquete instalado, unidad habilitada y servicio activo. Verificado con SDDM y greetd; rechaza las dependencias de activaci\u00f3n ambiguas probadas (S4-F03).",
           "evidence": "docs/SPRINT_4_EXECUTION_PLAN.md"
         },
         {
           "id": "S4-03",
           "title": "Negociaci\u00f3n de Compatibilidad de Adaptadores",
           "status": "partial",
-          "description": "La CLI usa el contexto del host y el handshake de componentes. Con dos opciones compatibles no elige por el usuario (S4-F03).",
+          "description": "La CLI verifica el contexto del host y conecta los componentes. Si hay dos opciones compatibles, exige una selecci\u00f3n expl\u00edcita (S4-F03).",
           "evidence": "docs/SPRINT_4_EXECUTION_PLAN.md"
         },
         {
           "id": "S4-04",
           "title": "Descubrimiento y Ejecuci\u00f3n de Plataforma",
           "status": "partial",
-          "description": "El proveedor Arch ejecuta consultas de solo lectura a pacman y systemd. Las operaciones de mutaci\u00f3n siguen sin implementar (S4-F05).",
+          "description": "El proveedor Arch consulta pacman y systemd. Las operaciones de mutaci\u00f3n siguen sin implementar (S4-F05).",
           "evidence": "docs/reviews/cli-provider-audit-2026-11-12.md"
         },
         {
@@ -1819,7 +1819,7 @@
           "id": "S4-06",
           "title": "Confirmaci\u00f3n Expl\u00edcita ante Migraci\u00f3n de DM",
           "status": "pending",
-          "description": "El dry-run identifica el plan por SHA-256 e indica si reemplazar otro gestor habilitado requerir\u00eda una aprobaci\u00f3n separada. No recibe ni persiste aprobaciones.",
+          "description": "El dry-run identifica el plan por SHA-256 e indica cu\u00e1ndo hace falta una aprobaci\u00f3n separada. La aprobaci\u00f3n efectiva sigue pendiente.",
           "evidence": "docs/SPRINT_4_EXECUTION_PLAN.md"
         },
         {
