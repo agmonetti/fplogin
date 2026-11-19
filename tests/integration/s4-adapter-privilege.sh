@@ -12,6 +12,9 @@ cat > "$build/adapter-probe" <<'PROBE'
 #!/usr/bin/bash
 set -eu
 [[ $PWD == / && $# == 0 && ${FPL_UNSAFE_ENV-unset} == unset && $LC_ALL == C ]]
+for file in /var/lib/fplogin/{manifest.json,transactions/tx.json,backups/tx/file.bak}; do
+    [[ ! -r $file && ! -w $file ]]
+done
 /usr/bin/awk '
 /^Uid:/ { if (NF != 5 || $2 != 65534 || $3 != 65534 || $4 != 65534 || $5 != 65534) exit 1; uid++ }
 /^Gid:/ { if (NF != 5 || $2 != 65534 || $3 != 65534 || $4 != 65534 || $5 != 65534) exit 1; gid++ }
@@ -26,9 +29,14 @@ docker run --rm --pull=never --network=none --read-only --cap-drop=ALL \
     --cap-add=SETPCAP --cap-add=SETUID --cap-add=SETGID \
     --mount "type=bind,src=$build,dst=/fixture,readonly" \
     --tmpfs /usr/lib/fplogin:rw,exec,mode=0755 \
+    --tmpfs /var/lib/fplogin:rw,noexec,mode=0700 \
     --env FPL_ISOLATED_ADAPTER_TEST=1 "$image" /usr/bin/bash -euc '
     install -d /usr/lib/fplogin/adapters/bin /usr/lib/fplogin/adapters/assets
     install -m 0644 /fixture/sddm.json /usr/lib/fplogin/adapters/sddm.json
     install -m 0755 /fixture/adapter-probe /usr/lib/fplogin/adapters/bin/fplogin-adapter-sddm
+    install -d -m 0700 /var/lib/fplogin/transactions /var/lib/fplogin/backups /var/lib/fplogin/backups/tx
+    install -m 0600 /dev/null /var/lib/fplogin/manifest.json
+    install -m 0600 /dev/null /var/lib/fplogin/transactions/tx.json
+    install -m 0600 /dev/null /var/lib/fplogin/backups/tx/file.bak
     /fixture/adapter.test -test.v -test.run "^TestElevatedAdapterHandshake$"
 '
