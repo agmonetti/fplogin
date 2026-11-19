@@ -4,7 +4,7 @@
     "tagline": "Biometric Fingerprint Authentication for Linux Display Managers",
     "target_v1": "Arch Linux \u00b7 systemd \u00b7 SDDM 0.21.0 \u00b7 fprintd / libfprint \u00b7 Hyprland",
     "reference_hardware": "Synaptics 06cb:00bd (match-on-sensor USB)",
-    "last_updated": "2026-11-18",
+    "last_updated": "2026-11-19",
     "current_gate": "Sprint 4 (instalador transaccional)",
     "current_gate_status": "blocked",
     "latest_achievement": "S4-F01 verificado: install y uninstall deshabilitados antes de cualquier cambio. Sprint 3 sigue cerrado en su alcance Qt5/Qt6.",
@@ -773,7 +773,7 @@
           "id": "S4-05",
           "title": "Validaci\u00f3n de Prerrequisitos y Rutas Seguras",
           "status": "partial",
-          "description": "Existen validaciones de rutas, pero falta aplicar la pol\u00edtica de destinos en cada operaci\u00f3n (S4-F04).",
+          "description": "El motor elevado limita escritura y recuperaci\u00f3n al drop-in de tema de SDDM (S4-F04 verificado).",
           "evidence": "internal/core/install/ops.go"
         },
         {
@@ -787,42 +787,42 @@
           "id": "S4-07",
           "title": "Diario de Transacciones Pre-Mutaci\u00f3n (WAL)",
           "status": "partial",
-          "description": "Existe un diario; falta registrar y sincronizar el estado real previo a cada cambio (S4-F04).",
+          "description": "El motor de archivos sincroniza el plan, respaldos y estado previo antes de mutar (S4-F04 verificado).",
           "evidence": "internal/core/transaction/journal.go"
         },
         {
           "id": "S4-08",
           "title": "Durabilidad con Fsync y M\u00e1quina de Estados Monot\u00f3nica",
           "status": "partial",
-          "description": "Hay estados y llamadas a fsync; falta verificar los l\u00edmites de durabilidad y los fallos de sincronizaci\u00f3n (S4-F04).",
+          "description": "Verificados el fallo de sincronizaci\u00f3n sin mutaci\u00f3n y el bloqueo hasta recuperar (S4-F04).",
           "evidence": "internal/core/transaction/journal.go"
         },
         {
           "id": "S4-09",
           "title": "Motor de Operaciones de Archivo At\u00f3micas",
           "status": "partial",
-          "description": "Hay primitivas de escritura at\u00f3mica; falta verificarlas en el ciclo real con la pol\u00edtica de destinos (S4-F04/F05).",
+          "description": "Escritura confinada y at\u00f3mica probada en Arch aislado; falta integrarla con paquetes y servicios (S4-F05).",
           "evidence": "internal/core/install/ops.go"
         },
         {
           "id": "S4-10",
           "title": "Creaci\u00f3n de Directorios con Seguimiento de Rollback",
           "status": "partial",
-          "description": "Existe l\u00f3gica de creaci\u00f3n y limpieza de directorios; falta verificar la recuperaci\u00f3n tras una interrupci\u00f3n (S4-F04/F07).",
+          "description": "El motor elevado no crea directorios de destino; el ciclo real queda para S4-F07.",
           "evidence": "internal/core/install/ops.go"
         },
         {
           "id": "S4-11",
           "title": "Rotaci\u00f3n Autom\u00e1tica de Respaldos (.fplogin.bak.<ts>)",
           "status": "partial",
-          "description": "Existe l\u00f3gica de respaldo; falta garantizar su durabilidad y conservar la l\u00ednea base al repetir instalaciones (S4-F04/F06).",
+          "description": "Respaldos privados verificados y sincronizados en el motor de archivos; falta conservar la l\u00ednea base al reinstalar (S4-F06).",
           "evidence": "internal/core/install/ops.go"
         },
         {
           "id": "S4-12",
           "title": "Motor de Compensaci\u00f3n y Rollback ante Ca\u00eddas",
           "status": "partial",
-          "description": "Hay compensaci\u00f3n probada con dobles de prueba; falta recuperaci\u00f3n desde disco y restauraci\u00f3n verificada tras fallos reales (S4-F04/F05/F07).",
+          "description": "Recuperaci\u00f3n desde disco tras SIGKILL verificada para archivos; paquetes, servicios y ciclo completo siguen pendientes (S4-F05/F07).",
           "evidence": "internal/core/install/installer.go"
         },
         {
