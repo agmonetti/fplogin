@@ -29,7 +29,7 @@ func TestElevatedAdapterHandshake(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := adapterclient.Config{Runner: runner, DescriptorMaxBytes: 1 << 20, ProtocolMajor: 1, CoreVersion: "0.2.0"}
-	noIdentity, err := adapterclient.New(cfg)
+	client, err := adapterclient.New(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,13 +37,11 @@ func TestElevatedAdapterHandshake(t *testing.T) {
 	paths := []string{"/usr/lib/fplogin/adapters/sddm.json"}
 	host := protocol.HostContext{Root: "/", Platform: protocol.Object{}, Architecture: "x86_64", InvokingUID: 1000,
 		InvokingGID: 1000, Elevated: true, Locale: "C", DryRun: true, Deadline: time.Now().Add(time.Minute).UTC().Format(time.RFC3339)}
-	if _, err := noIdentity.Discover(ctx, paths, host); !errors.Is(err, adapterclient.ErrElevatedAdapter) {
-		t.Fatalf("missing identity did not prevent handshake: %v", err)
-	}
-	cfg.AdapterUID, cfg.AdapterGID = 65534, 65534
-	client, err := adapterclient.New(cfg)
-	if err != nil {
-		t.Fatal(err)
+	if os.Getenv("FPL_EXPECT_NO_IDENTITY") == "1" {
+		if _, err := client.Discover(ctx, paths, host); !errors.Is(err, adapterclient.ErrElevatedAdapter) {
+			t.Fatalf("missing or conflicting identity did not prevent handshake: %v", err)
+		}
+		return
 	}
 	found, err := client.Discover(ctx, paths, host)
 	if err != nil || len(found) != 1 {

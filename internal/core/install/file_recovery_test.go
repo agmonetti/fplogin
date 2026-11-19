@@ -83,6 +83,23 @@ func TestFileRecoveryChild(t *testing.T) {
 		t.Fatal(err)
 	}
 	path := filepath.Join(filepath.Dir(root), "target")
+	if os.Getenv("FPL_FILE_RECOVERY_SYSTEM") == "1" {
+		e, err := newFileExecutor(j, root, filePolicy(root, nil))
+		if err != nil {
+			t.Fatal(err)
+		}
+		allow := e.allowFile
+		checks := 0
+		e.allowFile = func(path string) bool {
+			checks++
+			if checks == 2 {
+				j.SetSyncer(stopBeforeResult("success"))
+			}
+			return allow(path)
+		}
+		_, err = e.Execute(context.Background(), systemWrite(systemThemeFile, systemThemeData))
+		t.Fatalf("expected SIGKILL at result persistence, got %v", err)
+	}
 	e, err := newFileExecutor(j, root, func(p string) bool { return p == path })
 	if err != nil {
 		t.Fatal(err)

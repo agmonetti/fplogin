@@ -40,6 +40,7 @@ package() {
 
     # 1. Authoritative Core Binary
     install -Dm755 bin/fplogin "${pkgdir}/usr/bin/fplogin"
+    install -Dm644 platforms/arch/fplogin.sysusers "${pkgdir}/usr/lib/sysusers.d/fplogin.conf"
 
     local components="${pkgdir}/usr/lib/fplogin"
     install -Dm755 bin/fplogin-platform-arch "${components}/platforms/bin/fplogin-platform-arch"

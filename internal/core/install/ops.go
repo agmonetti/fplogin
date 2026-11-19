@@ -39,10 +39,11 @@ type PlatformApplier interface {
 // Executor coordinates the execution of operations with pre-mutation journaling,
 // rollback compensation, and backup persistence.
 type Executor struct {
-	Journal   *transaction.Journal
-	Platform  PlatformApplier
-	BackupDir string
-	allowFile func(path string) bool
+	Journal     *transaction.Journal
+	Platform    PlatformApplier
+	BackupDir   string
+	allowFile   func(path string) bool
+	systemFiles bool
 }
 
 // NewExecutor creates a new Executor. If backupDir is empty, a directory

@@ -50,6 +50,14 @@ func CheckPackagedDescriptor(kind, path string) error {
 	return fmt.Errorf("descriptor %q is outside the fixed %s directories", path, kind)
 }
 
+// ValidatePackagedFile checks a fixed root-owned configuration file and its parents.
+func ValidatePackagedFile(path string) error {
+	if err := ValidatePackagedDir(filepath.Dir(path)); err != nil {
+		return err
+	}
+	return validatePath(path, 0, false, false)
+}
+
 // ValidatePackagedExecutable checks a fixed system helper before privileged use.
 func ValidatePackagedExecutable(path string) error {
 	if err := ValidatePackagedDir(filepath.Dir(path)); err != nil {

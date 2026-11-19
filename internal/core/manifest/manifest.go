@@ -172,6 +172,9 @@ type UninstallConfig struct {
 // based on the installed manifest.
 func Uninstall(ctx context.Context, cfg UninstallConfig) error {
 	root := filepath.Dir(cfg.ManifestPath)
+	if os.Getuid() == 0 || os.Geteuid() == 0 || root == "/var/lib/fplogin" {
+		return errors.New("system uninstall requires transactional manifest support")
+	}
 	if filepath.Join(root, "manifest.json") != cfg.ManifestPath || filepath.Base(cfg.ManifestPath) != "manifest.json" {
 		return ErrCorruptManifest
 	}

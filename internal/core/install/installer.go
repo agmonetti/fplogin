@@ -268,21 +268,6 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 	txID := fmt.Sprintf("tx-%d", time.Now().UnixNano())
 	journalPath := filepath.Join(cfg.JournalDir, txID+".json")
 
-	backups, err := transaction.OpenBackupDir(stateRoot, txID)
-	if err != nil {
-		return nil, err
-	}
-	executor := &Executor{BackupDir: backups, allowFile: allowFile}
-	opOrder := make([]string, len(plan.Operations))
-	prepared := make([]manifestv1.OperationReceipt, len(plan.Operations))
-	for i, op := range plan.Operations {
-		receipt, _, _, _, err := executor.prepareFile(op, true)
-		if err != nil {
-			return nil, fmt.Errorf("prepare rollback for operation %q: %w", op.OperationID, err)
-		}
-		opOrder[i], prepared[i] = op.OperationID, receipt
-	}
-
 	now := time.Now().UTC().Format(time.RFC3339)
 	initJournal := manifestv1.TransactionJournal{
 		SchemaVersion: manifestv1.SchemaVersion,
@@ -314,19 +299,15 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 			InputHash:  plan.InputHash,
 			Mode:       plan.Mode,
 		},
-		OperationOrder:      opOrder,
-		PreparedFiles:       prepared,
 		AppliedOperations:   []manifestv1.OperationReceipt{},
 		VerificationResults: []json.RawMessage{},
 		RollbackRecords:     []json.RawMessage{},
 	}
 
-	j, err := transaction.Create(journalPath, initJournal)
+	executor, err := beginFileTransaction(stateRoot, cfg.IsolatedFiles, initJournal, plan.Operations)
 	if err != nil {
-		// A failed directory sync may leave a published journal and its backups on disk.
-		return nil, fmt.Errorf("%w: persist prepared transaction %q: %w", ErrRecoveryRequired, txID, err)
+		return nil, err
 	}
-	executor.Journal = j
 
 	// -------------------------------------------------------------------------
 	// Fase 9: Aplicar operaciones tipadas; journalizar cada resultado
@@ -367,7 +348,7 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 
 	// Manifest publication stays disabled until it can be recovered atomically with the journal.
 
-	if err := j.Checkpoint(); err != nil {
+	if err := executor.Journal.Checkpoint(); err != nil {
 		return nil, fmt.Errorf("%w: complete transaction %q: %w", ErrRecoveryRequired, txID, err)
 	}
 

@@ -30,9 +30,6 @@ type Config struct {
 	DescriptorMaxBytes int64
 	ProtocolMajor      int
 	CoreVersion        string
-	// AdapterUID and AdapterGID must name a dedicated identity chosen by trusted core wiring.
-	AdapterUID uint32
-	AdapterGID uint32
 }
 
 type Client struct{ config Config }
@@ -48,9 +45,6 @@ type Discovered struct {
 func New(config Config) (Client, error) {
 	if config.DescriptorMaxBytes <= 0 || config.ProtocolMajor < 1 || config.CoreVersion == "" {
 		return Client{}, errors.New("adapter client limits, protocol major, and core version are required")
-	}
-	if (config.AdapterUID == 0) != (config.AdapterGID == 0) || config.AdapterUID == ^uint32(0) || config.AdapterGID == ^uint32(0) {
-		return Client{}, ErrElevatedAdapter
 	}
 	return Client{config: config}, nil
 }
@@ -125,8 +119,12 @@ func (c Client) Invoke(ctx context.Context, adapter Discovered, request adapterv
 	defer cancel()
 	run := c.config.Runner.Run
 	if descriptortrust.Elevated() {
+		uid, gid, err := adapterIdentity()
+		if err != nil {
+			return adapterv1.Response{}, err
+		}
 		run = func(ctx context.Context, executable string, input []byte) (processrunner.Result, error) {
-			return c.config.Runner.RunUnprivileged(ctx, executable, input, c.config.AdapterUID, c.config.AdapterGID)
+			return c.config.Runner.RunUnprivileged(ctx, executable, input, uid, gid)
 		}
 	}
 	processResult, err := run(invocationContext, adapter.ExecutablePath, input)
@@ -158,9 +156,6 @@ func (c Client) checkInvocation(adapter Discovered, elevatedContext bool) error 
 			return ErrElevatedAdapter
 		}
 		return nil
-	}
-	if c.config.AdapterUID == 0 || c.config.AdapterGID == 0 {
-		return ErrElevatedAdapter
 	}
 	current, err := c.LoadDescriptor(adapter.DescriptorPath)
 	if err != nil {

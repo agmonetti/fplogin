@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"fplogin/internal/core/transaction"
+	"fplogin/internal/descriptortrust"
 	"fplogin/internal/protocol"
 	manifestv1 "fplogin/internal/protocol/manifest/v1"
 )
@@ -56,6 +57,8 @@ type fileParameters struct {
 	SHA256      string `json:"sha256"`
 	Expected    string `json:"expected_sha256"`
 	Mode        string `json:"mode"`
+	Owner       string `json:"owner"`
+	Group       string `json:"group"`
 }
 
 func recoverableFile(op protocol.Operation) (fileParameters, string, error) {
@@ -73,12 +76,68 @@ func recoverableFile(op protocol.Operation) (fileParameters, string, error) {
 	}
 }
 
-// RecoverFiles rolls back an isolated transaction using the original lab allowlist.
-func RecoverFiles(ctx context.Context, root, id string, paths []string) error {
-	if os.Getuid() == 0 || os.Geteuid() == 0 || len(paths) == 0 {
-		return ErrPrivilegesRequired
+const (
+	systemStateRoot = "/var/lib/fplogin"
+	systemThemeFile = "/etc/sddm.conf.d/90-fplogin.conf"
+	systemThemeData = "[Theme]\nCurrent=fplogin\n"
+)
+
+func filePolicy(root string, paths []string) func(string) bool {
+	if descriptortrust.Elevated() {
+		if os.Getuid() != 0 || os.Geteuid() != 0 || os.Getegid() != 0 || root != systemStateRoot || len(paths) != 0 || descriptortrust.ValidatePackagedDir(filepath.Dir(root)) != nil {
+			return nil
+		}
+		return func(path string) bool {
+			if path != systemThemeFile || descriptortrust.ValidatePackagedDir(filepath.Dir(path)) != nil {
+				return false
+			}
+			err := descriptortrust.ValidatePackagedFile(path)
+			return err == nil || errors.Is(err, os.ErrNotExist)
+		}
 	}
-	allow := isolatedFilePolicy(filepath.Dir(root), root, paths)
+	if root == systemStateRoot || len(paths) == 0 {
+		return nil
+	}
+	return isolatedFilePolicy(filepath.Dir(root), root, paths)
+}
+
+// beginFileTransaction runs under the shared lock. Only the typed, prepared file
+// engine is available when elevated; discovery/orchestration remain separate.
+func beginFileTransaction(root string, paths []string, init manifestv1.TransactionJournal, ops []protocol.Operation) (*Executor, error) {
+	allow := filePolicy(root, paths)
+	if allow == nil {
+		return nil, ErrPrivilegesRequired
+	}
+	backups, err := transaction.OpenBackupDir(root, init.TransactionID)
+	if err != nil {
+		return nil, err
+	}
+	e := &Executor{BackupDir: backups, allowFile: allow, systemFiles: root == systemStateRoot}
+	init.FileRecovery = true
+	init.OperationOrder = make([]string, len(ops))
+	init.PreparedFiles = make([]manifestv1.OperationReceipt, len(ops))
+	for i, op := range ops {
+		if err := op.Validate(); err != nil {
+			return nil, err
+		}
+		receipt, _, _, _, err := e.prepareFile(op, true)
+		if err != nil {
+			return nil, fmt.Errorf("prepare rollback for operation %q: %w", op.OperationID, err)
+		}
+		init.OperationOrder[i], init.PreparedFiles[i] = op.OperationID, receipt
+	}
+	j, err := transaction.Create(filepath.Join(root, "transactions", init.TransactionID+".json"), init)
+	if err != nil {
+		// Rename can succeed before directory sync fails; keep the backups.
+		return nil, fmt.Errorf("%w: persist prepared transaction %q: %w", ErrRecoveryRequired, init.TransactionID, err)
+	}
+	e.Journal = j
+	return e, nil
+}
+
+// RecoverFiles rolls back under the same destination policy used for apply.
+func RecoverFiles(ctx context.Context, root, id string, paths []string) error {
+	allow := filePolicy(root, paths)
 	if allow == nil {
 		return ErrPrivilegesRequired
 	}
@@ -96,7 +155,7 @@ func recoverFiles(ctx context.Context, root, id string, allow func(string) bool)
 		return err
 	}
 	data := j.Data()
-	if !data.FileRecovery || data.State == "completed" || data.State == "aborted" || data.State == "planned" {
+	if !data.FileRecovery || (root == systemStateRoot && data.PreparedFiles == nil) || data.State == "completed" || data.State == "aborted" || data.State == "planned" {
 		return transaction.ErrInvalidState
 	}
 	if data.State == "rolled_back" {
@@ -126,7 +185,7 @@ func newFileExecutor(j *transaction.Journal, root string, allow func(string) boo
 	if err != nil {
 		return nil, err
 	}
-	return &Executor{Journal: j, BackupDir: backups, allowFile: allow}, nil
+	return &Executor{Journal: j, BackupDir: backups, allowFile: allow, systemFiles: root == systemStateRoot}, nil
 }
 
 type fileState = manifestv1.FileState
@@ -247,7 +306,14 @@ func (e *Executor) prepareFile(op protocol.Operation, createBackup bool) (receip
 		if err != nil {
 			return
 		}
+		if e.systemFiles && (string(content) != systemThemeData || mode != 0o644 || params.Owner != "root" || params.Group != "root") {
+			err = ErrPrecondition
+			return
+		}
 		after = fileState{Path: path, Exists: true, SHA256: params.SHA256, Mode: fmt.Sprintf("%04o", mode)}
+	} else if e.systemFiles {
+		err = ErrUnsupportedKind
+		return
 	} else if !before.Exists || before.SHA256 != params.Expected {
 		err = ErrHashMismatch
 		return
