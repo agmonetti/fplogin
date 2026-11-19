@@ -273,14 +273,14 @@ func queryServices(ctx context.Context, packages []platformv1.PackageCandidate, 
 		if !unitName.MatchString(unit) || strings.HasPrefix(unit, "-") {
 			return nil, fmt.Errorf("invalid service name %q", unit)
 		}
-		text, err := query(ctx, "/usr/bin/systemctl", "--system", "--no-pager", "show", "--property=Id,LoadState,ActiveState,UnitFileState", "--", unit)
+		text, err := query(ctx, "/usr/bin/systemctl", "--system", "--no-pager", "show", "--all", "--property=Id,LoadState,ActiveState,UnitFileState,WantedBy,RequiredBy,BoundBy,UpheldBy", "--", unit)
 		if err != nil {
 			return nil, err
 		}
 		props := map[string]string{}
 		for _, line := range strings.Split(strings.TrimSpace(text), "\n") {
 			key, value, ok := strings.Cut(line, "=")
-			if !ok || props[key] != "" {
+			if _, duplicate := props[key]; !ok || duplicate {
 				return nil, fmt.Errorf("malformed service properties for %s", unit)
 			}
 			props[key] = value
@@ -288,6 +288,19 @@ func queryServices(ctx context.Context, packages []platformv1.PackageCandidate, 
 		id := props["Id"]
 		if !(known[id] && id != "display-manager.service" || unitName.MatchString(id) && strings.HasPrefix(id, "ly@")) || props["LoadState"] != "loaded" {
 			return nil, fmt.Errorf("unknown display-manager unit %s: id=%q load=%q", unit, id, props["LoadState"])
+		}
+		// Stopping and disabling a service cannot remove incoming dependencies from other units.
+		stockAlias := bootService == id || bootService == "display-manager.service" && present["display-manager.service"]
+		for _, property := range []string{"WantedBy", "RequiredBy", "BoundBy", "UpheldBy"} {
+			value, ok := props[property]
+			if !ok {
+				return nil, fmt.Errorf("incomplete reverse dependencies for %s: missing %s", unit, property)
+			}
+			for _, parent := range strings.Fields(value) {
+				if !stockAlias || property != "WantedBy" || parent != "graphical.target" {
+					return nil, fmt.Errorf("unexpected activation dependency for %s: %s=%s", unit, property, parent)
+				}
+			}
 		}
 		active, enabled := props["ActiveState"], props["UnitFileState"]
 		s := platformv1.ServiceCandidate{ServiceReference: id, Active: "unknown", Enabled: "unknown", Configurable: "unknown",

@@ -24,8 +24,8 @@ func TestParsePackages(t *testing.T) {
 
 func TestServiceInventory(t *testing.T) {
 	for _, tc := range []struct {
-		name, files, loaded, id, active, enabled, graphical, dropIn, want string
-		dependencyDir                                                     bool
+		name, files, loaded, id, active, enabled, graphical, dropIn, wantedBy, want string
+		dependencyDir, partialReverse                                               bool
 	}{
 		{name: "no display manager", files: "dbus.service static -\n", loaded: "dbus.service loaded active running D-Bus\n", graphical: "Wants=display-manager.service\nRequires=multi-user.target\n"},
 		{name: "stock", files: "sddm.service enabled disabled\ndisplay-manager.service alias -\n", id: "sddm.service", active: "active", enabled: "enabled", want: "yes/yes"},
@@ -33,7 +33,9 @@ func TestServiceInventory(t *testing.T) {
 		{name: "active disabled", loaded: "lightdm.service loaded active running LightDM\n", id: "lightdm.service", active: "active", enabled: "disabled", want: "yes/no"},
 		{name: "unknown alias", files: "display-manager.service alias -\n", id: "custom.service", active: "active", enabled: "enabled", want: "error"},
 		{name: "runtime enabled", files: "gdm.service enabled-runtime -\n", id: "gdm.service", active: "active", enabled: "enabled-runtime", want: "error"},
-		{name: "canonical stock dependency", files: "sddm.service enabled disabled\ndisplay-manager.service alias -\n", id: "sddm.service", active: "inactive", enabled: "enabled", graphical: "Wants=sddm.service\nRequires=multi-user.target\n", want: "no/yes"},
+		{name: "canonical stock dependency", files: "sddm.service enabled disabled\ndisplay-manager.service alias -\n", id: "sddm.service", active: "inactive", enabled: "enabled", graphical: "Wants=sddm.service\nRequires=multi-user.target\n", wantedBy: "graphical.target", want: "no/yes"},
+		{name: "multi-user target also wants enabled alias target", files: "greetd.service enabled disabled\ndisplay-manager.service alias -\n", id: "greetd.service", active: "inactive", enabled: "enabled", graphical: "Wants=greetd.service\nRequires=multi-user.target\n", wantedBy: "graphical.target multi-user.target", want: "error"},
+		{name: "incomplete reverse dependency report", files: "greetd.service disabled disabled\n", id: "greetd.service", active: "inactive", enabled: "disabled", partialReverse: true, want: "error"},
 		{name: "duplicate explicit want of enabled alias target", files: "display-manager.service alias -\n", id: "greetd.service", active: "inactive", enabled: "enabled", graphical: "Wants=greetd.service\nRequires=multi-user.target\n", dropIn: "/etc/systemd/system/graphical.target.d/dm.conf", want: "error"},
 		{name: "dependency directory also pulls in enabled alias target", files: "display-manager.service alias -\n", id: "greetd.service", active: "inactive", enabled: "enabled", graphical: "Wants=greetd.service\nRequires=multi-user.target\n", dependencyDir: true, want: "error"},
 		{name: "graphical binds to DM", graphical: "Wants=\nRequires=multi-user.target\nBindsTo=greetd.service\nUpholds=\n", want: "error"},
@@ -80,7 +82,11 @@ func TestServiceInventory(t *testing.T) {
 					}
 					return deps + "LoadState=loaded\nNeedDaemonReload=no\nFragmentPath=/usr/lib/systemd/system/graphical.target\nDropInPaths=" + tc.dropIn + "\n", nil
 				case strings.Contains(text, " show "):
-					return "Id=" + tc.id + "\nLoadState=loaded\nActiveState=" + tc.active + "\nUnitFileState=" + tc.enabled + "\n", nil
+					props := "Id=" + tc.id + "\nLoadState=loaded\nActiveState=" + tc.active + "\nUnitFileState=" + tc.enabled + "\nWantedBy=" + tc.wantedBy + "\n"
+					if !tc.partialReverse {
+						props += "RequiredBy=\nBoundBy=\nUpheldBy=\n"
+					}
+					return props, nil
 				default:
 					t.Fatalf("unexpected query %v", args)
 					return "", nil

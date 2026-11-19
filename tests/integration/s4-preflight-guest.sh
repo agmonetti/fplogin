@@ -33,7 +33,7 @@ preview() {
     local target=org.fplogin.adapter.sddm/sddm-local
     inventory=$(user fplogin install --dry-run 2>&1) || rc=$?
     printf '%s\n' "$inventory"
-    if [[ $case == unknown || $case == graphical-* ]]; then
+    if [[ $case == unknown || $case == graphical-* || $case == multi-user-wants-enabled ]]; then
         local reason
         case $case in
             unknown) reason='unclassified graphical.target service "custom-dm.service"';;
@@ -41,6 +41,7 @@ preview() {
             graphical-wants-enabled) reason='nonstandard fragment or drop-ins|unexpected graphical.target display-manager dependency';;
             graphical-wants-link) reason='additional dependencies in|unexpected graphical.target display-manager dependency';;
             graphical-binds|graphical-upholds) reason='unexpected graphical.target display-manager dependency';;
+            multi-user-wants-enabled) reason='WantedBy=multi-user.target';;
         esac
         [[ $rc == 1 ]]
         out=$inventory
@@ -143,7 +144,13 @@ for dependency in BindsTo Upholds; do
     esac
 done
 rm /etc/systemd/system/graphical.target.d/95-f03.conf
+systemctl enable greetd.service
+mkdir -p /etc/systemd/system/multi-user.target.d
+printf '[Unit]\nWants=greetd.service\n' >/etc/systemd/system/multi-user.target.d/95-f03.conf
 systemctl daemon-reload
+preview multi-user-wants-enabled
+rm /etc/systemd/system/multi-user.target.d/95-f03.conf
+systemctl disable greetd.service
 printf '[Service]\nExecStart=/usr/bin/true\n' >/etc/systemd/system/custom-dm.service
 ln -s custom-dm.service /etc/systemd/system/display-manager.service
 systemctl daemon-reload

@@ -38,7 +38,7 @@ args=" $* "
 if [[ "$args" == *' list-unit-files '* ]]; then
     case "$case" in
         stock) printf 'sddm.service enabled disabled\ndisplay-manager.service alias -\n';;
-        alternate|active|graphical-wants-enabled) printf 'gdm.service enabled disabled\ndisplay-manager.service alias -\n';;
+        alternate|active|graphical-wants-enabled|multi-user-wants-enabled) printf 'gdm.service enabled disabled\ndisplay-manager.service alias -\n';;
         graphical-wants-disabled) printf 'gdm.service disabled disabled\n';;
         unknown) printf 'display-manager.service alias -\n';;
     esac
@@ -62,13 +62,16 @@ elif [[ "$args" == *' show '* ]]; then
     enabled=enabled
     case "$case" in
         stock) unit=sddm; state=active;;
-        alternate|graphical-wants-enabled) unit=gdm; state=inactive;;
+        alternate|graphical-wants-enabled|multi-user-wants-enabled) unit=gdm; state=inactive;;
         active) unit=gdm; state=active;;
         graphical-wants-disabled) unit=gdm; state=inactive; enabled=disabled;;
         unknown) unit=custom; state=inactive;;
         *) exit 9;;
     esac
     printf 'Id=%s.service\nLoadState=loaded\nActiveState=%s\nUnitFileState=%s\n' "$unit" "$state" "$enabled"
+    wanted_by='graphical.target'
+    if [[ "$case" == multi-user-wants-enabled ]]; then wanted_by+=' multi-user.target'; fi
+    printf 'WantedBy=%s\nRequiredBy=\nBoundBy=\nUpheldBy=\n' "$wanted_by"
 else
     exit 9
 fi
@@ -88,7 +91,7 @@ package_fixture() {
     mkdir "/var/lib/pacman/local/$1-$2"
     printf '%%NAME%%\n%s\n\n%%VERSION%%\n%s\n\n%%PROVIDES%%\ndisplay-manager\n' "$1" "$2" >"/var/lib/pacman/local/$1-$2/desc"
 }
-for case in fresh stock alternate active graphical-wants-disabled graphical-wants-enabled unknown; do
+for case in fresh stock alternate active graphical-wants-disabled graphical-wants-enabled multi-user-wants-enabled unknown; do
     echo "$case" >/run/preflight-case
     case "$case" in
         stock) package_fixture sddm 0.21.0-7;;
@@ -101,9 +104,12 @@ for case in fresh stock alternate active graphical-wants-disabled graphical-want
         out=$(user install --dry-run 2>&1) || rc=$?
         test "$rc" -eq 1
         grep -Fq 'unknown display-manager unit' <<< "$out"
-    elif [[ "$case" == graphical-wants-* ]]; then
-        reason='has no standard alias'
-        if [[ "$case" == graphical-wants-enabled ]]; then reason='nonstandard fragment or drop-ins'; fi
+    elif [[ "$case" == graphical-wants-* || "$case" == multi-user-wants-enabled ]]; then
+        case "$case" in
+            graphical-wants-disabled) reason='has no standard alias';;
+            graphical-wants-enabled) reason='nonstandard fragment or drop-ins';;
+            multi-user-wants-enabled) reason='WantedBy=multi-user.target';;
+        esac
         for target in '' org.fplogin.adapter.sddm/sddm-local; do
             args=()
             if [[ -n "$target" ]]; then args=(--target "$target"); fi
