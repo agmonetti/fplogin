@@ -8,9 +8,11 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"fplogin/internal/adapterclient"
+	"fplogin/internal/descriptortrust"
 	"fplogin/internal/platformclient"
 	"fplogin/internal/protocol"
 	adapterv1 "fplogin/internal/protocol/adapter/v1"
@@ -306,7 +308,61 @@ func (f *fakeProviderDiscoverer) Discover(ctx context.Context, paths []string, h
 	return f.result, f.err
 }
 
+func TestRun_RejectsElevatedOverrides(t *testing.T) {
+	for _, cfg := range []Config{
+		{AdapterDirs: []string{"/usr/lib/fplogin/adapters"}},
+		{ProviderDirs: []string{t.TempDir()}},
+	} {
+		cfg.Host.Elevated = true
+		if _, err := Run(context.Background(), cfg); err == nil || !strings.Contains(err.Error(), "custom component directories") {
+			t.Fatalf("expected override refusal before discovery, got %v", err)
+		}
+	}
+}
+
+func TestRun_ActualRootRejectsOverrides(t *testing.T) {
+	if !descriptortrust.Elevated() {
+		t.Skip("requires an isolated root namespace")
+	}
+	cfg := Config{AdapterDirs: []string{t.TempDir()}}
+	if _, err := Run(context.Background(), cfg); err == nil || !strings.Contains(err.Error(), "custom component directories") {
+		t.Fatalf("expected override refusal without an elevated protocol flag, got %v", err)
+	}
+}
+
+func TestElevatedAdapterCannotInvoke(t *testing.T) {
+	for _, elevated := range []bool{false, true} {
+		if !elevated && !descriptortrust.Elevated() {
+			continue
+		}
+		req := adapterv1.Request{Context: protocol.HostContext{InvokingUID: 65534, Elevated: elevated}}
+		_, err := (adapterclient.Client{}).Invoke(context.Background(), adapterclient.Discovered{}, req)
+		if !errors.Is(err, adapterclient.ErrElevatedAdapter) {
+			t.Fatalf("expected refusal before launch (protocol elevated=%t), got %v", elevated, err)
+		}
+	}
+}
+
+func TestElevatedClientsRejectDevelopmentDescriptors(t *testing.T) {
+	if !descriptortrust.Elevated() {
+		t.Skip("requires an isolated root namespace")
+	}
+	path := filepath.Join(t.TempDir(), "dev.json")
+	makeFile(t, path, `{}`)
+	_, adapterErr := (adapterclient.Client{}).LoadDescriptor(path)
+	_, providerErr := (platformclient.Client{}).LoadDescriptor(path)
+	_, invokeErr := (platformclient.Client{}).Invoke(context.Background(), platformclient.Discovered{DescriptorPath: path}, platformv1.Request{})
+	for _, err := range []error{adapterErr, providerErr, invokeErr} {
+		if err == nil || !strings.Contains(err.Error(), "outside the fixed") {
+			t.Fatalf("expected development descriptor refusal, got %v", err)
+		}
+	}
+}
+
 func TestRun_Success(t *testing.T) {
+	if descriptortrust.Elevated() {
+		t.Skip("development discovery requires an ordinary user")
+	}
 	ctx := context.Background()
 	tmp := t.TempDir()
 	adDir := filepath.Join(tmp, "adapters")
@@ -386,4 +442,3 @@ func TestRun_ProviderDiscoveryError(t *testing.T) {
 		t.Fatalf("expected error wrapping %v, got %v", wantErr, err)
 	}
 }
-

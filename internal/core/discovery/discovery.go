@@ -14,13 +14,10 @@ import (
 	"sort"
 
 	"fplogin/internal/adapterclient"
+	"fplogin/internal/descriptortrust"
 	"fplogin/internal/platformclient"
 	"fplogin/internal/protocol"
 )
-
-// adapterDescriptorGlob is the filename pattern for adapter descriptors within
-// a search directory. Every file matching this pattern is loaded.
-const adapterDescriptorGlob = "*.json"
 
 // Adapter is a fully validated, handshaked adapter ready for use.
 type Adapter = adapterclient.Discovered
@@ -97,6 +94,19 @@ var (
 //
 // Run is read-only and makes no changes to the host system.
 func Run(ctx context.Context, cfg Config) (Result, error) {
+	elevated := cfg.Host.Elevated || descriptortrust.Elevated()
+	if elevated {
+		if len(cfg.AdapterDirs) != 0 || len(cfg.ProviderDirs) != 0 {
+			return Result{}, errors.New("custom component directories are not allowed during elevated discovery")
+		}
+		cfg.AdapterDirs = descriptortrust.PackagedDirs("adapters")
+		cfg.ProviderDirs = descriptortrust.PackagedDirs("platforms")
+		for _, dir := range append(cfg.AdapterDirs, cfg.ProviderDirs...) {
+			if err := descriptortrust.ValidatePackagedDir(dir); err != nil && !errors.Is(err, os.ErrNotExist) {
+				return Result{}, err
+			}
+		}
+	}
 	adapterPaths, err := collectDescriptorPaths(cfg.AdapterDirs)
 	if err != nil {
 		return Result{}, fmt.Errorf("collect adapter descriptors: %w", err)
@@ -137,25 +147,21 @@ func collectDescriptorPaths(dirs []string) ([]string, error) {
 	var paths []string
 
 	for _, dir := range dirs {
-		matches, err := filepath.Glob(filepath.Join(dir, adapterDescriptorGlob))
-		if err != nil {
-			// Glob only returns ErrBadPattern; our pattern is a literal so
-			// this cannot happen. Treat it as an internal error anyway.
-			return nil, fmt.Errorf("glob %q: %w", dir, err)
-		}
-		if matches == nil {
-			// Directory does not exist or contains no matching files; skip.
-			if _, statErr := os.Stat(dir); statErr != nil && !os.IsNotExist(statErr) {
-				// The directory exists but is not readable; surface the error.
-				return nil, fmt.Errorf("read descriptor directory %q: %w", dir, statErr)
-			}
+		entries, err := os.ReadDir(dir)
+		if errors.Is(err, os.ErrNotExist) {
 			continue
 		}
-		for _, match := range matches {
-			clean := filepath.Clean(match)
-			if _, exists := seen[clean]; !exists {
-				seen[clean] = struct{}{}
-				paths = append(paths, clean)
+		if err != nil {
+			return nil, fmt.Errorf("read descriptor directory %q: %w", dir, err)
+		}
+		for _, entry := range entries {
+			if filepath.Ext(entry.Name()) != ".json" {
+				continue
+			}
+			path := filepath.Join(dir, entry.Name())
+			if _, exists := seen[path]; !exists {
+				seen[path] = struct{}{}
+				paths = append(paths, path)
 			}
 		}
 	}

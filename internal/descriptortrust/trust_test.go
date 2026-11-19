@@ -3,10 +3,41 @@ package descriptortrust_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"fplogin/internal/descriptortrust"
 )
+
+func TestPackagedDirectoryChecksAncestors(t *testing.T) {
+	if !descriptortrust.Elevated() {
+		t.Skip("requires an isolated root namespace with a trusted temporary directory")
+	}
+	parent := t.TempDir()
+	if err := descriptortrust.ValidatePackagedDir(parent); err != nil {
+		t.Skipf("temporary directory is not under a trusted root: %v", err)
+	}
+	child := filepath.Join(parent, "components")
+	if err := os.Mkdir(child, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := descriptortrust.ValidatePackagedDir(child); err != nil {
+		t.Fatalf("trusted directory rejected: %v", err)
+	}
+	link := filepath.Join(parent, "link")
+	if err := os.Symlink(child, link); err != nil {
+		t.Fatal(err)
+	}
+	if err := descriptortrust.ValidatePackagedDir(filepath.Join(link, "missing")); err == nil || !strings.Contains(err.Error(), "symbolic links") {
+		t.Fatalf("symlink ancestor not refused: %v", err)
+	}
+	if err := os.Chmod(parent, 0o775); err != nil {
+		t.Fatal(err)
+	}
+	if err := descriptortrust.ValidatePackagedDir(child); err == nil || !strings.Contains(err.Error(), "group/world writable") {
+		t.Fatalf("writable ancestor not refused: %v", err)
+	}
+}
 
 func TestRead_Success(t *testing.T) {
 	dir := t.TempDir()

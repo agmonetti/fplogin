@@ -19,6 +19,39 @@ type Policy struct {
 	OwnerUID uint32
 }
 
+// PackagedDirs returns the fixed installation directories for a component kind.
+func PackagedDirs(kind string) []string {
+	return []string{filepath.Join("/usr/lib/fplogin", kind), filepath.Join("/usr/local/lib/fplogin", kind)}
+}
+
+// ValidatePackagedDir checks ancestors from / before using any child path.
+func ValidatePackagedDir(path string) error {
+	if !filepath.IsAbs(path) || filepath.Clean(path) != path {
+		return errors.New("packaged directory must be canonical and absolute")
+	}
+	if parent := filepath.Dir(path); parent != path {
+		if err := ValidatePackagedDir(parent); err != nil {
+			return err
+		}
+	}
+	if err := validatePath(path, 0, true, false); err != nil {
+		return fmt.Errorf("packaged directory %q: %w", path, err)
+	}
+	return nil
+}
+
+// CheckPackagedDescriptor refuses development paths before reading a descriptor.
+func CheckPackagedDescriptor(kind, path string) error {
+	for _, dir := range PackagedDirs(kind) {
+		if filepath.Clean(path) == path && filepath.Dir(path) == dir && filepath.Ext(path) == ".json" {
+			return ValidatePackagedDir(dir)
+		}
+	}
+	return fmt.Errorf("descriptor %q is outside the fixed %s directories", path, kind)
+}
+
+func Elevated() bool { return os.Getuid() == 0 || os.Geteuid() == 0 }
+
 type TrustedFile struct {
 	DescriptorPath string
 	ExecutablePath string

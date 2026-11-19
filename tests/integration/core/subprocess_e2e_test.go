@@ -23,6 +23,9 @@ import (
 // TestE2E_Subprocess_PlatformAndAdapter builds the real cmd binaries and executes
 // the protocol handshake and operations over real OS stdin/stdout pipes.
 func TestE2E_Subprocess_PlatformAndAdapter(t *testing.T) {
+	if descriptortrust.Elevated() {
+		t.Skip("development descriptors require an ordinary user")
+	}
 	tmpDir := t.TempDir()
 	binDir := filepath.Join(tmpDir, "bin")
 	if err := os.MkdirAll(binDir, 0o755); err != nil {

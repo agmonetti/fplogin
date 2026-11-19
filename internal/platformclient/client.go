@@ -54,7 +54,14 @@ func New(config Config) (Client, error) {
 }
 
 func (c Client) LoadDescriptor(path string) (Discovered, error) {
-	trusted, err := descriptortrust.Read(c.config.TrustPolicy, path, c.config.DescriptorMaxBytes)
+	policy := c.config.TrustPolicy
+	if descriptortrust.Elevated() {
+		if err := descriptortrust.CheckPackagedDescriptor("platforms", path); err != nil {
+			return Discovered{}, err
+		}
+		policy = descriptortrust.Policy{}
+	}
+	trusted, err := descriptortrust.Read(policy, path, c.config.DescriptorMaxBytes)
 	if err != nil {
 		return Discovered{}, err
 	}
@@ -62,7 +69,7 @@ func (c Client) LoadDescriptor(path string) (Discovered, error) {
 	if err != nil {
 		return Discovered{}, fmt.Errorf("decode descriptor %q: %w", path, err)
 	}
-	trusted, err = descriptortrust.ValidateReferences(c.config.TrustPolicy, trusted, descriptor.Executable, descriptor.AssetRoot)
+	trusted, err = descriptortrust.ValidateReferences(policy, trusted, descriptor.Executable, descriptor.AssetRoot)
 	if err != nil {
 		return Discovered{}, err
 	}
@@ -98,6 +105,15 @@ func (c Client) Discover(ctx context.Context, paths []string, host protocol.Host
 }
 
 func (c Client) Invoke(ctx context.Context, provider Discovered, request platformv1.Request) (platformv1.Response, error) {
+	if descriptortrust.Elevated() {
+		current, err := c.LoadDescriptor(provider.DescriptorPath)
+		if err != nil {
+			return platformv1.Response{}, err
+		}
+		if current.DescriptorSHA256 != provider.DescriptorSHA256 || current.ExecutablePath != provider.ExecutablePath {
+			return platformv1.Response{}, ErrIdentityMismatch
+		}
+	}
 	if err := request.Validate(); err != nil {
 		return platformv1.Response{}, fmt.Errorf("invalid platform request: %w", err)
 	}

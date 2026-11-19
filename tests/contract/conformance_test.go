@@ -97,6 +97,9 @@ func TestShippedDescriptorsMatchV1(t *testing.T) {
 
 func TestAdapterDiscoveryAndFailures(t *testing.T) {
 	t.Parallel()
+	if descriptortrust.Elevated() {
+		t.Skip("development descriptors require an ordinary user")
+	}
 	t.Run("discovers through runtime handshake", func(t *testing.T) {
 		root, descriptorPath := makeAdapterInstallation(t, "org.example.adapter.one", 1)
 		client := newAdapterClient(t, root, "normal", helperTimeout)
@@ -168,6 +171,9 @@ func TestAdapterDiscoveryAndFailures(t *testing.T) {
 
 func TestPlatformDiscoveryAndCapabilities(t *testing.T) {
 	t.Parallel()
+	if descriptortrust.Elevated() {
+		t.Skip("development descriptors require an ordinary user")
+	}
 	t.Run("discovers and filters capabilities", func(t *testing.T) {
 		root, descriptorPath := makePlatformInstallation(t, "org.example.platform.one", 1)
 		client := newPlatformClient(t, root, "normal", helperTimeout)

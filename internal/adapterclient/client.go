@@ -21,6 +21,7 @@ var (
 	ErrMalformedOutput  = errors.New("adapter emitted malformed stdout")
 	ErrIdentityMismatch = errors.New("adapter runtime identity does not match descriptor")
 	ErrDuplicateID      = errors.New("duplicate adapter ID")
+	ErrElevatedAdapter  = errors.New("adapter execution from an elevated process is disabled")
 )
 
 type Config struct {
@@ -49,7 +50,14 @@ func New(config Config) (Client, error) {
 }
 
 func (c Client) LoadDescriptor(path string) (Discovered, error) {
-	trusted, err := descriptortrust.Read(c.config.TrustPolicy, path, c.config.DescriptorMaxBytes)
+	policy := c.config.TrustPolicy
+	if descriptortrust.Elevated() {
+		if err := descriptortrust.CheckPackagedDescriptor("adapters", path); err != nil {
+			return Discovered{}, err
+		}
+		policy = descriptortrust.Policy{}
+	}
+	trusted, err := descriptortrust.Read(policy, path, c.config.DescriptorMaxBytes)
 	if err != nil {
 		return Discovered{}, err
 	}
@@ -57,7 +65,7 @@ func (c Client) LoadDescriptor(path string) (Discovered, error) {
 	if err != nil {
 		return Discovered{}, fmt.Errorf("decode descriptor %q: %w", path, err)
 	}
-	trusted, err = descriptortrust.ValidateReferences(c.config.TrustPolicy, trusted, descriptor.Executable, descriptor.AssetRoot)
+	trusted, err = descriptortrust.ValidateReferences(policy, trusted, descriptor.Executable, descriptor.AssetRoot)
 	if err != nil {
 		return Discovered{}, err
 	}
@@ -93,6 +101,9 @@ func (c Client) Discover(ctx context.Context, paths []string, host protocol.Host
 }
 
 func (c Client) Invoke(ctx context.Context, adapter Discovered, request adapterv1.Request) (adapterv1.Response, error) {
+	if descriptortrust.Elevated() || request.Context.Elevated {
+		return adapterv1.Response{}, ErrElevatedAdapter
+	}
 	if err := request.Validate(); err != nil {
 		return adapterv1.Response{}, fmt.Errorf("invalid adapter request: %w", err)
 	}
