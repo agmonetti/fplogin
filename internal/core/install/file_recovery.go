@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -130,13 +129,7 @@ func newFileExecutor(j *transaction.Journal, root string, allow func(string) boo
 	return &Executor{Journal: j, BackupDir: backups, allowFile: allow}, nil
 }
 
-// fileState describes an ordinary single-link file in an isolated, trusted tree.
-type fileState struct {
-	Path   string `json:"destination_path"`
-	Exists bool   `json:"existed"`
-	SHA256 string `json:"sha256,omitempty"`
-	Mode   string `json:"mode,omitempty"`
-}
+type fileState = manifestv1.FileState
 
 func (e *Executor) inspectFile(path string) (fileState, []byte, error) {
 	state := fileState{Path: path}
@@ -232,41 +225,46 @@ func verifyBackup(path, digest string) ([]byte, error) {
 	return data, nil
 }
 
-func (e *Executor) executeRecoverableFile(op protocol.Operation) (receipt manifestv1.OperationReceipt, err error) {
+func (e *Executor) prepareFile(op protocol.Operation, createBackup bool) (receipt manifestv1.OperationReceipt, content []byte, before, after fileState, err error) {
 	params, path, err := recoverableFile(op)
 	if err != nil {
-		return receipt, err
+		return
 	}
-	before, original, err := e.inspectFile(path)
+	var original []byte
+	before, original, err = e.inspectFile(path)
 	if err != nil {
-		return receipt, err
+		return
 	}
-	after := fileState{Path: path}
-	var content []byte
+	after = fileState{Path: path}
 	var mode uint64
 	if op.Kind == protocol.WriteFileAtomic {
 		content, err = base64.StdEncoding.DecodeString(params.Content)
 		if err != nil || sha256Hex(content) != params.SHA256 {
-			return receipt, ErrHashMismatch
+			err = ErrHashMismatch
+			return
 		}
 		mode, err = strconv.ParseUint(params.Mode, 8, 9)
 		if err != nil {
-			return receipt, err
+			return
 		}
 		after = fileState{Path: path, Exists: true, SHA256: params.SHA256, Mode: fmt.Sprintf("%04o", mode)}
 	} else if !before.Exists || before.SHA256 != params.Expected {
-		return receipt, ErrHashMismatch
+		err = ErrHashMismatch
+		return
 	}
 	if before.Exists {
 		path := e.backupPath(op.OperationID)
-		if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
-			return receipt, fmt.Errorf("backup already exists or cannot be inspected: %q", path)
+		if createBackup {
+			if _, err = os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
+				err = fmt.Errorf("backup already exists or cannot be inspected: %q", path)
+				return
+			}
+			if err = replaceFile(path, original, 0o600); err != nil {
+				return
+			}
 		}
-		if err := replaceFile(path, original, 0o600); err != nil {
-			return receipt, err
-		}
-		if _, err := verifyBackup(path, before.SHA256); err != nil {
-			return receipt, err
+		if _, err = verifyBackup(path, before.SHA256); err != nil {
+			return
 		}
 	}
 	b, _ := json.Marshal(before)
@@ -274,12 +272,22 @@ func (e *Executor) executeRecoverableFile(op protocol.Operation) (receipt manife
 	now := time.Now().UTC().Format(time.RFC3339)
 	receipt = manifestv1.OperationReceipt{OperationID: op.OperationID, Kind: op.Kind, StartedAt: now, CompletedAt: now,
 		Status: "pending", BeforeState: toObject(b), AfterState: toObject(a), Compensation: protocol.Object{}}
+	return
+}
+
+func (e *Executor) executeRecoverableFile(op protocol.Operation) (manifestv1.OperationReceipt, error) {
+	receipt, content, before, after, err := e.prepareFile(op, e.Journal.Data().PreparedFiles == nil)
+	if err != nil {
+		return receipt, err
+	}
+	path := before.Path
 	if err := e.Journal.RecordFileIntent(receipt); err != nil {
 		return receipt, err
 	}
 	if observed, _, checkErr := e.inspectFile(path); checkErr != nil || observed != before {
 		err = errors.Join(ErrPrecondition, checkErr)
 	} else if after.Exists {
+		mode, _ := strconv.ParseUint(after.Mode, 8, 9)
 		err = replaceFile(path, content, os.FileMode(mode))
 	} else {
 		err = removeAndSync(path)
@@ -314,13 +322,13 @@ func (e *Executor) verifyFile(expected fileState) error {
 }
 
 func (e *Executor) restoreFile(receipt manifestv1.OperationReceipt) error {
-	before, err := decodeFileState(receipt.BeforeState)
+	before, err := manifestv1.DecodeFileState(receipt.BeforeState)
 	if err != nil {
-		return err
+		return errors.Join(transaction.ErrCorruptJournal, err)
 	}
-	after, err := decodeFileState(receipt.AfterState)
+	after, err := manifestv1.DecodeFileState(receipt.AfterState)
 	if err != nil {
-		return err
+		return errors.Join(transaction.ErrCorruptJournal, err)
 	}
 	if before.Path != after.Path || (receipt.Kind == protocol.WriteFileAtomic && !after.Exists) ||
 		(receipt.Kind == protocol.RemoveOwnedFile && (!before.Exists || after.Exists)) {
@@ -350,29 +358,4 @@ func (e *Executor) restoreFile(receipt manifestv1.OperationReceipt) error {
 		return err
 	}
 	return e.verifyFile(before)
-}
-
-func decodeFileState(obj protocol.Object) (fileState, error) {
-	var s fileState
-	b, err := json.Marshal(obj)
-	if err != nil {
-		return s, err
-	}
-	if err := protocol.DecodeStrict(b, &s, "destination_path", "existed"); err != nil {
-		return s, err
-	}
-	if s.Exists {
-		mode, err := strconv.ParseUint(s.Mode, 8, 9)
-		if err != nil || s.Mode != fmt.Sprintf("%04o", mode) || len(s.SHA256) != 64 || !validFileDigest(s.SHA256) {
-			return s, transaction.ErrCorruptJournal
-		}
-	} else if s.Mode != "" || s.SHA256 != "" {
-		return s, transaction.ErrCorruptJournal
-	}
-	return s, nil
-}
-
-func validFileDigest(digest string) bool {
-	decoded, err := hex.DecodeString(digest)
-	return err == nil && hex.EncodeToString(decoded) == digest
 }

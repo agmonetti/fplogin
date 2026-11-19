@@ -323,25 +323,23 @@ func TestIntegration_DryRun_NoMutationSnapshot(t *testing.T) {
 	}
 }
 
-func TestIntegration_AbortMidMutation_Compensated(t *testing.T) {
+func TestIntegration_RejectsBadHashBeforeMutation(t *testing.T) {
 	tmpDir := t.TempDir()
-	// Fail on op-file-2: op-file-1 will be executed then compensated
 	cfg, file1, file2 := buildIntegrationFixture(t, tmpDir, "")
 
-	// Inject write failure on op-file-2: valid schema for Phase 5, but hash mismatch during Phase 9 execution
+	// Valid operation schema, but inconsistent content and checksum.
 	badHash := "0000000000000000000000000000000000000000000000000000000000000000"
 	cfg.AdapterInvoker.(*fakeAdapterInvoker).plan.Operations[1].Parameters = json.RawMessage(fmt.Sprintf(
 		`{"destination_path":%q,"content_base64":"YXV0aCBzdWZmaWNpZW50IHBhbV9mcHJpbnRkLnNvCg==","sha256":%q,"mode":"0644","owner":"root","group":"root"}`,
 		file2, badHash))
 
 	_, err := install.Run(context.Background(), cfg)
-	if !errors.Is(err, install.ErrTransactionAborted) {
-		t.Fatalf("expected ErrTransactionAborted, got %v", err)
+	if !errors.Is(err, install.ErrHashMismatch) || errors.Is(err, install.ErrTransactionAborted) {
+		t.Fatalf("expected hash rejection before mutation, got %v", err)
 	}
 
-	// File 1 must have been rolled back / removed
 	if _, err := os.Stat(file1); !os.IsNotExist(err) {
-		t.Errorf("expected file1 to be removed during rollback, err: %v", err)
+		t.Errorf("expected file1 to remain absent, err: %v", err)
 	}
 	if _, err := os.Stat(file2); !os.IsNotExist(err) {
 		t.Errorf("expected file2 to not exist, err: %v", err)

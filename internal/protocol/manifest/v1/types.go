@@ -3,9 +3,15 @@
 package v1
 
 import (
+	"bytes"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
+	"path/filepath"
+	"strconv"
+	"strings"
 
 	"fplogin/internal/protocol"
 )
@@ -112,6 +118,7 @@ type TransactionJournal struct {
 	PlatformProvider    ComponentIdentity  `json:"platform_provider"`
 	AcceptedPlan        AcceptedPlan       `json:"accepted_plan"`
 	OperationOrder      []string           `json:"operation_order"`
+	PreparedFiles       []OperationReceipt `json:"prepared_files,omitempty"`
 	AppliedOperations   []OperationReceipt `json:"applied_operations"`
 	VerificationResults []json.RawMessage  `json:"verification_results,omitempty"`
 	RollbackRecords     []json.RawMessage  `json:"rollback_records,omitempty"`
@@ -120,10 +127,19 @@ type TransactionJournal struct {
 func DecodeTransactionJournal(data []byte) (TransactionJournal, error) {
 	var journal TransactionJournal
 	err := protocol.DecodeStrict(data, &journal, "schema_version", "transaction_id", "state", "created_at", "updated_at", "target", "adapter", "platform_provider", "accepted_plan", "operation_order", "applied_operations")
-	if err == nil {
-		err = journal.Validate()
+	if err != nil {
+		return journal, err
 	}
-	return journal, err
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return journal, err
+	}
+	for key := range fields {
+		if strings.EqualFold(key, "prepared_files") && (key != "prepared_files" || journal.PreparedFiles == nil) {
+			return journal, errors.New("prepared_files must be canonical and non-null")
+		}
+	}
+	return journal, journal.Validate()
 }
 
 func (j TransactionJournal) Validate() error {
@@ -161,6 +177,9 @@ func (j TransactionJournal) Validate() error {
 		}
 		ordered[operationID] = struct{}{}
 	}
+	if err := j.validatePreparedFiles(); err != nil {
+		return err
+	}
 	seen := make(map[string]bool, len(j.AppliedOperations))
 	for i, receipt := range j.AppliedOperations {
 		if seen[receipt.OperationID] {
@@ -172,6 +191,9 @@ func (j TransactionJournal) Validate() error {
 		}
 		if j.FileRecovery && (i >= len(j.OperationOrder) || j.OperationOrder[i] != receipt.OperationID || !IsRecoverableFileKind(receipt.Kind)) {
 			return errors.New("invalid order or operation kind in recoverable file journal")
+		}
+		if j.PreparedFiles != nil && !j.MatchesPreparedFile(i, receipt) {
+			return errors.New("file intent differs from prepared plan")
 		}
 		if (j.State == "completed" && receipt.Status != "success") || (j.State == "rolled_back" && receipt.Status != "rolled_back" && (j.FileRecovery || receipt.Status != "failed")) {
 			return errors.New("unresolved receipt in terminal journal")
@@ -187,6 +209,77 @@ func (j TransactionJournal) Validate() error {
 		return errors.New("completed journal is missing operations")
 	}
 	return nil
+}
+
+func (j TransactionJournal) validatePreparedFiles() error {
+	if j.PreparedFiles == nil {
+		return nil
+	}
+	if !j.FileRecovery || len(j.PreparedFiles) == 0 || len(j.PreparedFiles) != len(j.OperationOrder) {
+		return errors.New("invalid prepared file plan length or type")
+	}
+	paths := make(map[string]bool, len(j.PreparedFiles))
+	for i, r := range j.PreparedFiles {
+		if r.OperationID != j.OperationOrder[i] || r.Status != "pending" || !IsRecoverableFileKind(r.Kind) {
+			return errors.New("invalid prepared file operation")
+		}
+		if err := r.Validate(true); err != nil {
+			return err
+		}
+		before, bErr := DecodeFileState(r.BeforeState)
+		after, aErr := DecodeFileState(r.AfterState)
+		if bErr != nil || aErr != nil || before.Path != after.Path || paths[before.Path] ||
+			(r.Kind == protocol.WriteFileAtomic && !after.Exists) ||
+			(r.Kind == protocol.RemoveOwnedFile && (!before.Exists || after.Exists)) {
+			return errors.New("invalid prepared before/after file state")
+		}
+		paths[before.Path] = true
+	}
+	return nil
+}
+
+// FileState describes an ordinary single-link file in a trusted tree.
+type FileState struct {
+	Path   string `json:"destination_path"`
+	Exists bool   `json:"existed"`
+	SHA256 string `json:"sha256,omitempty"`
+	Mode   string `json:"mode,omitempty"`
+}
+
+func DecodeFileState(obj protocol.Object) (FileState, error) {
+	var s FileState
+	b, err := json.Marshal(obj)
+	if err != nil {
+		return s, err
+	}
+	if err := protocol.DecodeStrict(b, &s, "destination_path", "existed"); err != nil {
+		return s, err
+	}
+	if !filepath.IsAbs(s.Path) || filepath.Clean(s.Path) != s.Path || s.Path == "/" {
+		return s, errors.New("invalid file path")
+	}
+	if s.Exists {
+		mode, err := strconv.ParseUint(s.Mode, 8, 9)
+		digest, digestErr := hex.DecodeString(s.SHA256)
+		if err != nil || s.Mode != fmt.Sprintf("%04o", mode) || digestErr != nil || len(digest) != 32 || hex.EncodeToString(digest) != s.SHA256 {
+			return s, errors.New("invalid file mode or digest")
+		}
+	} else if _, hasMode := obj["mode"]; hasMode || obj["sha256"] != nil {
+		return s, errors.New("absent file has a mode or digest")
+	}
+	return s, nil
+}
+
+// MatchesPreparedFile compares only the immutable execution and recovery data.
+func (j TransactionJournal) MatchesPreparedFile(i int, r OperationReceipt) bool {
+	if i < 0 || i >= len(j.PreparedFiles) {
+		return false
+	}
+	p := j.PreparedFiles[i]
+	equal := func(a, b json.RawMessage) bool { return bytes.Equal(a, b) }
+	return p.OperationID == r.OperationID && p.Kind == r.Kind &&
+		maps.EqualFunc(p.BeforeState, r.BeforeState, equal) &&
+		maps.EqualFunc(p.AfterState, r.AfterState, equal)
 }
 
 type InstalledFile struct {

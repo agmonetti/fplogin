@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -285,6 +286,33 @@ func TestRun_FullInstallSuccess(t *testing.T) {
 	createdDir := filepath.Join(tmpDir, "test-install-dir")
 	if _, err := os.Stat(createdDir); err != nil {
 		t.Errorf("expected target directory to be created: %v", err)
+	}
+}
+
+func TestRun_PreparesAllRollbackDataBeforeFirstWrite(t *testing.T) {
+	requireUnprivilegedLab(t)
+	dir := t.TempDir()
+	cfg, adapter, _ := setupTestFixtures(dir)
+	first := cfg.IsolatedFiles[0]
+	second := filepath.Join(dir, "second")
+	cfg.IsolatedFiles = append(cfg.IsolatedFiles, second)
+	op := adapter.plan.Operations[0]
+	op.OperationID = "op-2"
+	op.Parameters = json.RawMessage(strings.ReplaceAll(string(op.Parameters), first, second))
+	op.Compensation = json.RawMessage(strings.ReplaceAll(string(op.Compensation), first, second))
+	adapter.plan.Operations = append(adapter.plan.Operations, op)
+	if err := os.Mkdir(second, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if res, err := Run(context.Background(), cfg); res != nil || err == nil || !strings.Contains(err.Error(), `prepare rollback for operation "op-2"`) {
+		t.Fatalf("expected rollback preparation failure, got %+v, %v", res, err)
+	}
+	if _, err := os.Stat(first); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("first file changed before the full plan was prepared: %v", err)
+	}
+	entries, err := os.ReadDir(cfg.JournalDir)
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("failed preparation published a journal: %v, %v", entries, err)
 	}
 }
 

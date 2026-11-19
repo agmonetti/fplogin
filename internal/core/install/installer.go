@@ -239,11 +239,16 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
+	if len(plan.Operations) == 0 {
+		return nil, fmt.Errorf("%w: empty file plan", ErrPrecondition)
+	}
+	paths := make(map[string]bool, len(plan.Operations))
 	for _, op := range plan.Operations {
 		_, path, err := recoverableFile(op)
-		if err != nil || !allowFile(path) {
-			return nil, fmt.Errorf("operation %q is outside the isolated file policy: %w", op.OperationID, errors.Join(ErrPrecondition, err))
+		if err != nil || !allowFile(path) || paths[path] {
+			return nil, fmt.Errorf("operation %q requires a distinct allowed file destination: %w", op.OperationID, errors.Join(ErrPrecondition, err))
 		}
+		paths[path] = true
 	}
 	planDigest, err := changePlanDigest(plan)
 	if err != nil {
@@ -263,9 +268,19 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 	txID := fmt.Sprintf("tx-%d", time.Now().UnixNano())
 	journalPath := filepath.Join(cfg.JournalDir, txID+".json")
 
+	backups, err := transaction.OpenBackupDir(stateRoot, txID)
+	if err != nil {
+		return nil, err
+	}
+	executor := &Executor{BackupDir: backups, allowFile: allowFile}
 	opOrder := make([]string, len(plan.Operations))
+	prepared := make([]manifestv1.OperationReceipt, len(plan.Operations))
 	for i, op := range plan.Operations {
-		opOrder[i] = op.OperationID
+		receipt, _, _, _, err := executor.prepareFile(op, true)
+		if err != nil {
+			return nil, fmt.Errorf("prepare rollback for operation %q: %w", op.OperationID, err)
+		}
+		opOrder[i], prepared[i] = op.OperationID, receipt
 	}
 
 	now := time.Now().UTC().Format(time.RFC3339)
@@ -300,6 +315,7 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 			Mode:       plan.Mode,
 		},
 		OperationOrder:      opOrder,
+		PreparedFiles:       prepared,
 		AppliedOperations:   []manifestv1.OperationReceipt{},
 		VerificationResults: []json.RawMessage{},
 		RollbackRecords:     []json.RawMessage{},
@@ -307,13 +323,10 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 
 	j, err := transaction.Create(journalPath, initJournal)
 	if err != nil {
-		return nil, fmt.Errorf("phase 7 (create transaction journal): %w", err)
+		// A failed directory sync may leave a published journal and its backups on disk.
+		return nil, fmt.Errorf("%w: persist prepared transaction %q: %w", ErrRecoveryRequired, txID, err)
 	}
-
-	executor, err := newFileExecutor(j, stateRoot, allowFile)
-	if err != nil {
-		return nil, fmt.Errorf("%w: initialize transaction %q: %w", ErrRecoveryRequired, txID, err)
-	}
+	executor.Journal = j
 
 	// -------------------------------------------------------------------------
 	// Fase 9: Aplicar operaciones tipadas; journalizar cada resultado

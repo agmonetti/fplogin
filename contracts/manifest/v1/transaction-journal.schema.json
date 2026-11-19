@@ -116,6 +116,19 @@
       "type": "array",
       "items": { "type": "string" }
     },
+    "prepared_files": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/OperationReceipt",
+        "properties": {
+          "kind": { "enum": ["write_file_atomic", "remove_owned_file"] },
+          "status": { "const": "pending" },
+          "before_state": { "$ref": "#/$defs/FileState" },
+          "after_state": { "$ref": "#/$defs/FileState" }
+        }
+      }
+    },
     "applied_operations": {
       "type": "array",
       "items": { "$ref": "#/$defs/OperationReceipt" }
@@ -129,7 +142,27 @@
       "items": { "type": "object" }
     }
   },
+  "dependentSchemas": {
+    "prepared_files": {
+      "required": ["file_recovery"],
+      "properties": { "file_recovery": { "const": true } }
+    }
+  },
   "$defs": {
+    "FileState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["destination_path", "existed"],
+      "properties": {
+        "destination_path": { "type": "string", "pattern": "^/" },
+        "existed": { "type": "boolean" },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "mode": { "type": "string", "pattern": "^0[0-7]{3}$" }
+      },
+      "if": { "properties": { "existed": { "const": true } } },
+      "then": { "required": ["sha256", "mode"] },
+      "else": { "not": { "anyOf": [{ "required": ["sha256"] }, { "required": ["mode"] }] } }
+    },
     "OperationReceipt": {
       "type": "object",
       "required": [

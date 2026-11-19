@@ -168,7 +168,26 @@ func TestRunRecoveryAfterSIGKILL(t *testing.T) {
 	if data, err := os.ReadFile(path); err != nil || string(data) != "a" {
 		t.Fatalf("did not run approved write: %q %v", data, err)
 	}
-	if err := RecoverFiles(ctx, root, name[:len(name)-len(filepath.Ext(name))], cfg.IsolatedFiles); err != nil {
+	id := name[:len(name)-len(filepath.Ext(name))]
+	j, err := transaction.Open(filepath.Join(cfg.JournalDir, name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := j.Data()
+	if len(data.PreparedFiles) != 1 || len(data.AppliedOperations) != 1 || !data.MatchesPreparedFile(0, data.AppliedOperations[0]) {
+		t.Fatalf("durable plan does not match intent: %+v", data)
+	}
+	backup := filepath.Join(root, "backups", id, sha256Hex([]byte("op-1"))+".bak")
+	if data, err := verifyBackup(backup, sha256Hex([]byte("baseline"))); err != nil || string(data) != "baseline" {
+		t.Fatalf("durable backup: %q, %v", data, err)
+	}
+	if err := RecoverFiles(ctx, root, id, []string{path + "-other"}); !errors.Is(err, ErrRecoveryRequired) {
+		t.Fatalf("recovery accepted an unlisted destination: %v", err)
+	}
+	if data, err := os.ReadFile(path); err != nil || string(data) != "a" {
+		t.Fatalf("denied recovery modified the destination: %q %v", data, err)
+	}
+	if err := RecoverFiles(ctx, root, id, cfg.IsolatedFiles); err != nil {
 		t.Fatal(err)
 	}
 	if data, mode, err := readOrdinaryFile(path); err != nil || string(data) != "baseline" || mode != 0o640 {

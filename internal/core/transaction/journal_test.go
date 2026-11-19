@@ -105,6 +105,24 @@ func TestCreateAndOpen(t *testing.T) {
 	}
 }
 
+func TestDecodePreparedFilesDoesNotDowngradeToLegacy(t *testing.T) {
+	init := validInitialJournal("legacy", []string{"op-file"})
+	init.FileRecovery = true
+	data, err := json.Marshal(init)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manifestv1.DecodeTransactionJournal(data); err != nil {
+		t.Fatalf("legacy journal rejected: %v", err)
+	}
+	for _, field := range []string{`"prepared_files":null`, `"PREPARED_FILES":null`, `"prepared_files":[]`} {
+		malformed := string(data[:len(data)-1]) + "," + field + "}"
+		if _, err := manifestv1.DecodeTransactionJournal([]byte(malformed)); err == nil {
+			t.Errorf("accepted invalid %s", field)
+		}
+	}
+}
+
 func TestOpen_NonExistent(t *testing.T) {
 	tmpDir := t.TempDir()
 	path := filepath.Join(tmpDir, "does-not-exist.json")

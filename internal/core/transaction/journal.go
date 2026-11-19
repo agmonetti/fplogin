@@ -231,6 +231,9 @@ func (j *Journal) RecordFileIntent(receipt manifestv1.OperationReceipt) error {
 		i >= len(j.data.OperationOrder) || j.data.OperationOrder[i] != receipt.OperationID || receipt.Status != "pending" {
 		return ErrInvalidState
 	}
+	if j.data.PreparedFiles != nil && !j.data.MatchesPreparedFile(i, receipt) {
+		return fmt.Errorf("%w: file intent differs from prepared operation %q", ErrInvalidState, receipt.OperationID)
+	}
 	j.data.AppliedOperations = append(j.data.AppliedOperations, receipt)
 	j.data.State = "applying"
 	j.data.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
