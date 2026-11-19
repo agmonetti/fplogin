@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"syscall"
 	"testing"
 	"time"
 
@@ -46,6 +47,7 @@ type fakeAdapterInvoker struct {
 	verifyReport  adapterv1.VerificationReport
 	planErr       error
 	verifyErr     error
+	beforeVerify  func()
 }
 
 func (f *fakeAdapterInvoker) Detect(ctx context.Context, adapter discovery.Adapter, host protocol.HostContext) (adapterv1.DetectionReport, error) {
@@ -64,6 +66,9 @@ func (f *fakeAdapterInvoker) PrepareArtifacts(ctx context.Context, adapter disco
 	return f.artifacts, nil
 }
 func (f *fakeAdapterInvoker) Verify(ctx context.Context, adapter discovery.Adapter, host protocol.HostContext) (adapterv1.VerificationReport, error) {
+	if f.beforeVerify != nil {
+		f.beforeVerify()
+	}
 	return f.verifyReport, f.verifyErr
 }
 
@@ -260,6 +265,23 @@ func TestRun_FullInstallSuccess(t *testing.T) {
 	createdDir := filepath.Join(tmpDir, "test-install-dir")
 	if _, err := os.Stat(createdDir); err != nil {
 		t.Errorf("expected target directory to be created: %v", err)
+	}
+}
+
+func TestRun_CheckpointFailureDoesNotReportSuccess(t *testing.T) {
+	cfg, adapter, _ := setupTestFixtures(t.TempDir())
+	adapter.beforeVerify = func() {
+		// Keep the recovery data, but prevent checkpoint writes at the original path.
+		if err := os.Rename(cfg.JournalDir, cfg.JournalDir+".preserved"); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(cfg.JournalDir, nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	res, err := Run(context.Background(), cfg)
+	if res != nil || !errors.Is(err, syscall.ENOTDIR) {
+		t.Fatalf("expected checkpoint failure and no success result, got %+v, %v", res, err)
 	}
 }
 

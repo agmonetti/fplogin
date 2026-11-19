@@ -20,12 +20,12 @@ import (
 )
 
 var (
-	ErrNoCompatibleTargets  = errors.New("no compatible display manager targets detected")
-	ErrPrerequisiteFailed   = errors.New("adapter prerequisite check failed")
-	ErrApprovalRequired     = errors.New("explicit approval required for package installation or DM replacement")
-	ErrPrivilegesRequired   = errors.New("root privileges required to execute transaction mutations; run with sudo or elevated privileges")
-	ErrVerificationFailed   = errors.New("post-installation verification failed")
-	ErrTransactionAborted   = errors.New("installation transaction failed and was rolled back")
+	ErrNoCompatibleTargets = errors.New("no compatible display manager targets detected")
+	ErrPrerequisiteFailed  = errors.New("adapter prerequisite check failed")
+	ErrApprovalRequired    = errors.New("explicit approval required for package installation or DM replacement")
+	ErrPrivilegesRequired  = errors.New("root privileges required to execute transaction mutations; run with sudo or elevated privileges")
+	ErrVerificationFailed  = errors.New("post-installation verification failed")
+	ErrTransactionAborted  = errors.New("installation transaction failed and was rolled back")
 )
 
 // AdapterInvoker provides the adapter protocol methods needed by the installer.
@@ -65,15 +65,15 @@ type Config struct {
 
 // Result captures the outcome of an installer run.
 type Result struct {
-	DryRun           bool                       `json:"dry_run"`
-	TransactionID    string                     `json:"transaction_id,omitempty"`
-	SelectedTarget   adapterv1.DetectedTarget   `json:"selected_target"`
-	SelectedAdapter  discovery.Adapter          `json:"selected_adapter"`
-	SelectedProvider discovery.Provider         `json:"selected_provider"`
-	Plan             adapterv1.ChangePlan       `json:"plan"`
+	DryRun           bool                          `json:"dry_run"`
+	TransactionID    string                        `json:"transaction_id,omitempty"`
+	SelectedTarget   adapterv1.DetectedTarget      `json:"selected_target"`
+	SelectedAdapter  discovery.Adapter             `json:"selected_adapter"`
+	SelectedProvider discovery.Provider            `json:"selected_provider"`
+	Plan             adapterv1.ChangePlan          `json:"plan"`
 	AppliedReceipts  []manifestv1.OperationReceipt `json:"applied_receipts,omitempty"`
-	ManifestPath     string                     `json:"manifest_path,omitempty"`
-	JournalPath      string                     `json:"journal_path,omitempty"`
+	ManifestPath     string                        `json:"manifest_path,omitempty"`
+	JournalPath      string                        `json:"journal_path,omitempty"`
 }
 
 // Run executes the 13 phases of installation.
@@ -394,8 +394,9 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 		return nil, fmt.Errorf("phase 12 (publish manifest): %w", err)
 	}
 
-	// Checkpoint transaction journal as completed
-	_ = j.Checkpoint()
+	if err := j.Checkpoint(); err != nil {
+		return nil, fmt.Errorf("complete transaction %q: %w", txID, err)
+	}
 
 	// -------------------------------------------------------------------------
 	// Fase 13: Reporte de resultados
