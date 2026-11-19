@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -19,7 +20,72 @@ import (
 	manifestv1 "fplogin/internal/protocol/manifest/v1"
 )
 
-// recoverFiles is the internal recovery entry point for isolated file transactions.
+func isolatedFilePolicy(lab, state string, paths []string) func(string) bool {
+	info, err := os.Lstat(lab)
+	if err != nil || !info.IsDir() || info.Mode().Perm()&0o022 != 0 ||
+		info.Sys().(*syscall.Stat_t).Uid != uint32(os.Geteuid()) || validateSafePath(lab) != nil || validateSafePath(state) != nil {
+		return nil
+	}
+	allowed := make(map[string]bool, len(paths))
+	for _, path := range paths {
+		if !strings.HasPrefix(path, lab+"/") || path == state || strings.HasPrefix(path, state+"/") || validateSafePath(path) != nil {
+			return nil
+		}
+		allowed[path] = true
+	}
+	return func(path string) bool {
+		if !allowed[path] || validateSafePath(path) != nil {
+			return false
+		}
+		for dir := filepath.Dir(path); ; dir = filepath.Dir(dir) {
+			info, err := os.Lstat(dir)
+			if err != nil || !info.IsDir() || info.Mode().Perm()&0o022 != 0 ||
+				info.Sys().(*syscall.Stat_t).Uid != uint32(os.Geteuid()) {
+				return false
+			}
+			if dir == lab {
+				return true
+			}
+		}
+	}
+}
+
+type fileParameters struct {
+	Destination string `json:"destination_path"`
+	Path        string `json:"path"`
+	Content     string `json:"content_base64"`
+	SHA256      string `json:"sha256"`
+	Expected    string `json:"expected_sha256"`
+	Mode        string `json:"mode"`
+}
+
+func recoverableFile(op protocol.Operation) (fileParameters, string, error) {
+	var p fileParameters
+	if err := json.Unmarshal(op.Parameters, &p); err != nil {
+		return p, "", err
+	}
+	switch op.Kind {
+	case protocol.WriteFileAtomic:
+		return p, p.Destination, nil
+	case protocol.RemoveOwnedFile:
+		return p, p.Path, nil
+	default:
+		return p, "", ErrUnsupportedKind
+	}
+}
+
+// RecoverFiles rolls back an isolated transaction using the original lab allowlist.
+func RecoverFiles(ctx context.Context, root, id string, paths []string) error {
+	if os.Getuid() == 0 || os.Geteuid() == 0 || len(paths) == 0 {
+		return ErrPrivilegesRequired
+	}
+	allow := isolatedFilePolicy(filepath.Dir(root), root, paths)
+	if allow == nil {
+		return ErrPrivilegesRequired
+	}
+	return recoverFiles(ctx, root, id, allow)
+}
+
 func recoverFiles(ctx context.Context, root, id string, allow func(string) bool) error {
 	lock, err := transaction.AcquireLock(root)
 	if err != nil {
@@ -167,22 +233,9 @@ func verifyBackup(path, digest string) ([]byte, error) {
 }
 
 func (e *Executor) executeRecoverableFile(op protocol.Operation) (receipt manifestv1.OperationReceipt, err error) {
-	var params struct {
-		Destination string `json:"destination_path"`
-		Path        string `json:"path"`
-		Content     string `json:"content_base64"`
-		SHA256      string `json:"sha256"`
-		Expected    string `json:"expected_sha256"`
-		Mode        string `json:"mode"`
-	}
-	if err := json.Unmarshal(op.Parameters, &params); err != nil {
+	params, path, err := recoverableFile(op)
+	if err != nil {
 		return receipt, err
-	}
-	path := params.Destination
-	if op.Kind == protocol.RemoveOwnedFile {
-		path = params.Path
-	} else if op.Kind != protocol.WriteFileAtomic {
-		return receipt, ErrUnsupportedKind
 	}
 	before, original, err := e.inspectFile(path)
 	if err != nil {

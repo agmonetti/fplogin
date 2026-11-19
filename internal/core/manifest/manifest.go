@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"fplogin/internal/core/transaction"
 	"fplogin/internal/protocol"
 	manifestv1 "fplogin/internal/protocol/manifest/v1"
 )
@@ -62,7 +63,7 @@ func Publish(path string, m manifestv1.InstallManifest) error {
 	}
 
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("create manifest directory %q: %w", dir, err)
 	}
 
@@ -79,7 +80,7 @@ func Publish(path string, m manifestv1.InstallManifest) error {
 		}
 	}()
 
-	if err := tmpFile.Chmod(0o644); err != nil {
+	if err := tmpFile.Chmod(0o600); err != nil {
 		return fmt.Errorf("chmod %q: %w", tmpPath, err)
 	}
 
@@ -100,13 +101,12 @@ func Publish(path string, m manifestv1.InstallManifest) error {
 	}
 	cleanedUp = true
 
-	// Sync parent directory
-	if d, err := os.Open(dir); err == nil {
-		_ = d.Sync()
-		_ = d.Close()
+	d, err := os.Open(dir)
+	if err != nil {
+		return err
 	}
-
-	return nil
+	defer d.Close()
+	return d.Sync()
 }
 
 // Load reads and strictly validates the manifest from disk.
@@ -171,6 +171,18 @@ type UninstallConfig struct {
 // Uninstall executes a safe, checksum-aware removal of fplogin components
 // based on the installed manifest.
 func Uninstall(ctx context.Context, cfg UninstallConfig) error {
+	root := filepath.Dir(cfg.ManifestPath)
+	if filepath.Join(root, "manifest.json") != cfg.ManifestPath || filepath.Base(cfg.ManifestPath) != "manifest.json" {
+		return ErrCorruptManifest
+	}
+	lock, err := transaction.AcquireLock(root)
+	if err != nil {
+		return err
+	}
+	defer lock.Close()
+	if err := transaction.CheckNoUnresolved(filepath.Join(root, "transactions")); err != nil {
+		return err
+	}
 	m, err := Load(cfg.ManifestPath)
 	if err != nil {
 		return err

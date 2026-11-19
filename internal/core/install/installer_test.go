@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -126,8 +127,8 @@ func setupTestFixtures(tmpDir string) (Config, *fakeAdapterInvoker, *fakePlatfor
 	}
 
 	targetDir := filepath.Join(tmpDir, "test-install-dir")
-	params := json.RawMessage(`{"path":"` + targetDir + `","mode":"0755","owner":"root","group":"root"}`)
-	comp := json.RawMessage(`{"kind":"remove_directory","path":"` + targetDir + `"}`)
+	params := json.RawMessage(fmt.Sprintf(`{"destination_path":%q,"content_base64":"YQ==","sha256":%q,"mode":"0644","owner":"root","group":"root"}`, targetDir, sha256Hex([]byte("a"))))
+	comp := json.RawMessage(fmt.Sprintf(`{"kind":"remove_file","path":%q}`, targetDir))
 
 	now := time.Now().UTC().Format(time.RFC3339)
 	dummyDigest := "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
@@ -149,7 +150,7 @@ func setupTestFixtures(tmpDir string) (Config, *fakeAdapterInvoker, *fakePlatfor
 		Operations: []protocol.Operation{
 			{
 				OperationID:    "op-1",
-				Kind:           protocol.CreateDirectory,
+				Kind:           protocol.WriteFileAtomic,
 				Dependencies:   []string{},
 				Preconditions:  []json.RawMessage{},
 				ExpectedBefore: protocol.Object{"existed": json.RawMessage(`false`)},
@@ -207,17 +208,22 @@ func setupTestFixtures(tmpDir string) (Config, *fakeAdapterInvoker, *fakePlatfor
 		ProviderDirs:       []string{filepath.Join(tmpDir, "providers")},
 		JournalDir:         filepath.Join(tmpDir, "state", "transactions"),
 		ManifestPath:       filepath.Join(tmpDir, "state", "manifest.json"),
-		BackupDir:          filepath.Join(tmpDir, "state", "backups"),
-		Host: protocol.HostContext{
-			Elevated: true,
-		},
-		ApprovePlan: func(string, bool) error { return nil },
+		IsolatedFiles:      []string{targetDir},
+		ApprovePlan:        func(string, bool) error { return nil },
 	}
 
 	return cfg, adInvoker, platInvoker
 }
 
+func requireUnprivilegedLab(t *testing.T) {
+	t.Helper()
+	if os.Getuid() == 0 || os.Geteuid() == 0 {
+		t.Skip("isolated Run requires an unprivileged user")
+	}
+}
+
 func TestRun_DryRun(t *testing.T) {
+	requireUnprivilegedLab(t)
 	tmpDir := t.TempDir()
 	cfg, _, _ := setupTestFixtures(tmpDir)
 	cfg.DryRun = true
@@ -241,6 +247,7 @@ func TestRun_DryRun(t *testing.T) {
 }
 
 func TestRun_FullInstallSuccess(t *testing.T) {
+	requireUnprivilegedLab(t)
 	tmpDir := t.TempDir()
 	cfg, _, _ := setupTestFixtures(tmpDir)
 
@@ -258,7 +265,7 @@ func TestRun_FullInstallSuccess(t *testing.T) {
 	if data.AcceptedPlan.PlanDigest != approved || approved == res.Plan.CanonicalPlanDigest {
 		t.Fatal("journal did not persist the core-approved digest")
 	}
-	res.Plan.Operations[0].Compensation = json.RawMessage(`{"kind":"remove_directory","path":"/another-directory"}`)
+	res.Plan.Operations[0].Compensation = json.RawMessage(`{"kind":"remove_file","path":"/another-file"}`)
 	if digest, err := changePlanDigest(res.Plan); err != nil || digest == approved {
 		t.Fatalf("changing the operation did not produce a different digest: %v", err)
 	}
@@ -267,13 +274,11 @@ func TestRun_FullInstallSuccess(t *testing.T) {
 		t.Error("expected DryRun false")
 	}
 
-	// Verify manifest exists and is valid
-	m, err := manifest.Load(cfg.ManifestPath)
-	if err != nil {
-		t.Fatalf("failed to load published manifest: %v", err)
+	if !data.FileRecovery || data.State != "completed" || len(data.AppliedOperations) != 1 {
+		t.Fatalf("file operation missing from completed journal: %+v", data)
 	}
-	if m.Target.DMID != "org.freedesktop.DisplayManager.sddm" {
-		t.Errorf("expected target SDDM, got %q", m.Target.DMID)
+	if _, err := os.Lstat(cfg.ManifestPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("lab published a manifest: %v", err)
 	}
 
 	// Verify directory was created
@@ -284,6 +289,7 @@ func TestRun_FullInstallSuccess(t *testing.T) {
 }
 
 func TestRun_CheckpointFailureDoesNotReportSuccess(t *testing.T) {
+	requireUnprivilegedLab(t)
 	cfg, adapter, _ := setupTestFixtures(t.TempDir())
 	adapter.beforeVerify = func() {
 		// Keep the recovery data, but prevent checkpoint writes at the original path.
@@ -303,18 +309,17 @@ func TestRun_CheckpointFailureDoesNotReportSuccess(t *testing.T) {
 func TestRun_PrivilegesRequired(t *testing.T) {
 	tmpDir := t.TempDir()
 	cfg, _, _ := setupTestFixtures(tmpDir)
-	cfg.Host.Elevated = false
-
-	// Only test if running as non-root
-	if os.Geteuid() != 0 {
-		_, err := Run(context.Background(), cfg)
-		if !errors.Is(err, ErrPrivilegesRequired) {
-			t.Fatalf("expected ErrPrivilegesRequired, got %v", err)
-		}
+	cfg.Host.Elevated = true
+	if _, err := Run(context.Background(), cfg); !errors.Is(err, ErrPrivilegesRequired) {
+		t.Fatalf("expected ErrPrivilegesRequired, got %v", err)
+	}
+	if _, err := os.Lstat(filepath.Dir(cfg.JournalDir)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("privilege refusal must precede state creation: %v", err)
 	}
 }
 
 func TestRun_ApprovalRequired(t *testing.T) {
+	requireUnprivilegedLab(t)
 	tmpDir := t.TempDir()
 	cfg, adInvoker, _ := setupTestFixtures(tmpDir)
 	cfg.ApprovePlan = nil
@@ -329,11 +334,16 @@ func TestRun_ApprovalRequired(t *testing.T) {
 }
 
 func TestRun_BlocksConcurrentAndUnresolvedTransactions(t *testing.T) {
+	requireUnprivilegedLab(t)
 	cfg, adapter, _ := setupTestFixtures(t.TempDir())
 	adapter.beforeVerify = func() {
 		res, err := Run(context.Background(), cfg)
 		if res != nil || !errors.Is(err, transaction.ErrTransactionBusy) {
 			t.Fatalf("second run got %+v, %v; want transaction busy", res, err)
+		}
+		err = manifest.Uninstall(context.Background(), manifest.UninstallConfig{ManifestPath: cfg.ManifestPath})
+		if !errors.Is(err, transaction.ErrTransactionBusy) {
+			t.Fatalf("uninstall did not contend for install lock: %v", err)
 		}
 	}
 	res, err := Run(context.Background(), cfg)
@@ -349,7 +359,22 @@ func TestRun_BlocksConcurrentAndUnresolvedTransactions(t *testing.T) {
 	}
 }
 
+func TestRun_RejectsUnlistedDestinationBeforeApproval(t *testing.T) {
+	requireUnprivilegedLab(t)
+	dir := t.TempDir()
+	cfg, _, _ := setupTestFixtures(dir)
+	cfg.IsolatedFiles = []string{filepath.Join(dir, "only-approved-target")}
+	cfg.ApprovePlan = func(string, bool) error { t.Fatal("out-of-policy plan reached approval"); return nil }
+	if res, err := Run(context.Background(), cfg); res != nil || !errors.Is(err, ErrPrecondition) {
+		t.Fatalf("expected destination refusal, got %+v, %v", res, err)
+	}
+	if _, err := os.Lstat(filepath.Join(dir, "test-install-dir")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("unlisted destination changed: %v", err)
+	}
+}
+
 func TestRun_VerificationAndRollbackFailure(t *testing.T) {
+	requireUnprivilegedLab(t)
 	cfg, adapter, _ := setupTestFixtures(t.TempDir())
 	verifyFailure := errors.New("verification failed")
 	adapter.verifyErr = verifyFailure
@@ -368,6 +393,7 @@ func TestRun_VerificationAndRollbackFailure(t *testing.T) {
 }
 
 func TestRun_VerificationFailureRollback(t *testing.T) {
+	requireUnprivilegedLab(t)
 	tmpDir := t.TempDir()
 	cfg, adInvoker, _ := setupTestFixtures(tmpDir)
 	// Force verification failure

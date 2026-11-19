@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"fplogin/internal/core/discovery"
-	"fplogin/internal/core/manifest"
 	"fplogin/internal/core/transaction"
 	"fplogin/internal/protocol"
 	adapterv1 "fplogin/internal/protocol/adapter/v1"
@@ -23,7 +22,7 @@ var (
 	ErrNoCompatibleTargets = errors.New("no compatible display manager targets detected")
 	ErrPrerequisiteFailed  = errors.New("adapter prerequisite check failed")
 	ErrApprovalRequired    = errors.New("explicit approval of the exact change plan is required")
-	ErrPrivilegesRequired  = errors.New("root privileges required to execute transaction mutations; run with sudo or elevated privileges")
+	ErrPrivilegesRequired  = errors.New("only non-privileged isolated file transactions are supported")
 	ErrVerificationFailed  = errors.New("post-installation verification failed")
 	ErrTransactionAborted  = errors.New("installation transaction failed and was rolled back")
 	ErrRecoveryRequired    = errors.New("installation transaction needs recovery")
@@ -59,9 +58,10 @@ type Config struct {
 	ApprovePlan        func(planDigest string, replacesDM bool) error
 	JournalDir         string // defaults to /var/lib/fplogin/transactions
 	ManifestPath       string // defaults to /var/lib/fplogin/manifest.json
-	BackupDir          string
-	Host               protocol.HostContext
-	CoreVersion        string
+	// IsolatedFiles is an exact destination allowlist supplied by the lab, never by an adapter.
+	IsolatedFiles []string
+	Host          protocol.HostContext
+	CoreVersion   string
 }
 
 // Result captures the outcome of an installer run.
@@ -104,13 +104,21 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 		cfg.ManifestPath = "/var/lib/fplogin/manifest.json"
 	}
 
+	stateRoot := filepath.Dir(cfg.JournalDir)
+	var allowFile func(string) bool
+	if os.Getuid() == 0 || os.Geteuid() == 0 || cfg.Host.Elevated {
+		return nil, ErrPrivilegesRequired
+	}
 	if !cfg.DryRun {
-		if !cfg.Host.Elevated && os.Geteuid() != 0 {
+		if len(cfg.IsolatedFiles) == 0 {
 			return nil, ErrPrivilegesRequired
 		}
-		stateRoot := filepath.Dir(cfg.JournalDir)
 		if cfg.JournalDir != filepath.Join(stateRoot, "transactions") || cfg.ManifestPath != filepath.Join(stateRoot, "manifest.json") {
 			return nil, errors.New("manifest and transactions must share the canonical transaction state root")
+		}
+		allowFile = isolatedFilePolicy(filepath.Dir(stateRoot), stateRoot, cfg.IsolatedFiles)
+		if allowFile == nil {
+			return nil, ErrPrivilegesRequired
 		}
 		lock, err := transaction.AcquireLock(stateRoot)
 		if err != nil {
@@ -119,6 +127,9 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 		defer lock.Close()
 		if err := transaction.CheckNoUnresolved(cfg.JournalDir); err != nil {
 			return nil, err
+		}
+		if _, err := os.Lstat(cfg.ManifestPath); !errors.Is(err, os.ErrNotExist) {
+			return nil, errors.New("isolated transactions require an unused manifest path")
 		}
 	}
 
@@ -228,6 +239,12 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
+	for _, op := range plan.Operations {
+		_, path, err := recoverableFile(op)
+		if err != nil || !allowFile(path) {
+			return nil, fmt.Errorf("operation %q is outside the isolated file policy: %w", op.OperationID, errors.Join(ErrPrecondition, err))
+		}
+	}
 	planDigest, err := changePlanDigest(plan)
 	if err != nil {
 		return nil, err
@@ -254,6 +271,7 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 	now := time.Now().UTC().Format(time.RFC3339)
 	initJournal := manifestv1.TransactionJournal{
 		SchemaVersion: manifestv1.SchemaVersion,
+		FileRecovery:  true,
 		TransactionID: txID,
 		State:         "prepared",
 		CreatedAt:     now,
@@ -292,17 +310,9 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 		return nil, fmt.Errorf("phase 7 (create transaction journal): %w", err)
 	}
 
-	executor, err := NewExecutor(j, cfg.PlatformInvoker, cfg.BackupDir)
+	executor, err := newFileExecutor(j, stateRoot, allowFile)
 	if err != nil {
-		return nil, fmt.Errorf("phase 7 (initialize executor): %w", err)
-	}
-
-	// -------------------------------------------------------------------------
-	// Fase 8: Prepare artifacts
-	// -------------------------------------------------------------------------
-	_, err = cfg.AdapterInvoker.PrepareArtifacts(ctx, selectedAdapter, cfg.Host)
-	if err != nil {
-		return nil, fmt.Errorf("phase 8 (prepare artifacts): %w", err)
+		return nil, fmt.Errorf("%w: initialize transaction %q: %w", ErrRecoveryRequired, txID, err)
 	}
 
 	// -------------------------------------------------------------------------
@@ -342,89 +352,7 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 		}
 	}
 
-	// -------------------------------------------------------------------------
-	// Fase 11: Habilitar el DM seleccionado
-	// -------------------------------------------------------------------------
-	// (Si forma parte de una operación del plan ya fue aplicada en Fase 9)
-
-	// -------------------------------------------------------------------------
-	// Fase 12: Publicar Installation Manifest de forma atómica
-	// -------------------------------------------------------------------------
-	installedFiles := make([]manifestv1.InstalledFile, 0)
-	installedPackages := make([]manifestv1.InstalledPackage, 0)
-
-	for _, r := range appliedReceipts {
-		if r.Kind == protocol.WriteFileAtomic {
-			var after struct {
-				Path   string `json:"destination_path"`
-				SHA256 string `json:"sha256"`
-				Mode   string `json:"mode"`
-			}
-			raw, _ := json.Marshal(r.AfterState)
-			_ = json.Unmarshal(raw, &after)
-			installedFiles = append(installedFiles, manifestv1.InstalledFile{
-				Path:   after.Path,
-				SHA256: after.SHA256,
-				Mode:   after.Mode,
-				Owner:  "root",
-				Group:  "root",
-			})
-		}
-	}
-
-	installManifest := manifestv1.InstallManifest{
-		SchemaVersion:  manifestv1.SchemaVersion,
-		FPLoginVersion: cfg.CoreVersion,
-		InstalledAt:    time.Now().UTC().Format(time.RFC3339),
-		Target: manifestv1.Target{
-			InstanceID:  selectedTarget.InstanceID,
-			DMID:        selectedTarget.DMID,
-			DisplayName: selectedTarget.DisplayName,
-		},
-		Adapter: manifestv1.AdapterIdentity{
-			ComponentIdentity: manifestv1.ComponentIdentity{
-				ID:               selectedAdapter.Descriptor.AdapterID,
-				Version:          selectedAdapter.Descriptor.AdapterVersion,
-				ProtocolVersion:  selectedAdapter.ProtocolVersion,
-				DescriptorSHA256: selectedAdapter.DescriptorSHA256,
-			},
-			InstalledCapabilities: []string{"biometric_auth"},
-		},
-		PlatformProvider: manifestv1.ComponentIdentity{
-			ID:               selectedProvider.Descriptor.PlatformID,
-			Version:          selectedProvider.Descriptor.PlatformVersion,
-			ProtocolVersion:  selectedProvider.ProtocolVersion,
-			DescriptorSHA256: selectedProvider.DescriptorSHA256,
-		},
-		AcceptedPlan: manifestv1.AcceptedPlan{
-			PlanID:     plan.PlanID,
-			PlanDigest: planDigest,
-			InputHash:  plan.InputHash,
-			Mode:       plan.Mode,
-		},
-		InstalledFiles:    installedFiles,
-		InstalledPackages: installedPackages,
-		Services: manifestv1.Services{
-			Enabled:     []string{},
-			Disabled:    []string{},
-			PriorStates: []manifestv1.ServiceState{},
-		},
-		PreviousDMState: manifestv1.PreviousDMState{
-			ServiceName: "display-manager.service",
-			Enabled:     dmState.Enabled,
-			Active:      dmState.Active,
-		},
-		OperationReceipts: appliedReceipts,
-		Verification: manifestv1.Verification{
-			ReportID:   verifyReport.ReportID,
-			VerifiedAt: verifyReport.VerifiedAt,
-			Checks:     []manifestv1.VerificationCheck{},
-		},
-	}
-
-	if err := manifest.Publish(cfg.ManifestPath, installManifest); err != nil {
-		return nil, rollbackAfterError(ctx, executor, fmt.Errorf("phase 12 (publish manifest): %w", err))
-	}
+	// Manifest publication stays disabled until it can be recovered atomically with the journal.
 
 	if err := j.Checkpoint(); err != nil {
 		return nil, fmt.Errorf("%w: complete transaction %q: %w", ErrRecoveryRequired, txID, err)
@@ -441,7 +369,6 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 		SelectedProvider: selectedProvider,
 		Plan:             plan,
 		AppliedReceipts:  appliedReceipts,
-		ManifestPath:     cfg.ManifestPath,
 		JournalPath:      journalPath,
 	}, nil
 }

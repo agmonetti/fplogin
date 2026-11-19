@@ -116,7 +116,7 @@ func TestPublishAndLoad(t *testing.T) {
 
 func TestVerifyFiles_AndUninstallFlow(t *testing.T) {
 	tmpDir := t.TempDir()
-	path := filepath.Join(tmpDir, "manifest.json")
+	path := filepath.Join(tmpDir, "state", "manifest.json")
 
 	// Create a dummy installed file
 	installedFilePath := filepath.Join(tmpDir, "usr", "share", "fplogin", "asset.txt")

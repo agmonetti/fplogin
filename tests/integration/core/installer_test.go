@@ -122,6 +122,9 @@ func treeSnapshot(root string) (map[string]string, error) {
 
 func buildIntegrationFixture(t *testing.T, tmpDir string, failOpID string) (install.Config, string, string) {
 	t.Helper()
+	if os.Getuid() == 0 || os.Geteuid() == 0 {
+		t.Skip("isolated Run requires an unprivileged user")
+	}
 	now := time.Now().UTC().Format(time.RFC3339)
 	dummyDigest := "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
@@ -235,21 +238,20 @@ func buildIntegrationFixture(t *testing.T, tmpDir string, failOpID string) (inst
 
 	platInvoker := &fakePlatformInvoker{failOnOpID: failOpID}
 
-	if err := os.MkdirAll(filepath.Join(tmpDir, "var", "lib"), 0o700); err != nil {
-		t.Fatal(err)
+	for _, dir := range []string{filepath.Dir(file1Path), filepath.Dir(file2Path)} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
 	}
 	cfg := install.Config{
 		AdapterDiscoverer:  &fakeDiscoverer[adapterclient.Discovered]{items: []adapterclient.Discovered{adDiscovered}},
 		ProviderDiscoverer: &fakeDiscoverer[platformclient.Discovered]{items: []platformclient.Discovered{prDiscovered}},
 		AdapterInvoker:     adInvoker,
 		PlatformInvoker:    platInvoker,
-		JournalDir:         filepath.Join(tmpDir, "var", "lib", "fplogin", "transactions"),
-		ManifestPath:       filepath.Join(tmpDir, "var", "lib", "fplogin", "manifest.json"),
-		BackupDir:          filepath.Join(tmpDir, "var", "lib", "fplogin", "backups"),
-		Host: protocol.HostContext{
-			Elevated: true,
-		},
-		ApprovePlan: func(string, bool) error { return nil },
+		JournalDir:         filepath.Join(tmpDir, "state", "transactions"),
+		ManifestPath:       filepath.Join(tmpDir, "state", "manifest.json"),
+		IsolatedFiles:      []string{file1Path, file2Path},
+		ApprovePlan:        func(string, bool) error { return nil },
 	}
 
 	return cfg, file1Path, file2Path
@@ -279,19 +281,11 @@ func TestIntegration_FreshInstall_Clean(t *testing.T) {
 		t.Fatalf("file2 not written correctly: %s (err: %v)", string(c2), err)
 	}
 
-	// Verify manifest published and valid
-	m, err := manifest.Load(cfg.ManifestPath)
-	if err != nil {
-		t.Fatalf("Load manifest failed: %v", err)
+	if len(res.AppliedReceipts) != 2 || res.JournalPath == "" {
+		t.Fatalf("missing durable file receipts: %+v", res)
 	}
-	if len(m.InstalledFiles) != 2 {
-		t.Errorf("expected 2 installed files in manifest, got %d", len(m.InstalledFiles))
-	}
-
-	// Verify files integrity against manifest
-	mismatches, err := manifest.VerifyFiles(m)
-	if err != nil || len(mismatches) != 0 {
-		t.Errorf("expected 0 mismatches, got %v (err: %v)", mismatches, err)
+	if _, err := os.Lstat(cfg.ManifestPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("lab must not publish a manifest: %v", err)
 	}
 }
 
@@ -359,50 +353,18 @@ func TestIntegration_AbortMidMutation_Compensated(t *testing.T) {
 	}
 }
 
-func TestIntegration_Uninstall_IntactAndModifiedRefusal(t *testing.T) {
-	tmpDir := t.TempDir()
-	cfg, file1, file2 := buildIntegrationFixture(t, tmpDir, "")
-
-	// Step 1: Install
-	_, err := install.Run(context.Background(), cfg)
-	if err != nil {
-		t.Fatalf("install failed: %v", err)
+func TestIntegration_LabDoesNotAuthorizeUninstall(t *testing.T) {
+	cfg, file1, file2 := buildIntegrationFixture(t, t.TempDir(), "")
+	if _, err := install.Run(context.Background(), cfg); err != nil {
+		t.Fatal(err)
 	}
-
-	// Step 2: Tamper file1
-	_ = os.WriteFile(file1, []byte("tampered content"), 0o644)
-
-	// Step 3: Uninstall without force must fail
-	uninstCfg := manifest.UninstallConfig{
-		ManifestPath: cfg.ManifestPath,
-		Force:        false,
+	err := manifest.Uninstall(context.Background(), manifest.UninstallConfig{ManifestPath: cfg.ManifestPath, Force: true})
+	if !errors.Is(err, manifest.ErrManifestNotFound) {
+		t.Fatalf("uninstall without a manifest: %v", err)
 	}
-	err = manifest.Uninstall(context.Background(), uninstCfg)
-	if !errors.Is(err, manifest.ErrModifiedFiles) {
-		t.Fatalf("expected ErrModifiedFiles, got %v", err)
-	}
-
-	// Files must still exist
-	if _, err := os.Stat(file1); err != nil {
-		t.Errorf("tampered file1 should still exist: %v", err)
-	}
-	if _, err := os.Stat(file2); err != nil {
-		t.Errorf("file2 should still exist: %v", err)
-	}
-
-	// Step 4: Uninstall with force must succeed and clean up
-	uninstCfg.Force = true
-	if err := manifest.Uninstall(context.Background(), uninstCfg); err != nil {
-		t.Fatalf("Uninstall with Force failed: %v", err)
-	}
-
-	if _, err := os.Stat(file1); !os.IsNotExist(err) {
-		t.Errorf("file1 should be deleted after force uninstall, err: %v", err)
-	}
-	if _, err := os.Stat(file2); !os.IsNotExist(err) {
-		t.Errorf("file2 should be deleted after force uninstall, err: %v", err)
-	}
-	if _, err := os.Stat(cfg.ManifestPath); !os.IsNotExist(err) {
-		t.Errorf("manifest should be deleted after uninstall, err: %v", err)
+	for _, file := range []string{file1, file2} {
+		if _, err := os.Stat(file); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
