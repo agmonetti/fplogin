@@ -75,6 +75,18 @@ func TestSystemFileTransaction(t *testing.T) {
 			t.Fatalf("second process did not contend for lock: %v", err)
 		}
 	})
+	lock, err = transaction.AcquireLock(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Close()
+	init.TransactionID = "second-system-tx"
+	if _, err := beginFileTransaction(root, nil, init, []protocol.Operation{op}); !errors.Is(err, transaction.ErrUnresolvedTransaction) {
+		t.Fatalf("started another transaction before recovery: %v", err)
+	}
+	if err := lock.Close(); err != nil {
+		t.Fatal(err)
+	}
 	if data, err := os.ReadFile(systemThemeFile); err != nil || string(data) != systemThemeData {
 		t.Fatalf("approved change did not reach disk: %q %v", data, err)
 	}

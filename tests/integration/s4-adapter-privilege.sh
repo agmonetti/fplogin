@@ -40,7 +40,7 @@ docker run --rm --pull=never --network=none --cap-drop=ALL \
     printf "%s %s\n" "$(id -u fplogin-adapter)" "$(id -g fplogin-adapter)" > /run/fplogin-test-ids
     mv /usr/lib/fplogin/adapters/bin/{fplogin-adapter-sddm,adapter-real}
     install -m 0755 /fixture/adapter-probe /usr/lib/fplogin/adapters/bin/fplogin-adapter-sddm
-    install -d -m 0700 /var/lib/fplogin/transactions /var/lib/fplogin/backups /var/lib/fplogin/backups/tx
+    install -d -m 0700 /var/lib/fplogin /var/lib/fplogin/transactions /var/lib/fplogin/backups /var/lib/fplogin/backups/tx
     install -m 0600 /dev/null /var/lib/fplogin/manifest.json
     install -m 0600 /dev/null /var/lib/fplogin/transactions/tx.json
     install -m 0600 /dev/null /var/lib/fplogin/backups/tx/file.bak

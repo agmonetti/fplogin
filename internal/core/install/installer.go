@@ -125,9 +125,6 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 			return nil, err
 		}
 		defer lock.Close()
-		if err := transaction.CheckNoUnresolved(cfg.JournalDir); err != nil {
-			return nil, err
-		}
 		if _, err := os.Lstat(cfg.ManifestPath); !errors.Is(err, os.ErrNotExist) {
 			return nil, errors.New("isolated transactions require an unused manifest path")
 		}

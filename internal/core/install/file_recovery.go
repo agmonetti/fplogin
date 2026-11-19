@@ -108,6 +108,9 @@ func beginFileTransaction(root string, paths []string, init manifestv1.Transacti
 	if allow == nil {
 		return nil, ErrPrivilegesRequired
 	}
+	if err := transaction.CheckNoUnresolved(filepath.Join(root, "transactions")); err != nil {
+		return nil, err
+	}
 	backups, err := transaction.OpenBackupDir(root, init.TransactionID)
 	if err != nil {
 		return nil, err
