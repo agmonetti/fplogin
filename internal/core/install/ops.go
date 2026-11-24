@@ -547,12 +547,16 @@ func (e *Executor) compensateOperation(ctx context.Context, receipt manifestv1.O
 // A normal subprocess exit is not proof the requested state was reached.
 func (e *Executor) applyPlatform(ctx context.Context, op protocol.Operation) (manifestv1.OperationReceipt, error) {
 	r, err := e.Platform.ApplyOperation(ctx, op)
-	if err != nil { return r, err }
+	if err != nil {
+		return r, err
+	}
 	if r.OperationID != op.OperationID || r.Kind != op.Kind || r.Status != "success" || r.BeforeState == nil || r.AfterState == nil || len(r.Error) != 0 {
 		return r, fmt.Errorf("provider did not confirm operation %q", op.OperationID)
 	}
 	for k, expected := range op.ExpectedAfter {
-		if string(r.AfterState[k]) != string(expected) { return r, fmt.Errorf("provider did not confirm postcondition %q for %q", k, op.OperationID) }
+		if string(r.AfterState[k]) != string(expected) {
+			return r, fmt.Errorf("provider did not confirm postcondition %q for %q", k, op.OperationID)
+		}
 	}
 	// Only the approved operation supplies executable rollback instructions.
 	r.Compensation = toObject(op.Compensation)
