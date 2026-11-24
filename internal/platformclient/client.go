@@ -117,8 +117,8 @@ func (c Client) Invoke(ctx context.Context, provider Discovered, request platfor
 	if err := request.Validate(); err != nil {
 		return platformv1.Response{}, fmt.Errorf("invalid platform request: %w", err)
 	}
+	var payload platformv1.PrepareArtifactInstallPayload
 	if request.Operation == "PrepareArtifactInstall" {
-		var payload platformv1.PrepareArtifactInstallPayload
 		if err := json.Unmarshal(request.Payload, &payload); err != nil {
 			return platformv1.Response{}, err
 		}
@@ -156,7 +156,41 @@ func (c Client) Invoke(ctx context.Context, provider Discovered, request platfor
 	if response.ProtocolVersion.Minor > request.ProtocolVersion.Minor {
 		return platformv1.Response{}, fmt.Errorf("provider selected unsupported protocol minor %d", response.ProtocolVersion.Minor)
 	}
+	if response.OK && request.Operation == "PrepareArtifactInstall" {
+		if err := checkPreparedReferences(payload.ArtifactReferences, response.Result); err != nil {
+			return platformv1.Response{}, fmt.Errorf("%w: %v", ErrMalformedOutput, err)
+		}
+	}
 	return response, nil
+}
+
+// A successful preparation must account for each requested artifact exactly once.
+func checkPreparedReferences(request []platformv1.ArtifactReference, raw json.RawMessage) error {
+	var result struct {
+		References []json.RawMessage `json:"references"`
+	}
+	if err := protocol.DecodeStrict(raw, &result, "references"); err != nil {
+		return err
+	}
+	if result.References == nil || len(result.References) != len(request) {
+		return errors.New("prepared reference count mismatch")
+	}
+	pending := make(map[string]platformv1.ArtifactReference, len(request))
+	for _, ref := range request {
+		pending[ref.ArtifactID] = ref
+	}
+	for _, item := range result.References {
+		var ref platformv1.PreparedArtifactReference
+		if err := protocol.DecodeStrict(item, &ref, "artifact_id", "provider_reference", "media_type", "size", "sha256", "operation_parameters"); err != nil {
+			return err
+		}
+		want, ok := pending[ref.ArtifactID]
+		if !ok || ref.ProviderReference == "" || ref.OperationParameters == nil || ref.Size != want.Size || ref.SHA256 != want.SHA256 || ref.MediaType != want.MediaType {
+			return fmt.Errorf("unexpected prepared reference for %q", ref.ArtifactID)
+		}
+		delete(pending, ref.ArtifactID)
+	}
+	return nil
 }
 
 func (c Client) handshake(ctx context.Context, provider Discovered, host protocol.HostContext) error {
