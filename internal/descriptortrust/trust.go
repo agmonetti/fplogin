@@ -88,11 +88,21 @@ func Read(policy Policy, descriptorPath string, maxBytes int64) (TrustedFile, er
 	if err := validatePath(filepath.Dir(absoluteDescriptor), policy.OwnerUID, true, false); err != nil {
 		return TrustedFile{}, fmt.Errorf("descriptor directory: %w", err)
 	}
-	file, err := os.Open(absoluteDescriptor)
+	file, err := os.OpenFile(absoluteDescriptor, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
 	if err != nil {
 		return TrustedFile{}, err
 	}
 	defer file.Close()
+	fi, err := file.Stat()
+	if err != nil {
+		return TrustedFile{}, err
+	}
+	if !fi.Mode().IsRegular() {
+		return TrustedFile{}, fmt.Errorf("descriptor %q is not a regular file", absoluteDescriptor)
+	}
+	if st, ok := fi.Sys().(*syscall.Stat_t); ok && st.Uid != policy.OwnerUID {
+		return TrustedFile{}, fmt.Errorf("descriptor %q owner changed to uid %d", absoluteDescriptor, st.Uid)
+	}
 	data, err := io.ReadAll(io.LimitReader(file, maxBytes+1))
 	if err != nil {
 		return TrustedFile{}, err

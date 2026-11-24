@@ -13,7 +13,9 @@ import (
 
 	"fplogin/internal/core/analyze"
 	"fplogin/internal/core/install"
+	"fplogin/internal/core/manifest"
 	"fplogin/internal/core/transaction"
+	"fplogin/internal/descriptortrust"
 	"fplogin/internal/protocol"
 	manifestv1 "fplogin/internal/protocol/manifest/v1"
 )
@@ -250,6 +252,129 @@ func TestSecurity_CorruptedJournalHandling(t *testing.T) {
 		err := j.Checkpoint()
 		if !errors.Is(err, transaction.ErrInvalidState) {
 			t.Fatalf("expected ErrInvalidState checkpointing during rollback_required, got %v", err)
+		}
+	})
+}
+
+// TestSecurity_Sprint6Hardening verifies TOCTOU/symlink rejection on descriptor
+// reads and owned-file removals, hashed backup paths, and manifest secret checks.
+func TestSecurity_Sprint6Hardening(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	t.Run("descriptor_symlink_rejected", func(t *testing.T) {
+		realDesc := filepath.Join(tmpDir, "real.json")
+		if err := os.WriteFile(realDesc, []byte(`{"id":"test"}`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		linkDesc := filepath.Join(tmpDir, "link.json")
+		if err := os.Symlink(realDesc, linkDesc); err != nil {
+			t.Fatal(err)
+		}
+		_, err := descriptortrust.Read(descriptortrust.Policy{OwnerUID: uint32(os.Geteuid())}, linkDesc, 4096)
+		if err == nil {
+			t.Fatal("expected symlink descriptor read to be rejected")
+		}
+	})
+
+	t.Run("remove_owned_file_rejects_symlink_and_ancestor_symlink", func(t *testing.T) {
+		target := filepath.Join(tmpDir, "keep-me.conf")
+		if err := os.WriteFile(target, []byte("precious"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		realSub := filepath.Join(tmpDir, "real-sub")
+		if err := os.MkdirAll(realSub, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		linkSub := filepath.Join(tmpDir, "link-sub")
+		if err := os.Symlink(realSub, linkSub); err != nil {
+			t.Fatal(err)
+		}
+		j := createSecurityTestJournal(t, filepath.Join(tmpDir, "j-rm"), "tx-rm", []string{"op-rm"})
+		exec, err := install.NewExecutor(j, nil, filepath.Join(tmpDir, "bak-rm"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		op := protocol.Operation{
+			OperationID:    "op-rm",
+			Kind:           protocol.RemoveOwnedFile,
+			Dependencies:   []string{},
+			Preconditions:  []json.RawMessage{},
+			ExpectedBefore: protocol.Object{"existed": json.RawMessage(`true`)},
+			ExpectedAfter:  protocol.Object{"existed": json.RawMessage(`false`)},
+			Parameters:     json.RawMessage(`{"path":"` + filepath.Join(linkSub, "x.conf") + `","expected_sha256":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}`),
+			Compensation:   json.RawMessage(`{"kind":"restore_file","path":"` + filepath.Join(linkSub, "x.conf") + `"}`),
+		}
+		if _, err := exec.Execute(context.Background(), op); !errors.Is(err, install.ErrSymlinkRejected) {
+			t.Fatalf("expected ErrSymlinkRejected for ancestor symlink removal, got %v", err)
+		}
+	})
+
+	t.Run("manifest_rejects_embedded_secrets", func(t *testing.T) {
+		now := time.Now().UTC().Format(time.RFC3339)
+		m := manifestv1.InstallManifest{
+			SchemaVersion:  manifestv1.SchemaVersion,
+			TransactionID:  "tx-sec-1",
+			FPLoginVersion: "0.2.0",
+			InstalledAt:    now,
+			Target: manifestv1.Target{
+				InstanceID:  "inst-1",
+				DMID:        "org.freedesktop.DisplayManager.test",
+				DisplayName: "TestDM",
+			},
+			Adapter: manifestv1.AdapterIdentity{
+				ComponentIdentity: manifestv1.ComponentIdentity{
+					ID:               "org.fplogin.adapter.test",
+					Version:          "1.0.0",
+					ProtocolVersion:  protocol.Version{Major: 1, Minor: 0},
+					DescriptorSHA256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+				},
+				InstalledCapabilities: []string{"biometric_auth"},
+			},
+			PlatformProvider: manifestv1.ComponentIdentity{
+				ID:               "org.fplogin.platform.test",
+				Version:          "1.0.0",
+				ProtocolVersion:  protocol.Version{Major: 1, Minor: 0},
+				DescriptorSHA256: "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210",
+			},
+			AcceptedPlan: manifestv1.AcceptedPlan{
+				PlanID:     "plan-1",
+				PlanDigest: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+				InputHash:  "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+				Mode:       "fresh_install",
+			},
+			InstalledFiles:    []manifestv1.InstalledFile{},
+			InstalledPackages: []manifestv1.InstalledPackage{},
+			Services: manifestv1.Services{
+				Enabled:     []string{"testdm.service"},
+				Disabled:    []string{},
+				PriorStates: []manifestv1.ServiceState{},
+			},
+			PreviousDMState: manifestv1.PreviousDMState{
+				ServiceName: "testdm.service",
+				Enabled:     "yes",
+				Active:      "yes",
+			},
+			OperationReceipts: []manifestv1.OperationReceipt{
+				{
+					OperationID:  "op-1",
+					Kind:         protocol.CreateDirectory,
+					StartedAt:    now,
+					CompletedAt:  now,
+					Status:       "success",
+					BeforeState:  protocol.Object{"existed": json.RawMessage(`false`)},
+					AfterState:   protocol.Object{"pam_response": json.RawMessage(`"leaked-authtok"`)},
+					Compensation: protocol.Object{"kind": json.RawMessage(`"remove_directory"`)},
+				},
+			},
+			Verification: manifestv1.Verification{
+				ReportID:   "rep-1",
+				VerifiedAt: now,
+				Checks:     []manifestv1.VerificationCheck{},
+			},
+		}
+		err := manifest.Publish(filepath.Join(tmpDir, "manifest.json"), m)
+		if !errors.Is(err, manifest.ErrSecretDetected) {
+			t.Fatalf("expected manifest.ErrSecretDetected, got %v", err)
 		}
 	})
 }

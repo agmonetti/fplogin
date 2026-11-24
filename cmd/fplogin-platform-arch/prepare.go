@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"sort"
 	"strings"
 	"syscall"
+	"time"
 
 	"fplogin/internal/descriptortrust"
 	"fplogin/internal/platformclient"
@@ -72,14 +74,19 @@ func resolveTrust(op string) (trustConfig, error) {
 		}
 		return trustConfig{dir: systemTrust, isLab: false, candidateFpr: fpr}, nil
 	}
-	if _, err := os.Stat(labTrust + "/candidate.gpg"); err == nil {
+	if fi, err := os.Lstat(labTrust + "/candidate.gpg"); err == nil {
+		if !fi.Mode().IsRegular() {
+			return trustConfig{}, fmt.Errorf("unsafe lab candidate.gpg: not a regular file")
+		}
 		return trustConfig{dir: labTrust, isLab: true, candidateFpr: "CBFAD8C1A4FDE6D8FE5FA8F59911358499AA1EA6"}, nil
 	}
 	return trustConfig{}, notImplemented(op)
 }
 
 func labOutput(path string, args ...string) (string, error) {
-	c := exec.Command(path, args...)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	c := exec.CommandContext(ctx, path, args...)
 	c.Env = []string{"LC_ALL=C", "PATH=/usr/bin"}
 	b, err := c.Output()
 	return strings.TrimSpace(string(b)), err
@@ -114,7 +121,7 @@ func verifyStagedArchive(trust trustConfig, canonicalPath, digest string) (strin
 			return "", fmt.Errorf("unexpected package archive %q", digest)
 		}
 	} else {
-		out, err := labOutput("/usr/bin/pacman", "--config", "/dev/null", "-Qp", canonicalPath)
+		out, err := labOutput("/usr/bin/pacman", "--config", "/dev/null", "-Qp", "--", canonicalPath)
 		if err != nil {
 			return "", fmt.Errorf("inspect staged package %s: %w", digest, err)
 		}
@@ -139,7 +146,7 @@ func verifyStagedArchive(trust trustConfig, canonicalPath, digest string) (strin
 	if err != nil || !st.Mode().IsRegular() || st.Size() <= 0 || st.Size() > 65536 {
 		return "", fmt.Errorf("invalid signature sidecar")
 	}
-	status, err := labOutput("/usr/bin/gpgv", "--keyring", key, "--status-fd", "1", sig, canonicalPath)
+	status, err := labOutput("/usr/bin/gpgv", "--keyring", key, "--status-fd", "1", "--", sig, canonicalPath)
 	if err != nil {
 		return "", fmt.Errorf("signature rejected for %s", name)
 	}

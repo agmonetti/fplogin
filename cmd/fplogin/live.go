@@ -97,6 +97,9 @@ func scanOfflineArtifacts(dir string) ([]cliArtifactMeta, error) {
 	if err != nil || !st.IsDir() {
 		return nil, fmt.Errorf("artifacts directory %q is not an accessible directory", abs)
 	}
+	if resolved, err := filepath.EvalSymlinks(abs); err != nil || resolved != abs {
+		return nil, fmt.Errorf("artifacts directory %q must not traverse symlinks", abs)
+	}
 	entries, err := os.ReadDir(abs)
 	if err != nil {
 		return nil, err
@@ -119,14 +122,15 @@ func scanOfflineArtifacts(dir string) ([]cliArtifactMeta, error) {
 			return nil, fmt.Errorf("open artifact %q: %w", full, err)
 		}
 		info, statErr := f.Stat()
-		if statErr != nil || !info.Mode().IsRegular() || info.Size() <= 0 {
+		const maxArchiveBytes = 512 << 20
+		if statErr != nil || !info.Mode().IsRegular() || info.Size() <= 0 || info.Size() > maxArchiveBytes {
 			f.Close()
-			return nil, fmt.Errorf("artifact %q must be a non-empty regular file", full)
+			return nil, fmt.Errorf("artifact %q must be a non-empty regular file within size limit", full)
 		}
 		h := sha256.New()
-		_, copyErr := io.Copy(h, f)
+		n, copyErr := io.Copy(h, io.LimitReader(f, maxArchiveBytes+1))
 		f.Close()
-		if copyErr != nil {
+		if copyErr != nil || n > maxArchiveBytes {
 			return nil, fmt.Errorf("hash artifact %q: %w", full, copyErr)
 		}
 		digest := fmt.Sprintf("%x", h.Sum(nil))
@@ -137,9 +141,11 @@ func scanOfflineArtifacts(dir string) ([]cliArtifactMeta, error) {
 		if err != nil || !sigInfo.Mode().IsRegular() || sigInfo.Size() <= 0 || sigInfo.Size() > 65536 {
 			return nil, fmt.Errorf("missing or invalid detached signature %q", full+".sig")
 		}
-		c := exec.Command("/usr/bin/pacman", "--config", "/dev/null", "-Qp", full)
+		qCtx, qCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		c := exec.CommandContext(qCtx, "/usr/bin/pacman", "--config", "/dev/null", "-Qp", "--", full)
 		c.Env = []string{"LC_ALL=C", "PATH=/usr/bin"}
 		out, err := c.Output()
+		qCancel()
 		if err != nil {
 			return nil, fmt.Errorf("inspect package archive %q via pacman -Qp: %w", full, err)
 		}
@@ -173,7 +179,9 @@ func scanOfflineArtifacts(dir string) ([]cliArtifactMeta, error) {
 }
 
 func queryLocalInstalledPackages() (map[string]string, error) {
-	c := exec.Command("/usr/bin/pacman", "--config", "/dev/null", "-Q")
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	c := exec.CommandContext(ctx, "/usr/bin/pacman", "--config", "/dev/null", "-Q")
 	c.Env = []string{"LC_ALL=C", "PATH=/usr/bin"}
 	out, err := c.Output()
 	if err != nil {

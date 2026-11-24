@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -406,7 +407,15 @@ func readOrdinaryFile(path string) ([]byte, os.FileMode, error) {
 	if err := validateSafePath(path); err != nil {
 		return nil, 0, err
 	}
-	info, err := os.Lstat(path)
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		if errors.Is(err, syscall.ELOOP) {
+			return nil, 0, fmt.Errorf("%w: %q", ErrSymlinkRejected, path)
+		}
+		return nil, 0, err
+	}
+	defer f.Close()
+	info, err := f.Stat()
 	if err != nil {
 		return nil, 0, err
 	}
@@ -415,10 +424,11 @@ func readOrdinaryFile(path string) ([]byte, os.FileMode, error) {
 		st.Uid != uint32(os.Geteuid()) || st.Gid != uint32(os.Getegid()) {
 		return nil, 0, fmt.Errorf("unsupported file metadata: %q", path)
 	}
-	if n, err := syscall.Listxattr(path, nil); n != 0 || err != nil {
-		return nil, 0, fmt.Errorf("cannot back up extended attributes for %q (count %d, error %v)", path, n, err)
+	// Check extended attributes directly on the opened fd to avoid path TOCTOU.
+	if n, _, errno := syscall.Syscall(syscall.SYS_FLISTXATTR, f.Fd(), 0, 0); errno != 0 || n != 0 {
+		return nil, 0, fmt.Errorf("cannot back up extended attributes for %q (count %d, error %v)", path, n, errno)
 	}
-	data, err := os.ReadFile(path)
+	data, err := io.ReadAll(f)
 	return data, info.Mode().Perm(), err
 }
 

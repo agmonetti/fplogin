@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"syscall"
 	"time"
 
 	"fplogin/internal/core/transaction"
@@ -254,6 +255,27 @@ func validateSafePath(p string) error {
 	return nil
 }
 
+// readRegularNoFollow opens path without following symlinks and returns its
+// contents only if the opened descriptor refers to a regular file.
+func readRegularNoFollow(path string) ([]byte, error) {
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		if errors.Is(err, syscall.ELOOP) {
+			return nil, fmt.Errorf("%w: %q", ErrSymlinkRejected, path)
+		}
+		return nil, err
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("%w: %q is not a regular file", ErrPrecondition, path)
+	}
+	return io.ReadAll(f)
+}
+
 // ---------------------------------------------------------------------------
 // Local atomic operations
 // ---------------------------------------------------------------------------
@@ -343,19 +365,17 @@ func (e *Executor) execWriteFileAtomic(op protocol.Operation, startedAt string) 
 	}
 
 	var backupPath string
-	if origInfo, err := os.Stat(params.DestinationPath); err == nil && !origInfo.IsDir() {
-		origBytes, readErr := os.ReadFile(params.DestinationPath)
-		if readErr != nil {
-			return manifestv1.OperationReceipt{}, fmt.Errorf("read existing file for backup: %w", readErr)
-		}
+	if origBytes, readErr := readRegularNoFollow(params.DestinationPath); readErr == nil {
 		origHash := sha256Hex(origBytes)
-		backupPath = filepath.Join(e.BackupDir, filepath.Base(params.DestinationPath)+"-"+op.OperationID+".bak")
+		backupPath = filepath.Join(e.BackupDir, sha256Hex([]byte(op.OperationID))+".bak")
 		if err := os.WriteFile(backupPath, origBytes, 0o600); err != nil {
 			return manifestv1.OperationReceipt{}, fmt.Errorf("write backup %q: %w", backupPath, err)
 		}
 		beforeState["existed"] = json.RawMessage(`true`)
 		beforeState["sha256"] = json.RawMessage(fmt.Sprintf("%q", origHash))
 		beforeState["backup_path"] = json.RawMessage(fmt.Sprintf("%q", backupPath))
+	} else if !errors.Is(readErr, os.ErrNotExist) {
+		return manifestv1.OperationReceipt{}, fmt.Errorf("read existing file for backup: %w", readErr)
 	}
 
 	// Write atomically via temporary file and rename
@@ -381,12 +401,12 @@ func (e *Executor) execWriteFileAtomic(op protocol.Operation, startedAt string) 
 	if err != nil {
 		modeVal = 0o644
 	}
-	if err := tmpFile.Chmod(os.FileMode(modeVal)); err != nil {
-		return manifestv1.OperationReceipt{}, fmt.Errorf("chmod %q: %w", tmpPath, err)
-	}
-
+	// Write and sync while temp file is still mode 0600, then chmod to target mode.
 	if _, err := tmpFile.Write(content); err != nil {
 		return manifestv1.OperationReceipt{}, fmt.Errorf("write %q: %w", tmpPath, err)
+	}
+	if err := tmpFile.Chmod(os.FileMode(modeVal)); err != nil {
+		return manifestv1.OperationReceipt{}, fmt.Errorf("chmod %q: %w", tmpPath, err)
 	}
 	if err := tmpFile.Sync(); err != nil {
 		return manifestv1.OperationReceipt{}, fmt.Errorf("sync %q: %w", tmpPath, err)
@@ -435,7 +455,7 @@ func (e *Executor) execRemoveOwnedFile(op protocol.Operation, startedAt string) 
 		return manifestv1.OperationReceipt{}, err
 	}
 
-	data, err := os.ReadFile(params.Path)
+	data, err := readRegularNoFollow(params.Path)
 	if err != nil {
 		return manifestv1.OperationReceipt{}, fmt.Errorf("read file to remove %q: %w", params.Path, err)
 	}
@@ -447,7 +467,7 @@ func (e *Executor) execRemoveOwnedFile(op protocol.Operation, startedAt string) 
 	}
 
 	// Backup before removal
-	backupPath := filepath.Join(e.BackupDir, filepath.Base(params.Path)+"-"+op.OperationID+".bak")
+	backupPath := filepath.Join(e.BackupDir, sha256Hex([]byte(op.OperationID))+".bak")
 	if err := os.WriteFile(backupPath, data, 0o600); err != nil {
 		return manifestv1.OperationReceipt{}, fmt.Errorf("write backup %q: %w", backupPath, err)
 	}

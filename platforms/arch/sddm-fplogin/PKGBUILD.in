@@ -23,6 +23,7 @@ source=("sddm::git+https://github.com/sddm/sddm.git#commit=${_commit}"
         '0002-greeter-api-and-theme-lifecycle.patch'
         '0003-qt5-compatibility.patch'
         '0004-availability-deadline-and-fixture-cleanup.patch'
+        '0005-security-hardening.patch'
         'merge-qt5.py'
         'sddm-fingerprint'
         'fplogin-Main.qml' 'fplogin-metadata.desktop' 'fplogin-theme.conf' 'fplogin-LICENSE')
@@ -32,7 +33,7 @@ prepare() {
   cd sddm
   git apply --check ../0000-cmake-raise-required-version.patch
   git apply ../0000-cmake-raise-required-version.patch
-  for patch in ../0001-concurrent-authentication-methods.patch ../0002-greeter-api-and-theme-lifecycle.patch ../0003-qt5-compatibility.patch ../0004-availability-deadline-and-fixture-cleanup.patch; do
+  for patch in ../0001-concurrent-authentication-methods.patch ../0002-greeter-api-and-theme-lifecycle.patch ../0003-qt5-compatibility.patch ../0004-availability-deadline-and-fixture-cleanup.patch ../0005-security-hardening.patch; do
     git apply --check "$patch"
     git apply "$patch"
   done
