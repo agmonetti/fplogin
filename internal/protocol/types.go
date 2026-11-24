@@ -219,6 +219,12 @@ func (o Operation) Validate() error {
 	return validateOperationPayload(o)
 }
 
+type PackageArtifactParameters struct {
+	ArtifactID       string `json:"artifact_id"`
+	PackageReference string `json:"package_reference"`
+	SHA256           string `json:"sha256"`
+}
+
 func validateOperationPayload(o Operation) error {
 	type createDirectoryParameters struct {
 		Path  string `json:"path"`
@@ -238,11 +244,6 @@ func validateOperationPayload(o Operation) error {
 	type pathHashParameters struct {
 		Path           string `json:"path"`
 		ExpectedSHA256 string `json:"expected_sha256"`
-	}
-	type packageArtifactParameters struct {
-		ArtifactID       string `json:"artifact_id"`
-		PackageReference string `json:"package_reference"`
-		SHA256           string `json:"sha256"`
 	}
 	type packageParameters struct {
 		PackageReference string `json:"package_reference"`
@@ -285,7 +286,7 @@ func validateOperationPayload(o Operation) error {
 			err = ValidDigest(p.ExpectedSHA256)
 		}
 	case InstallPackageArtifact:
-		var p packageArtifactParameters
+		var p PackageArtifactParameters
 		err = DecodeStrict(o.Parameters, &p, "artifact_id", "package_reference", "sha256")
 		if err == nil && (p.ArtifactID == "" || p.PackageReference == "") {
 			err = errors.New("artifact and package references are required")

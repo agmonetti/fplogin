@@ -676,7 +676,12 @@ func (p ChangePlan) Validate() error {
 			return errors.New("invalid condition")
 		}
 	}
+	artifactDigests := make(map[string]string, len(p.ArtifactReferences))
 	for _, artifact := range p.ArtifactReferences {
+		if _, exists := artifactDigests[artifact.ArtifactID]; exists {
+			return fmt.Errorf("duplicate artifact_id %q", artifact.ArtifactID)
+		}
+		artifactDigests[artifact.ArtifactID] = artifact.SHA256
 		if artifact.ArtifactID == "" || artifact.MediaType == "" || artifact.Role == "" || artifact.Size < 0 {
 			return errors.New("invalid artifact reference")
 		}
@@ -691,6 +696,15 @@ func (p ChangePlan) Validate() error {
 		}
 		if err := operation.Validate(); err != nil {
 			return fmt.Errorf("operation %q: %w", operation.OperationID, err)
+		}
+		if operation.Kind == protocol.InstallPackageArtifact {
+			var pkg protocol.PackageArtifactParameters
+			if err := json.Unmarshal(operation.Parameters, &pkg); err != nil {
+				return err
+			}
+			if artifactDigests[pkg.ArtifactID] != pkg.SHA256 {
+				return fmt.Errorf("operation %q: package artifact %q missing or digest mismatch", operation.OperationID, pkg.ArtifactID)
+			}
 		}
 		for _, dependency := range operation.Dependencies {
 			if _, exists := seen[dependency]; !exists {

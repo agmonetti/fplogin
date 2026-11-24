@@ -26,6 +26,38 @@ import (
 
 const helperTimeout = 3 * time.Second
 
+func TestPackageOperationRequiresMatchingPlanArtifact(t *testing.T) {
+	plan, err := adapterv1.DecodeChangePlan(mustRead(t, "../../contracts/adapter/v1/examples/change-plan.valid.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref := plan.ArtifactReferences[0]
+	ref.Role = "display_manager_package"
+	ref.MediaType = "application/octet-stream"
+	op := plan.Operations[0]
+	op.Kind = protocol.InstallPackageArtifact
+	op.Parameters, err = json.Marshal(protocol.PackageArtifactParameters{ArtifactID: ref.ArtifactID, PackageReference: "example", SHA256: ref.SHA256})
+	if err != nil {
+		t.Fatal(err)
+	}
+	op.Compensation = json.RawMessage(`{"kind":"remove_package","package_reference":"example"}`)
+	plan.Operations = []protocol.Operation{op}
+	plan.ArtifactReferences = []adapterv1.ArtifactReference{ref}
+	if err := plan.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	other := ref
+	other.SHA256 = plan.InputHash
+	for name, refs := range map[string][]adapterv1.ArtifactReference{"missing": {}, "different digest": {other}, "ambiguous ID": {ref, other}} {
+		t.Run(name, func(t *testing.T) {
+			plan.ArtifactReferences = refs
+			if err := plan.Validate(); err == nil {
+				t.Fatal("accepted invalid artifact binding")
+			}
+		})
+	}
+}
+
 func TestProtocolFixtures(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
