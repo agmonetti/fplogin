@@ -20,6 +20,16 @@ snapshot() {
     systemctl is-enabled sddm.service || [[ $? == 1 ]]
 }
 mkdir -p /etc/sddm.conf.d
+stock=/var/cache/pacman/pkg/sddm-0.21.0-7-x86_64.pkg.tar.zst
+bash /stock-guard "$stock"
+cp -p /etc/pam.d/sddm /run/clean-pam
+printf '\n# F05 local PAM customization\n' >> /etc/pam.d/sddm
+if bash /stock-guard "$stock"; then exit 1; fi
+# Reset the deliberately modified test input before the separate clean case.
+cp -p /run/clean-pam /etc/pam.d/sddm
+bash /stock-guard "$stock"
+printf '# F05 unrelated local setting\n' > /etc/sddm.conf.d/10-local.conf
+sha256sum /etc/pam.d/sddm /etc/sddm.conf.d/10-local.conf >/run/local-pins
 snapshot >/run/before
 "${pkg[@]}" -U --noconfirm "${qt[@]}"
 mkdir -p /etc/pacman.d/hooks
@@ -33,13 +43,14 @@ diff -u /run/before /run/after
 echo 'PASS: real package refusal after Qt install; package inventory, explicit reasons and sampled baseline restored (no service activation).'
 # Second case: verification fails after stock has actually been replaced.
 rm /etc/pacman.d/hooks/01-f05-refuse.hook
-stock=/var/cache/pacman/pkg/sddm-0.21.0-7-x86_64.pkg.tar.zst
+bash /stock-guard "$stock"
 printf '%s  %s\n' 927cc24362cdc83b8c48532252ae4d41ade99dc5e65cb0fdeb9b6d69f7601a7a "$stock" | sha256sum -c
 gpgv --keyring /etc/pacman.d/gnupg/pubring.gpg "$stock.sig" "$stock"
 "${pkg[@]}" -U "${qt[@]}" sddm-fplogin-*.pkg.tar.zst <<< $'y\ny'
 [[ $(pacman -Q sddm-fplogin) == 'sddm-fplogin 0.21.0-3.1' ]]
 pacman -Qq >/run/installed-names
 if grep -Fx sddm /run/installed-names; then exit 1; fi
+sha256sum -c /run/local-pins
 # Deliberately withhold the required configuration. There must be no activation.
 [[ ! -e /etc/sddm.conf.d/90-fplogin.conf ]]
 "${pkg[@]}" -U "$stock" <<< $'y\ny'
