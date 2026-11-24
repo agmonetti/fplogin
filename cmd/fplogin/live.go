@@ -362,9 +362,12 @@ func (b *cliLiveBridge) Verify(ctx context.Context, adapter discovery.Adapter, h
 	if err != nil {
 		return adapterv1.VerificationReport{}, err
 	}
-	return adapterCall[adapterv1.VerificationReport](ctx, b.ac, adapter, aHost, "Verify", struct {
-		Target adapterv1.DetectedTarget `json:"target"`
-	}{Target: b.selectedTgt})
+	return adapterCall[adapterv1.VerificationReport](ctx, b.ac, adapter, aHost, "Verify", adapterv1.VerifyPayload{
+		Target:                 b.selectedTgt,
+		Phase:                  "post_install",
+		ExpectedCapabilities:   []string{"biometric_auth"},
+		ExpectedPostconditions: []json.RawMessage{},
+	})
 }
 
 func (b *cliLiveBridge) PrepareArtifactInstall(ctx context.Context, provider discovery.Provider, payload platformv1.PrepareArtifactInstallPayload, host protocol.HostContext) error {
