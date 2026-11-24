@@ -81,13 +81,13 @@ func (f *fakePlatformApplier) ApplyOperation(ctx context.Context, op protocol.Op
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
 	return manifestv1.OperationReceipt{
-		OperationID:  op.OperationID,
-		Kind:         op.Kind,
-		StartedAt:    now,
-		CompletedAt:  now,
-		Status:       "success",
-		BeforeState:  op.ExpectedBefore,
-		AfterState:   op.ExpectedAfter,
+		OperationID: op.OperationID,
+		Kind:        op.Kind,
+		StartedAt:   now,
+		CompletedAt: now,
+		Status:      "success",
+		BeforeState: op.ExpectedBefore,
+		AfterState:  op.ExpectedAfter,
 	}, nil
 }
 
