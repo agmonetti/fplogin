@@ -4,7 +4,7 @@ Biometric login for Linux, under active development. The v1 target is fingerprin
 
 [![fplogin Project Telemetry & Milestone Matrix](docs/assets/dashboard.png)](dashboard.html)
 
-The dashboard reflects the accepted closure of [Sprint 4 (transactional installer and uninstaller)](docs/reviews/sprint-4.md) on 2026-11-24 (`fplogin-git 0.2.0.r10.325e477-1`, verified 5/5 packaged E2E and 16/16 lifecycle cases on Arch x86_64 with real systemd PID 1). Prior accepted gates: [Sprint 3 physical closeout](docs/reviews/sprint-3-physical-closure.md) (closed 2026-11-18), [Sprint 2 acceptance](docs/reviews/sprint-2-acceptance-2026-11-12.md) (closed 2026-11-12), and [Sprint 1 review](docs/reviews/sprint-1.md) (closed 2026-10-04). Next milestone: Sprint 5 — System difference analyzer ([Implementation Plan](docs/IMPLEMENTATION_PLAN.md)).
+The dashboard reflects the accepted closure of [Sprint 5 (system difference analyzer)](docs/reviews/sprint-5.md) on 2026-11-24 (`fplogin-git 0.2.0.r11.79688f7-1`, read-only `fplogin analyze`, Arch `CollectAnalyzerFacts`, Installer Phase 13 postflight, and Audit A8 wording closure). Prior accepted gates: [Sprint 4 (transactional installer and uninstaller)](docs/reviews/sprint-4.md) (closed 2026-11-24), [Sprint 3 physical closeout](docs/reviews/sprint-3-physical-closure.md) (closed 2026-11-18), [Sprint 2 acceptance](docs/reviews/sprint-2-acceptance-2026-11-12.md) (closed 2026-11-12), and [Sprint 1 review](docs/reviews/sprint-1.md) (closed 2026-10-04). Next milestone: Sprint 6 — Security hardening ([Implementation Plan](docs/IMPLEMENTATION_PLAN.md)).
 
 ## The problem
 
@@ -101,14 +101,14 @@ No existing system files will be modified in place. The installer will generate 
 
 ## CLI Usage
 
-The pinned Arch tools package (`fplogin-git 0.2.0.r10.325e477-1`) exposes both read-only unprivileged inspection and transactional offline installation/removal/recovery verified on Arch x86_64 with real systemd PID 1. Live `install`, `uninstall`, and `recover` require root privileges, a root-owned offline trust root (`/etc/fplogin/trust`), and explicit approval bound to the core-computed `ChangePlan` SHA-256 (plus separate `--approve-replace-dm` confirmation before replacing a conflicting display manager). See the [Sprint 4 execution plan](docs/SPRINT_4_EXECUTION_PLAN.md).
+The pinned Arch tools package (`fplogin-git 0.2.0.r11.79688f7-1`) exposes both read-only unprivileged inspection (`components`, `install --dry-run`, `status`, `analyze`) and transactional offline installation/removal/recovery verified on Arch x86_64 with real systemd PID 1. Live `install`, `uninstall`, and `recover` require root privileges, a root-owned offline trust root (`/etc/fplogin/trust`), and explicit approval bound to the core-computed `ChangePlan` SHA-256 (plus separate `--approve-replace-dm` confirmation before replacing a conflicting display manager), followed by non-fatal Phase 13 read-only postflight analysis. See the [Sprint 4 execution plan](docs/SPRINT_4_EXECUTION_PLAN.md) and [Sprint 5 review](docs/reviews/sprint-5.md).
 
 ```bash
 # Unprivileged read-only commands
 fplogin components                                              # list packaged providers and adapters
 fplogin install --dry-run [--target ADAPTER_ID/TARGET_ID]       # read-only preflight and preview
 fplogin status                                                  # read manifest and verify file checksums
-fplogin analyze --json                                          # experimental (Sprint 5 pending acceptance)
+fplogin analyze [--json] [--root DIR] [--service NAME]          # read-only password-derived facility analyzer
 
 # Root transactional commands (offline signed archives + /etc/fplogin/trust)
 sudo fplogin install --artifacts-dir DIR [--activate] [--approve-plan SHA256] [--approve-replace-dm]
@@ -128,6 +128,7 @@ To build the Arch tools package, run `make package` as an ordinary user in an is
 - [SDDM Greeter and Theme Design](docs/architecture/SDDM_GREETER_DESIGN.md): Sprint 2 context correlation, typed reader states, controlling-view lifecycle and password fallback.
 - [Sprint 2 Execution Plan](docs/SPRINT_2_EXECUTION_PLAN.md): Implementation slices, affected source paths and actual-surface acceptance matrix.
 - [Sprint 4 Acceptance Review](docs/reviews/sprint-4.md): Transactional installer/uninstaller closure, packaged KVM E2E evidence, and known limits.
+- [Sprint 5 Acceptance Review](docs/reviews/sprint-5.md): Read-only system difference analyzer, Arch `CollectAnalyzerFacts`, Audit A8 closure, and Phase 13 postflight.
 - [Sprint 5 Execution Plan](docs/SPRINT_5_EXECUTION_PLAN.md): System difference analyzer corrections, probes, wording accuracy, and postflight integration.
 - [Synaptics Test Hardware](docs/hardware/SYNAPTICS_06CB_00BD.md): Primary physical-reader record and scenario matrix.
 - [Research Lessons](docs/LESSONS.md): Grounded investigation, reference platforms, failed experiments, and security analysis.

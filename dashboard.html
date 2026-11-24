@@ -1044,17 +1044,17 @@
     "target_v1": "Arch Linux \u00b7 systemd \u00b7 SDDM 0.21.0 \u00b7 fprintd / libfprint \u00b7 Hyprland",
     "reference_hardware": "Synaptics 06cb:00bd (match-on-sensor USB)",
     "last_updated": "2026-11-24",
-    "current_gate": "Sprint 5 (analizador de diferencias del sistema)",
+    "current_gate": "Sprint 6 (seguridad y endurecimiento)",
     "current_gate_status": "partial",
-    "latest_achievement": "Sprint 4 aceptado y cerrado (2026-11-24): instalador/desinstalador transaccional y CLI empaquetada fplogin-git r10.325e477 verificados E2E en Arch x86_64 con systemd 262 PID 1.",
-    "next_step": "Ejecutar el plan de Sprint 5 (docs/SPRINT_5_EXECUTION_PLAN.md): corregir sondas, contrato de plataforma, redacci\u00f3n y postflight del analizador.",
+    "latest_achievement": "Sprint 5 aceptado y cerrado (2026-11-24): analizador de diferencias solo lectura, CollectAnalyzerFacts en Arch, Fase 13 postflight y paquete fplogin-git r11.79688f7 verificados sin mutaci\u00f3n.",
+    "next_step": "Planificar y ejecutar Sprint 6 (seguridad, modelado de amenazas IPC, estr\u00e9s de helpers e inyecci\u00f3n de fallos fprintd).",
     "summary": {
-      "total_items": 152,
-      "done": 140,
-      "partial": 2,
+      "done": 142,
+      "partial": 0,
       "blocked": 4,
       "pending": 6,
-      "percentage": 92.1
+      "total_items": 152,
+      "percentage": 93.4
     }
   },
   "sprints": [
@@ -1905,8 +1905,8 @@
     {
       "id": "sprint-5",
       "name": "Sprint 5",
-      "subtitle": "Analizador de Diferencias del Sistema (Gate Activo)",
-      "status": "partial",
+      "subtitle": "Analizador de Diferencias del Sistema (Aceptado y Cerrado)",
+      "status": "done",
       "goal": "Desarrollar un analizador de solo lectura que audita recursivamente la configuraci\u00f3n PAM, detecta almacenes de credenciales (KWallet, GNOME Keyring), vol\u00famenes cifrados (systemd-homed, crypttab) e impacto en compositores.",
       "items": [
         {
@@ -1942,7 +1942,7 @@
           "title": "Sonda de Secret Service y Almac\u00e9n de Credenciales",
           "status": "done",
           "description": "Verificaci\u00f3n de servicios activos de Secret Service en el bus D-Bus de sesi\u00f3n sin alterar ninguna credencial guardada.",
-          "evidence": "internal/core/analyze/wallets.go"
+          "evidence": "cmd/fplogin-platform-arch/analyzer_facts.go; internal/core/analyze/wallets.go"
         },
         {
           "id": "S5-06",
@@ -1989,16 +1989,16 @@
         {
           "id": "S5-12",
           "title": "Renderizador de Reporte para Terminal Humana",
-          "status": "partial",
-          "description": "El reporte de terminal concluye 'Fingerprint login is safe' cuando no hay hallazgos, sin limitaciones declaradas; exagera (auditor\u00eda A8).",
-          "evidence": "docs/reviews/cli-provider-audit-2026-11-12.md"
+          "status": "done",
+          "description": "Reporte de terminal acotado por evidencia (Audit A8 cerrado): elimina la afirmaci\u00f3n falsa de seguridad, distingue sesi\u00f3n de login de auth independiente (sudo/su/polkit/ssh/lockers) y emite limitaciones base.",
+          "evidence": "internal/core/report/report.go; docs/reviews/sprint-5.md"
         },
         {
           "id": "S5-13",
           "title": "Renderizador de Reporte JSON para M\u00e1quinas",
           "status": "done",
           "description": "Exportador conforme al esquema contracts/analyzer/v1/machine-report.schema.json para consumo por herramientas externas.",
-          "evidence": "internal/core/report/report.go"
+          "evidence": "internal/core/report/report.go; contracts/analyzer/v1/report.schema.json"
         },
         {
           "id": "S5-14",
@@ -2018,17 +2018,17 @@
           "id": "S5-16",
           "title": "Suite de Pruebas de Integraci\u00f3n del Analizador",
           "status": "done",
-          "description": "Suite en tests/integration/core/analyzer_test.go validando escenarios de PAM limpio, KWallet degradado y estructuras completas.",
-          "evidence": "tests/integration/core/analyzer_test.go"
+          "description": "Matriz de 7 familias de fixtures, validaci\u00f3n de esquema, cero mutaci\u00f3n, fase 13 postflight y verificaci\u00f3n empaquetada sin privilegios en contenedor Arch.",
+          "evidence": "tests/integration/core/analyzer_test.go; docs/reviews/sprint-5.md"
         }
       ],
       "summary": {
         "total": 16,
-        "done": 15,
-        "partial": 1,
+        "done": 16,
+        "partial": 0,
         "blocked": 0,
         "pending": 0,
-        "percentage": 93.75
+        "percentage": 100.0
       }
     },
     {
@@ -2219,9 +2219,9 @@
         {
           "id": "S7-10",
           "title": "CLI Unificado de Control de fplogin",
-          "status": "partial",
-          "description": "La CLI empaquetada expone install, uninstall, recover, status y components verificados E2E; analyze permanece experimental hasta cierre de Sprint 5.",
-          "evidence": "cmd/fplogin/main.go"
+          "status": "done",
+          "description": "CLI empaquetada fplogin-git r11.79688f7 con install, uninstall, recover, status, components y analyze (con Fase 13 postflight) verificados.",
+          "evidence": "cmd/fplogin/main.go; cmd/fplogin/analyze_cli.go"
         },
         {
           "id": "S7-11",
@@ -2268,11 +2268,11 @@
       ],
       "summary": {
         "total": 16,
-        "done": 9,
-        "partial": 1,
+        "done": 10,
+        "partial": 0,
         "blocked": 0,
         "pending": 6,
-        "percentage": 56.25
+        "percentage": 62.5
       }
     }
   ]
