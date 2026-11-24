@@ -39,7 +39,7 @@ var baselinePackages = map[string]string{
 	"8b207369843d9603a87420279ddacf025718dcdb47a7ea4ad703e4c70357ea78": "qt5-declarative 5.15.19+kde+r23-1",
 	"d40691ffba09e2dae8da22b02db8aae76e700528f4954b4b0be00afa58876e11": "qt5-quickcontrols2 5.15.19+kde+r5-1",
 	"874d631c937bbca955257cd47af9199864479a07772e99cc480775b1efb6ea1f": "qt5-svg 5.15.19+kde+r5-1",
-	"5031b69a16673fa44d5d9285276960e8b6f93df38211a609777a288b661008c88": "qt5-translations 5.15.19-1",
+	"5031b69a16673fa44d5d9285276960e8b6f93df38211a60977a288b661008c88": "qt5-translations 5.15.19-1",
 }
 
 func resolveTrust(op string) (trustConfig, error) {
