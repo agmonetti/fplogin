@@ -1046,8 +1046,8 @@
     "last_updated": "2026-11-24",
     "current_gate": "Sprint 4 (instalador transaccional)",
     "current_gate_status": "blocked",
-    "latest_achievement": "S4-F01 a S4-F07 verificados en laboratorio aislado (VM Arch x86_64 con systemd PID 1, 5/5 escenarios y 16 subcasos). CLI en vivo sigue bloqueada hasta aprobaci\u00f3n del owner.",
-    "next_step": "Conectar CLI en vivo (install/uninstall/recover), adaptador SDDM y paquete fplogin-git en VM Arch, o cerrar Sprint 4 en alcance de laboratorio.",
+    "latest_achievement": "CLI en vivo (install/uninstall/recover), adaptador SDDM ejecutable, trust root offline (/etc/fplogin/trust) y paquete fplogin-git r10.325e477 verificados 5/5 E2E en VM Arch x86_64 con systemd 262 PID 1.",
+    "next_step": "Revisi\u00f3n y cierre formal de Sprint 4 por el owner, y apertura de Sprint 5 (analizador de diferencias del sistema).",
     "summary": {
       "total_items": 152,
       "done": 124,
@@ -1805,7 +1805,7 @@
           "id": "S4-04",
           "title": "Descubrimiento y Ejecuci\u00f3n de Plataforma",
           "status": "partial",
-          "description": "El proveedor Arch consulta pacman/systemd y ejecuta paquetes, enablement, activaci\u00f3n y restore_service_state verificados en VM Arch con systemd PID 1 (S4-F05/F06/F07); CLI en vivo bloqueada hasta aprobaci\u00f3n del owner.",
+          "description": "El proveedor Arch consulta pacman/systemd y ejecuta paquetes, enablement, activaci\u00f3n y restore_service_state con trust root offline /etc/fplogin/trust verificado E2E en VM Arch systemd PID 1.",
           "evidence": "docs/SPRINT_4_EXECUTION_PLAN.md"
         },
         {
@@ -1840,7 +1840,7 @@
           "id": "S4-09",
           "title": "Motor de Operaciones de Archivo At\u00f3micas",
           "status": "partial",
-          "description": "Integrado con paquetes, servicios, manifiesto durable y desinstalaci\u00f3n transaccional en VM Arch systemd PID 1 (S4-F05/F06/F07 verificados); CLI en vivo bloqueada hasta aprobaci\u00f3n del owner.",
+          "description": "Integrado con paquetes, servicios, manifiesto durable, desinstalaci\u00f3n transaccional y CLI en vivo empaquetada (fplogin-git r10.325e477) verificada en VM Arch systemd PID 1.",
           "evidence": "internal/core/install/ops.go"
         },
         {
@@ -1868,8 +1868,8 @@
           "id": "S4-13",
           "title": "Pipeline Instalador Monot\u00f3nico de 13 Fases",
           "status": "partial",
-          "description": "Flujo completo con verificaci\u00f3n previa a activaci\u00f3n, manifiesto durable y modos fresh/reinstall/upgrade/repair probado en VM Arch systemd (S4-F07); CLI en vivo bloqueada hasta aprobaci\u00f3n del owner.",
-          "evidence": "internal/core/install/installer.go"
+          "description": "Flujo completo desde /usr/bin/fplogin empaquetado (install/uninstall/recover, adaptador SDDM sin privilegios, verificaci\u00f3n previa a activaci\u00f3n y aprobaci\u00f3n ligada al SHA-256) verificado E2E en VM Arch systemd PID 1.",
+          "evidence": "cmd/fplogin/live.go"
         },
         {
           "id": "S4-14",
@@ -1889,8 +1889,8 @@
           "id": "S4-16",
           "title": "Suite de Pruebas de Integraci\u00f3n del Instalador E2E",
           "status": "partial",
-          "description": "5/5 escenarios (16 subcasos) verificados en VM Arch x86_64 desechable con systemd 262 PID 1, sin red ni lector (S4-F07); CLI en vivo sigue bloqueada hasta aprobaci\u00f3n del owner.",
-          "evidence": "tests/integration/s4-f07-run.sh"
+          "description": "5/5 escenarios S4-F07 (16 subcasos) + 5/5 escenarios CLI empaquetada fplogin-git r10.325e477 verificados en VM Arch x86_64 desechable con systemd 262 PID 1, sin red ni lector.",
+          "evidence": "tests/integration/s4-cli-e2e-run.sh"
         }
       ],
       "summary": {

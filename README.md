@@ -101,16 +101,22 @@ No existing system files will be modified in place. The installer will generate 
 
 ## CLI Usage
 
-> **Sprint 4: host installation and uninstallation are disabled.** `install` and `uninstall` without a preview return an error before discovery, subprocess execution, or manifest and journal access. The pinned Arch tools package includes unprivileged `install --dry-run`, tested on Arch x86_64 with real systemd. Pass `--target ADAPTER_ID/TARGET_ID` to show conditional changes for the selected target. It cannot accept approval or apply changes. See the [Sprint 4 execution plan](docs/SPRINT_4_EXECUTION_PLAN.md).
-
-To build the Arch tools package, run `make package` as an ordinary user in an isolated Arch environment with `base-devel`, Go, Git, and the recipe's runtime dependencies installed. It stages a pinned source archive and prints the package paths. Verify the main archive with `bash tests/integration/arch-tools-package.sh <package>` using a local Arch Docker image. The packaged `fplogin components` command only lists providers and adapters; it does not check installation readiness. The SDDM theme and PAM service are shipped separately in `sddm-fplogin`.
-
-The separate read-only commands remain available:
+The pinned Arch tools package (`fplogin-git 0.2.0.r10.325e477-1`) exposes both read-only unprivileged inspection and transactional offline installation/removal/recovery verified on Arch x86_64 with real systemd PID 1. Live `install`, `uninstall`, and `recover` require root privileges, a root-owned offline trust root (`/etc/fplogin/trust`), and explicit approval bound to the core-computed `ChangePlan` SHA-256 (plus separate `--approve-replace-dm` confirmation before replacing a conflicting display manager). See the [Sprint 4 execution plan](docs/SPRINT_4_EXECUTION_PLAN.md).
 
 ```bash
-fplogin status          # reads the manifest and checks recorded file integrity
-fplogin analyze --json  # experimental; do not rely on it for installation decisions
+# Unprivileged read-only commands
+fplogin components                                              # list packaged providers and adapters
+fplogin install --dry-run [--target ADAPTER_ID/TARGET_ID]       # read-only preflight and preview
+fplogin status                                                  # read manifest and verify file checksums
+fplogin analyze --json                                          # experimental (Sprint 5 pending acceptance)
+
+# Root transactional commands (offline signed archives + /etc/fplogin/trust)
+sudo fplogin install --artifacts-dir DIR [--activate] [--approve-plan SHA256] [--approve-replace-dm]
+sudo fplogin uninstall [--modified-files preserve|refuse|restore] [--remove-shared-deps] [--yes]
+sudo fplogin recover                                            # reconcile any interrupted transaction
 ```
+
+To build the Arch tools package, run `make package` as an ordinary user in an isolated Arch environment with `base-devel`, Go, Git, and the recipe's runtime dependencies installed. It stages a pinned source archive and prints the package paths. Verify the main archive with `bash tests/integration/arch-tools-package.sh <package>` and the real-systemd KVM guest lifecycle with `bash tests/integration/s4-cli-e2e-run.sh <package>`. The SDDM theme and PAM service are shipped separately in `sddm-fplogin`.
 
 ## Documentation
 
