@@ -190,18 +190,18 @@ func queryLocalInstalledPackages() (map[string]string, error) {
 
 // cliLiveBridge connects install.Run to real packaged platform and adapter subprocesses.
 type cliLiveBridge struct {
-	pc            platformclient.Client
-	ac            adapterclient.Client
-	provider      discovery.Provider
-	artifacts     []cliArtifactMeta
-	activate      bool
-	adapterHost   protocol.HostContext
-	factsReady    bool
-	candidates    []adapterv1.DisplayManagerCandidate
-	selectedTgt   adapterv1.DetectedTarget
-	dmState       adapterv1.DisplayManagerState
-	lastPlan      adapterv1.ChangePlan
-	lastMode      string
+	pc          platformclient.Client
+	ac          adapterclient.Client
+	provider    discovery.Provider
+	artifacts   []cliArtifactMeta
+	activate    bool
+	adapterHost protocol.HostContext
+	factsReady  bool
+	candidates  []adapterv1.DisplayManagerCandidate
+	selectedTgt adapterv1.DetectedTarget
+	dmState     adapterv1.DisplayManagerState
+	lastPlan    adapterv1.ChangePlan
+	lastMode    string
 }
 
 func (b *cliLiveBridge) Discover(ctx context.Context, paths []string, host protocol.HostContext) ([]platformclient.Discovered, error) {
