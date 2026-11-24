@@ -24,10 +24,12 @@ func TestParsePackages(t *testing.T) {
 
 func TestServiceInventory(t *testing.T) {
 	for _, tc := range []struct {
-		name, files, loaded, id, active, enabled, graphical, dropIn, wantedBy, want string
-		dependencyDir, partialReverse                                               bool
+		name, files, loaded, id, loadState, active, enabled, graphical, dropIn, wantedBy, want string
+		dependencyDir, partialReverse                                                          bool
 	}{
 		{name: "no display manager", files: "dbus.service static -\n", loaded: "dbus.service loaded active running D-Bus\n", graphical: "Wants=display-manager.service\nRequires=multi-user.target\n"},
+		{name: "no display manager with graphical not-found stub", files: "dbus.service static -\n", loaded: "dbus.service loaded active running D-Bus\ndisplay-manager.service not-found inactive dead display-manager.service\n", id: "display-manager.service", loadState: "not-found", active: "inactive", enabled: "", graphical: "Wants=display-manager.service\nRequires=multi-user.target\n", wantedBy: "graphical.target"},
+		{name: "broken display-manager alias to custom unit", files: "dbus.service static -\n", loaded: "display-manager.service not-found inactive dead custom-dm.service\n", id: "custom-dm.service", loadState: "not-found", active: "inactive", enabled: "", graphical: "Wants=display-manager.service\nRequires=multi-user.target\n", wantedBy: "graphical.target", want: "error"},
 		{name: "stock", files: "sddm.service enabled disabled\ndisplay-manager.service alias -\n", id: "sddm.service", active: "active", enabled: "enabled", want: "yes/yes"},
 		{name: "enabled inactive", files: "gdm.service enabled disabled\n", id: "gdm.service", active: "inactive", enabled: "enabled", want: "no/yes"},
 		{name: "active disabled", loaded: "lightdm.service loaded active running LightDM\n", id: "lightdm.service", active: "active", enabled: "disabled", want: "yes/no"},
@@ -82,7 +84,11 @@ func TestServiceInventory(t *testing.T) {
 					}
 					return deps + "LoadState=loaded\nNeedDaemonReload=no\nFragmentPath=/usr/lib/systemd/system/graphical.target\nDropInPaths=" + tc.dropIn + "\n", nil
 				case strings.Contains(text, " show "):
-					props := "Id=" + tc.id + "\nLoadState=loaded\nActiveState=" + tc.active + "\nUnitFileState=" + tc.enabled + "\nWantedBy=" + tc.wantedBy + "\n"
+					ls := tc.loadState
+					if ls == "" {
+						ls = "loaded"
+					}
+					props := "Id=" + tc.id + "\nLoadState=" + ls + "\nActiveState=" + tc.active + "\nUnitFileState=" + tc.enabled + "\nWantedBy=" + tc.wantedBy + "\n"
 					if !tc.partialReverse {
 						props += "RequiredBy=\nBoundBy=\nUpheldBy=\n"
 					}

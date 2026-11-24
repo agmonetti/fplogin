@@ -286,6 +286,15 @@ func queryServices(ctx context.Context, packages []platformv1.PackageCandidate, 
 			props[key] = value
 		}
 		id := props["Id"]
+		// Stock graphical.target wants display-manager.service; when no DM is
+		// enabled, systemd lists an unloaded not-found stub in list-units --all.
+		if unit == "display-manager.service" && id == "display-manager.service" &&
+			props["LoadState"] == "not-found" && props["ActiveState"] == "inactive" &&
+			props["UnitFileState"] == "" && bootService == "display-manager.service" &&
+			props["RequiredBy"] == "" && props["BoundBy"] == "" && props["UpheldBy"] == "" &&
+			(props["WantedBy"] == "" || props["WantedBy"] == "graphical.target") {
+			continue
+		}
 		if !(known[id] && id != "display-manager.service" || unitName.MatchString(id) && strings.HasPrefix(id, "ly@")) || props["LoadState"] != "loaded" {
 			return nil, fmt.Errorf("unknown display-manager unit %s: id=%q load=%q", unit, id, props["LoadState"])
 		}
