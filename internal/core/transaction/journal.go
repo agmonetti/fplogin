@@ -363,6 +363,18 @@ func (j *Journal) Checkpoint() error {
 	return j.flushLocked()
 }
 
+// AbortPrepared ends a transaction that has not issued any mutation intent.
+func (j *Journal) AbortPrepared() error {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if j.data.State != "prepared" || len(j.data.AppliedOperations) != 0 {
+		return ErrInvalidState
+	}
+	j.data.State = "aborted"
+	j.data.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+	return j.flushLocked()
+}
+
 // MarkRolledBack marks the transaction as fully rolled back.
 func (j *Journal) MarkRolledBack() error {
 	j.mu.Lock()

@@ -35,6 +35,9 @@ func CheckNoUnresolved(dir string) error {
 		if err != nil {
 			return fmt.Errorf("%w: %s: %w", ErrUnresolvedTransaction, entry.Name(), err)
 		}
+		if j.State() == "aborted" && j.Data().FileRecovery && len(j.Data().AppliedOperations) == 0 {
+			continue // Preparation ended before the first durable mutation intent.
+		}
 		if state := j.State(); state != "completed" && state != "rolled_back" {
 			return fmt.Errorf("%w: journal %q is %s", ErrUnresolvedTransaction, entry.Name(), state)
 		}

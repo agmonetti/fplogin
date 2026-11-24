@@ -60,8 +60,10 @@ type Config struct {
 	ManifestPath       string // defaults to /var/lib/fplogin/manifest.json
 	// IsolatedFiles is an exact destination allowlist supplied by the lab, never by an adapter.
 	IsolatedFiles []string
-	Host          protocol.HostContext
-	CoreVersion   string
+	// IsolatedArchiveCache opts the lab into package preparation, never host mutation.
+	IsolatedArchiveCache string
+	Host                 protocol.HostContext
+	CoreVersion          string
 }
 
 // Result captures the outcome of an installer run.
@@ -239,8 +241,15 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 	if len(plan.Operations) == 0 {
 		return nil, fmt.Errorf("%w: empty file plan", ErrPrecondition)
 	}
+	packagePlan := cfg.IsolatedArchiveCache != "" && len(plan.ArtifactReferences) != 0
 	paths := make(map[string]bool, len(plan.Operations))
 	for _, op := range plan.Operations {
+		if packagePlan {
+			switch op.Kind {
+			case protocol.InstallPackageArtifact, protocol.RemoveOwnedPackage, protocol.SetServiceEnabled, protocol.SetServiceActive:
+				continue
+			}
+		}
 		_, path, err := recoverableFile(op)
 		if err != nil || !allowFile(path) || paths[path] {
 			return nil, fmt.Errorf("operation %q requires a distinct allowed file destination: %w", op.OperationID, errors.Join(ErrPrecondition, err))
@@ -303,6 +312,30 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 
 	if err := persistApprovedPlan(stateRoot, txID, planDigest, plan); err != nil {
 		return nil, fmt.Errorf("persist approved plan: %w", err)
+	}
+	if packagePlan {
+		if err := transaction.CheckNoUnresolved(cfg.JournalDir); err != nil {
+			return nil, err
+		}
+		for _, op := range plan.Operations {
+			initJournal.OperationOrder = append(initJournal.OperationOrder, op.OperationID)
+		}
+		j, err := transaction.Create(journalPath, initJournal)
+		if err != nil {
+			return nil, fmt.Errorf("%w: create preparation journal: %w", ErrRecoveryRequired, err)
+		}
+		payload, prepErr := stageApprovedArchives(stateRoot, txID, cfg.IsolatedArchiveCache)
+		if prepErr == nil {
+			prepErr = cfg.PlatformInvoker.PrepareArtifactInstall(ctx, selectedProvider, payload, cfg.Host)
+		}
+		// Do not route prepared packages into the legacy, non-recoverable executor.
+		if prepErr == nil {
+			prepErr = fmt.Errorf("%w: recoverable package apply unavailable", ErrUnsupportedKind)
+		}
+		if err := j.AbortPrepared(); err != nil {
+			return nil, errors.Join(ErrRecoveryRequired, prepErr, err)
+		}
+		return nil, fmt.Errorf("package transaction stopped before mutation: %w", prepErr)
 	}
 	executor, err := beginFileTransaction(stateRoot, cfg.IsolatedFiles, initJournal, plan.Operations)
 	if err != nil {
