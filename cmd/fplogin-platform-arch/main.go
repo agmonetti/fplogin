@@ -166,8 +166,10 @@ func handleRequest(req platformv1.Request) (json.RawMessage, error) {
 	case "VerifyOperation":
 		return verifyStock(req)
 
-	case "CollectAnalyzerFacts",
-		"PrepareArtifactInstall", "ApplyOperation":
+	case "PrepareArtifactInstall":
+		return prepareLab(req)
+
+	case "CollectAnalyzerFacts", "ApplyOperation":
 		return nil, notImplemented(req.Operation)
 
 	default:
