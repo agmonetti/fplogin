@@ -6,22 +6,28 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"fplogin/internal/protocol"
 )
 
 // WalletFacts stores observed evidence about secret store and keyring configurations.
 type WalletFacts struct {
-	KWalletEnabled    bool
-	KWalletConfigPath string
-	KWalletAutoUnlock bool
+	KWalletConfigPresent      bool
+	KWalletEnabled            bool
+	KWalletExplicitlyDisabled bool
+	KWalletConfigPath         string
+	KWalletDataPresent        bool
+	KWalletAutoUnlock         bool
 
-	GnomeKeyringPresent  bool
-	GnomeKeyringDir      string
-	GnomeKeyringHasLogin bool
+	GnomeKeyringDirExists  bool
+	GnomeKeyringPresent    bool // true only when keyring files (not an empty directory) are observed
+	GnomeKeyringDir        string
+	GnomeKeyringHasLogin   bool
+	GnomeKeyringHasDefault bool
+	GnomeKeyringFileCount  int
 
 	Evidence []protocol.Evidence
+	Issues   []ProbeIssue
 }
 
 // ProbeWallets inspects user home configuration files for KWallet and GNOME Keyring
@@ -29,21 +35,42 @@ type WalletFacts struct {
 func ProbeWallets(userHome string) (*WalletFacts, error) {
 	facts := &WalletFacts{
 		Evidence: []protocol.Evidence{},
+		Issues:   []ProbeIssue{},
 	}
 
 	if userHome == "" {
 		return facts, nil
 	}
 
-	// 1. KWallet probe: ~/.config/kwalletrc
+	// 1. KWallet config probe: ~/.config/kwalletrc (non-secret INI preferences only)
 	kwalletPath := filepath.Join(userHome, ".config", "kwalletrc")
-	if info, err := os.Stat(kwalletPath); err == nil && !info.IsDir() {
+	info, err := os.Stat(kwalletPath)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			ev := coreErrorEvidence("path", kwalletPath, "unreadable", err.Error())
+			facts.Issues = append(facts.Issues, ProbeIssue{
+				Code:     "wallet_read_error",
+				Path:     kwalletPath,
+				Message:  fmt.Sprintf("Could not stat KWallet configuration %q: %v", kwalletPath, err),
+				Evidence: []protocol.Evidence{ev},
+			})
+		}
+	} else if !info.IsDir() {
+		facts.KWalletConfigPresent = true
 		facts.KWalletConfigPath = kwalletPath
 		facts.KWalletEnabled = true
-		facts.KWalletAutoUnlock = true // default in KDE unless disabled
+		facts.KWalletAutoUnlock = true // default in KDE unless explicitly disabled
 
-		file, err := os.Open(kwalletPath)
-		if err == nil {
+		file, openErr := os.Open(kwalletPath)
+		if openErr != nil {
+			ev := coreErrorEvidence("path", kwalletPath, "unreadable", openErr.Error())
+			facts.Issues = append(facts.Issues, ProbeIssue{
+				Code:     "wallet_read_error",
+				Path:     kwalletPath,
+				Message:  fmt.Sprintf("Could not read KWallet configuration %q: %v", kwalletPath, openErr),
+				Evidence: []protocol.Evidence{ev},
+			})
+		} else {
 			scanner := bufio.NewScanner(file)
 			inWalletSection := false
 			for scanner.Scan() {
@@ -59,42 +86,118 @@ func ProbeWallets(userHome string) (*WalletFacts, error) {
 						v := strings.TrimSpace(parts[1])
 						if strings.EqualFold(k, "Enabled") && strings.EqualFold(v, "false") {
 							facts.KWalletEnabled = false
+							facts.KWalletExplicitlyDisabled = true
 						}
 					}
 				}
 			}
+			scanErr := scanner.Err()
 			file.Close()
-
-			facts.Evidence = append(facts.Evidence, protocol.Evidence{
-				Source:        "platform",
-				Kind:          "path",
-				Subject:       kwalletPath,
-				ObservedValue: fmt.Sprintf("kwallet_enabled=%t", facts.KWalletEnabled),
-				Timestamp:     time.Now().UTC().Format(time.RFC3339),
-			})
+			if scanErr != nil {
+				ev := coreErrorEvidence("path", kwalletPath, "scan error", scanErr.Error())
+				facts.Issues = append(facts.Issues, ProbeIssue{
+					Code:     "wallet_read_error",
+					Path:     kwalletPath,
+					Message:  fmt.Sprintf("Error scanning KWallet configuration %q: %v", kwalletPath, scanErr),
+					Evidence: []protocol.Evidence{ev},
+				})
+			} else {
+				facts.Evidence = append(facts.Evidence, coreEvidence(
+					"path",
+					kwalletPath,
+					fmt.Sprintf("kwallet_enabled=%t", facts.KWalletEnabled),
+				))
+			}
 		}
 	}
 
-	// 2. GNOME Keyring probe: ~/.local/share/keyrings
-	keyringDir := filepath.Join(userHome, ".local", "share", "keyrings")
-	if info, err := os.Stat(keyringDir); err == nil && info.IsDir() {
-		facts.GnomeKeyringDir = keyringDir
-		facts.GnomeKeyringPresent = true
-
-		entries, _ := os.ReadDir(keyringDir)
+	// 1b. KWallet data directory metadata check: ~/.local/share/kwalletd (filenames only; never read contents)
+	kwalletDataDir := filepath.Join(userHome, ".local", "share", "kwalletd")
+	if entries, readErr := os.ReadDir(kwalletDataDir); readErr != nil {
+		if !os.IsNotExist(readErr) {
+			ev := coreErrorEvidence("path", kwalletDataDir, "unreadable", readErr.Error())
+			facts.Issues = append(facts.Issues, ProbeIssue{
+				Code:     "wallet_read_error",
+				Path:     kwalletDataDir,
+				Message:  fmt.Sprintf("Could not inspect KWallet data directory %q: %v", kwalletDataDir, readErr),
+				Evidence: []protocol.Evidence{ev},
+			})
+		}
+	} else {
+		walletFiles := 0
 		for _, e := range entries {
-			if strings.EqualFold(e.Name(), "login.keyring") {
-				facts.GnomeKeyringHasLogin = true
+			if e.IsDir() {
+				continue
+			}
+			lower := strings.ToLower(e.Name())
+			if strings.HasSuffix(lower, ".kwl") || strings.HasSuffix(lower, ".salt") {
+				walletFiles++
 			}
 		}
+		if walletFiles > 0 {
+			facts.KWalletDataPresent = true
+			if !facts.KWalletExplicitlyDisabled {
+				facts.KWalletEnabled = true
+			}
+			facts.Evidence = append(facts.Evidence, coreEvidence(
+				"path",
+				kwalletDataDir,
+				fmt.Sprintf("kwallet_files=%d", walletFiles),
+			))
+		}
+	}
 
-		facts.Evidence = append(facts.Evidence, protocol.Evidence{
-			Source:        "platform",
-			Kind:          "path",
-			Subject:       keyringDir,
-			ObservedValue: fmt.Sprintf("gnome_keyring_present=true, has_login_keyring=%t", facts.GnomeKeyringHasLogin),
-			Timestamp:     time.Now().UTC().Format(time.RFC3339),
-		})
+	// 2. GNOME Keyring probe: ~/.local/share/keyrings (filenames only; never read keyring contents)
+	keyringDir := filepath.Join(userHome, ".local", "share", "keyrings")
+	krInfo, krErr := os.Stat(keyringDir)
+	if krErr != nil {
+		if !os.IsNotExist(krErr) {
+			ev := coreErrorEvidence("path", keyringDir, "unreadable", krErr.Error())
+			facts.Issues = append(facts.Issues, ProbeIssue{
+				Code:     "wallet_read_error",
+				Path:     keyringDir,
+				Message:  fmt.Sprintf("Could not stat keyring directory %q: %v", keyringDir, krErr),
+				Evidence: []protocol.Evidence{ev},
+			})
+		}
+	} else if krInfo.IsDir() {
+		facts.GnomeKeyringDirExists = true
+		facts.GnomeKeyringDir = keyringDir
+
+		entries, readErr := os.ReadDir(keyringDir)
+		if readErr != nil {
+			ev := coreErrorEvidence("path", keyringDir, "unreadable", readErr.Error())
+			facts.Issues = append(facts.Issues, ProbeIssue{
+				Code:     "wallet_read_error",
+				Path:     keyringDir,
+				Message:  fmt.Sprintf("Could not read keyring directory %q: %v", keyringDir, readErr),
+				Evidence: []protocol.Evidence{ev},
+			})
+		} else {
+			for _, e := range entries {
+				if e.IsDir() {
+					continue
+				}
+				lower := strings.ToLower(e.Name())
+				switch {
+				case lower == "login.keyring":
+					facts.GnomeKeyringHasLogin = true
+					facts.GnomeKeyringFileCount++
+				case lower == "default":
+					facts.GnomeKeyringHasDefault = true
+					facts.GnomeKeyringFileCount++
+				case strings.HasSuffix(lower, ".keyring"):
+					facts.GnomeKeyringFileCount++
+				}
+			}
+			facts.GnomeKeyringPresent = facts.GnomeKeyringFileCount > 0
+			facts.Evidence = append(facts.Evidence, coreEvidence(
+				"path",
+				keyringDir,
+				fmt.Sprintf("keyring_files=%d, has_login_keyring=%t, has_default=%t",
+					facts.GnomeKeyringFileCount, facts.GnomeKeyringHasLogin, facts.GnomeKeyringHasDefault),
+			))
+		}
 	}
 
 	return facts, nil

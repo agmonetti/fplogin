@@ -92,6 +92,16 @@ const staticPlatformDescriptor = `{
       "evidence_requirements": [
         "systemd_dbus"
       ]
+    },
+    {
+      "id": "analyzer.facts",
+      "status": "provided",
+      "level": 1,
+      "constraints": {},
+      "evidence_requirements": [
+        "pacman_db",
+        "systemd_dbus"
+      ]
     }
   ],
   "operation_kinds": [
@@ -179,7 +189,7 @@ func handleRequest(req platformv1.Request) (json.RawMessage, error) {
 		return applyLab(req)
 
 	case "CollectAnalyzerFacts":
-		return nil, notImplemented(req.Operation)
+		return collectAnalyzerFacts(req)
 
 	default:
 		return nil, &opError{code: "unsupported_operation", message: fmt.Sprintf("unknown platform operation %q", req.Operation)}

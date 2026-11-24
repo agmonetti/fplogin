@@ -17,17 +17,19 @@ func FormatJSON(r analyzerv1.Report) ([]byte, error) {
 	return json.MarshalIndent(r, "", "  ")
 }
 
-// FormatTerminal produces a clean, human-readable terminal output.
+// FormatTerminal produces a clear, evidence-scoped terminal summary that avoids
+// overstating certainty and separates login-session effects from later auth flows.
 func FormatTerminal(r analyzerv1.Report) string {
 	var b strings.Builder
 
 	b.WriteString("─────────────────────────────────────────────────────────────\n")
 	b.WriteString("System Analysis: Password-Derived Facilities\n")
 	b.WriteString("─────────────────────────────────────────────────────────────\n")
+	b.WriteString("Scope: Display-manager login session only; independent auth flows (sudo, su, polkit, ssh, screen lockers) are unchanged.\n\n")
 
 	if len(r.Findings) == 0 {
-		b.WriteString("No password-derived facility degradation detected.\n")
-		b.WriteString("Fingerprint login is safe without expected secret unlock issues.\n")
+		b.WriteString("No known PAM-coupled password-derived facilities were observed within the inspected scope.\n")
+		b.WriteString("Absence of findings does not guarantee identical behavior for every application; review Limitations below.\n")
 	} else {
 		for i, f := range r.Findings {
 			if i > 0 {
@@ -46,7 +48,11 @@ func FormatTerminal(r analyzerv1.Report) string {
 					if strings.Contains(obs, "\n") {
 						obs = strings.ReplaceAll(obs, "\n", " | ")
 					}
-					b.WriteString(fmt.Sprintf("    - %s (%s): %s\n", ev.Subject, ev.Kind, obs))
+					if ev.Error != "" {
+						b.WriteString(fmt.Sprintf("    - [%s] %s (%s): %s (error: %s)\n", ev.Source, ev.Subject, ev.Kind, obs, ev.Error))
+					} else {
+						b.WriteString(fmt.Sprintf("    - [%s] %s (%s): %s\n", ev.Source, ev.Subject, ev.Kind, obs))
+					}
 				}
 			}
 

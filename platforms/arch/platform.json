@@ -49,6 +49,16 @@
       "evidence_requirements": [
         "systemd_dbus"
       ]
+    },
+    {
+      "id": "analyzer.facts",
+      "status": "provided",
+      "level": 1,
+      "constraints": {},
+      "evidence_requirements": [
+        "pacman_db",
+        "systemd_dbus"
+      ]
     }
   ],
   "operation_kinds": [

@@ -195,6 +195,32 @@ func TestE2E_Subprocess_PlatformAndAdapter(t *testing.T) {
 	if applyResp.OK || applyResp.Error == nil || applyResp.Error.Code != "unsupported_operation" {
 		t.Fatalf("ApplyOperation must refuse with unsupported_operation, got OK=%v err=%+v", applyResp.OK, applyResp.Error)
 	}
+
+	// Read-only CollectAnalyzerFacts must succeed on Arch (or return unsupported_platform elsewhere)
+	// and validate against PlatformAnalyzerFacts without mutating host state.
+	reqID4, _ := protocol.NewRequestID()
+	factsResp, err := pClient.Invoke(context.Background(), discoveredPlatforms[0], platformv1.Request{
+		ProtocolVersion: protocol.Version{Major: 1, Minor: 0},
+		RequestID:       reqID4,
+		Operation:       "CollectAnalyzerFacts",
+		CoreVersion:     "0.2.0",
+		Context:         hostCtx,
+		Payload:         json.RawMessage(`{"scope":"biometric_login_difference","probe_ids":["packages","secret_service"]}`),
+	})
+	if err != nil {
+		t.Fatalf("platformclient Invoke CollectAnalyzerFacts failed: %v", err)
+	}
+	if factsResp.OK {
+		var facts platformv1.PlatformAnalyzerFacts
+		if err := protocol.DecodeStrict(factsResp.Result, &facts); err != nil {
+			t.Fatalf("decode CollectAnalyzerFacts result: %v", err)
+		}
+		if err := facts.Validate(); err != nil {
+			t.Fatalf("validate CollectAnalyzerFacts result: %v", err)
+		}
+	} else if factsResp.Error == nil || factsResp.Error.Code != "unsupported_platform" {
+		t.Fatalf("CollectAnalyzerFacts failed unexpectedly: %+v", factsResp.Error)
+	}
 }
 
 func copyFile(t *testing.T, src, dst string, perm os.FileMode) {

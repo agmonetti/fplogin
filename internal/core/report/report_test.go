@@ -36,7 +36,7 @@ func sampleReport() analyzerv1.Report {
 				},
 				Evidence: []protocol.Evidence{
 					{
-						Source:        "platform",
+						Source:        "core",
 						Kind:          "path",
 						Subject:       "/etc/pam.d/sddm",
 						ObservedValue: "session optional pam_kwallet5.so",
@@ -57,6 +57,11 @@ func sampleReport() analyzerv1.Report {
 			},
 		},
 		Limitations: []analyzerv1.Limitation{
+			{
+				Code:     "known_blind_spots",
+				Message:  "Does not inspect wallet contents or process memory.",
+				Evidence: []protocol.Evidence{},
+			},
 			{
 				Code:     "unscanned_user_sessions",
 				Message:  "User home not scanned",
@@ -94,5 +99,47 @@ func TestFormatTerminal(t *testing.T) {
 	}
 	if !strings.Contains(out, "Limitations / Unscanned Scope") {
 		t.Errorf("expected limitations section, got:\n%s", out)
+	}
+	if !strings.Contains(out, "sudo, su, polkit, ssh, screen lockers") {
+		t.Errorf("expected login vs independent auth scope distinction, got:\n%s", out)
+	}
+}
+
+func TestFormatTerminal_CleanSystemNoFalseSafetyOverclaim(t *testing.T) {
+	r := sampleReport()
+	r.Findings = []analyzerv1.Finding{}
+
+	out := FormatTerminal(r)
+	lower := strings.ToLower(out)
+
+	banned := []string{
+		"fingerprint login is safe",
+		"without expected secret unlock issues",
+		"guaranteed safe",
+	}
+	for _, phrase := range banned {
+		if strings.Contains(lower, phrase) {
+			t.Errorf("clean terminal output must not contain overclaim phrase %q:\n%s", phrase, out)
+		}
+	}
+
+	required := []string{
+		"No known PAM-coupled password-derived facilities were observed within the inspected scope",
+		"Absence of findings does not guarantee identical behavior",
+		"sudo, su, polkit, ssh, screen lockers",
+		"Limitations / Unscanned Scope",
+	}
+	for _, phrase := range required {
+		if !strings.Contains(out, phrase) {
+			t.Errorf("clean terminal output missing required phrase %q:\n%s", phrase, out)
+		}
+	}
+
+	data, err := FormatJSON(r)
+	if err != nil {
+		t.Fatalf("FormatJSON clean report failed: %v", err)
+	}
+	if _, err := analyzerv1.DecodeReport(data); err != nil {
+		t.Fatalf("DecodeReport clean report failed: %v", err)
 	}
 }

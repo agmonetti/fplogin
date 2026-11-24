@@ -2,15 +2,11 @@
 package main
 
 import (
-	"context"
 	"flag"
 	"fmt"
 	"os"
-	"path/filepath"
 
-	"fplogin/internal/core/analyze"
 	"fplogin/internal/core/manifest"
-	"fplogin/internal/core/report"
 )
 
 const version = "0.2.0"
@@ -68,7 +64,7 @@ Subcommands:
   uninstall   Transactionally restore the pre-fplogin baseline from manifest (root required)
   recover     Reconcile any interrupted install or uninstall transaction from disk (root required)
   status      Display current installation state from manifest (read-only)
-  analyze     Inspect password-derived facilities impacted by biometric login (read-only, experimental)
+  analyze     Inspect password-derived facilities impacted by biometric login (read-only)
   components  List packaged providers and adapters (read-only, unprivileged)
   version     Show version information
   help        Show this help message
@@ -109,46 +105,4 @@ func runStatus(args []string) {
 			fmt.Printf("    - %s: %s\n", mm.Kind, mm.Path)
 		}
 	}
-}
-
-func runAnalyze(args []string) {
-	fs := flag.NewFlagSet("analyze", flag.ExitOnError)
-	outputJSON := fs.Bool("json", false, "Output report as JSON")
-	root := fs.String("root", "/", "Root filesystem directory")
-	service := fs.String("service", "sddm", "Display manager PAM service name to inspect")
-	user := fs.String("user", os.Getenv("USER"), "Target user to inspect for wallets and encrypted storage")
-	_ = fs.Parse(args)
-
-	userHome := os.Getenv("HOME")
-	if *user != "" && *user != os.Getenv("USER") {
-		userHome = filepath.Join(*root, "home", *user)
-	}
-
-	engine := analyze.NewEngine()
-	ctx := context.Background()
-
-	cfg := analyze.EngineConfig{
-		Root:        *root,
-		Username:    *user,
-		UserHome:    userHome,
-		ServiceName: *service,
-	}
-
-	rep, err := engine.Analyze(ctx, cfg)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Analysis failed: %v\n", err)
-		os.Exit(1)
-	}
-
-	if *outputJSON {
-		data, err := report.FormatJSON(rep)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Format JSON failed: %v\n", err)
-			os.Exit(1)
-		}
-		fmt.Println(string(data))
-		return
-	}
-
-	fmt.Print(report.FormatTerminal(rep))
 }

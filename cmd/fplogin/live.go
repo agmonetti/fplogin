@@ -568,6 +568,9 @@ Flags for live installation (root required):
 	fmt.Printf("  Manifest:       %s\n", res.ManifestPath)
 	fmt.Printf("  Journal:        %s\n", res.JournalPath)
 	fmt.Printf("  Note:           Verify fingerprint reader and enrolled prints with 'fprintd-list <user>'. Password login remains available.\n")
+
+	// Phase 13: Read-only, non-fatal postflight behavioral-difference report.
+	runInstallPostflight(context.Background(), bridge, res, os.Stdout, os.Stderr)
 }
 
 func runUninstall(args []string) {
