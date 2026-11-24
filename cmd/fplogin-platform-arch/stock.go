@@ -36,31 +36,38 @@ func verifyStock(req platformv1.Request) (json.RawMessage, error) {
 	if (p.Phase != "pre_apply" && p.Phase != "post_rollback") || req.Context.Root != "/" || len(p.ExpectedPostcondition) != 1 || string(p.ExpectedPostcondition["stock_backup_files_match_archive"]) != `"`+stockArchive+`"` {
 		return nil, notImplemented(req.Operation)
 	}
+	if err := checkStockFiles(); err != nil {
+		return nil, err
+	}
+	return json.Marshal(platformv1.PlatformVerificationReport{ReportID: p.OperationID, VerifiedAt: time.Now().UTC().Format(time.RFC3339), Checks: []platformv1.VerificationCheck{{CheckID: "stock_backup_files_match_archive", Status: "passed", Severity: "info", Evidence: []protocol.Evidence{evidence("package", "sddm", "stock backup files match pinned archive")}}}})
+}
+
+func checkStockFiles() error {
 	for _, entry := range stockFiles {
 		path, err := filepath.EvalSymlinks(entry.path)
 		if err != nil || path != entry.path {
-			return nil, fmt.Errorf("stock backup path not intact: %s", entry.path)
+			return fmt.Errorf("stock backup path not intact: %s", entry.path)
 		}
 		f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK|syscall.O_NOFOLLOW, 0)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		defer f.Close()
 		info, err := f.Stat()
 		if err != nil {
-			return nil, err
+			return err
 		}
 		st := info.Sys().(*syscall.Stat_t)
 		if info.Mode() != entry.mode || st.Uid != 0 || st.Gid != 0 || info.Size() > 4096 {
-			return nil, fmt.Errorf("stock backup metadata differs: %s", path)
+			return fmt.Errorf("stock backup metadata differs: %s", path)
 		}
 		h := sha256.New()
 		if _, err := io.Copy(h, io.LimitReader(f, 4097)); err != nil {
-			return nil, err
+			return err
 		}
 		if fmt.Sprintf("%x", h.Sum(nil)) != entry.digest {
-			return nil, fmt.Errorf("stock backup contents differ: %s", path)
+			return fmt.Errorf("stock backup contents differ: %s", path)
 		}
 	}
-	return json.Marshal(platformv1.PlatformVerificationReport{ReportID: p.OperationID, VerifiedAt: time.Now().UTC().Format(time.RFC3339), Checks: []platformv1.VerificationCheck{{CheckID: "stock_backup_files_match_archive", Status: "passed", Severity: "info", Evidence: []protocol.Evidence{evidence("package", "sddm", "stock backup files match pinned archive")}}}})
+	return nil
 }

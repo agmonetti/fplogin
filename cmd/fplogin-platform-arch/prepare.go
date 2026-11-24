@@ -88,6 +88,9 @@ func prepareLab(req v1.Request) (json.RawMessage, error) {
 	if err != nil || !strings.Contains("\n"+inventory+"\n", "\n"+baselinePackages[stockArchive]+"\n") {
 		return nil, fmt.Errorf("installed stock does not match rollback archive")
 	}
+	if err := checkStockFiles(); err != nil {
+		return nil, err
+	}
 	out, err := labOutput("/usr/bin/pacman", args...)
 	actual := strings.Split(out, "\n")
 	sort.Strings(actual)

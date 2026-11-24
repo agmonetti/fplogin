@@ -18,8 +18,9 @@ CGO_ENABLED=0 go build -o "$lab/platform-arch" ./cmd/fplogin-platform-arch
 printf '[options]\nLocalFileSigLevel = Required TrustedOnly\n' > "$stage/pacman.conf"
 CGO_ENABLED=0 go test -tags f05lab -c -o "$lab/installer-test" ./internal/core/install
 invoke(){ docker run --rm --network none -i --tmpfs /var/lib/fplogin:uid=1000,gid=1000,mode=0700 -v "$stage:/cache:ro" -v "$lab/installer-test:/installer-test:ro" -v "$PWD/contracts/platform/v1/examples/request.valid.json:/request.json:ro" -v "$stage:$guest:ro" -v "$stage/pacman.conf:/etc/fplogin/f05-lab/pacman.conf:ro" -v "$PWD/.work/labs/sprint4/f05-signer/pacman:/etc/fplogin/f05-lab/public:ro" -v "$lab/platform-arch:/provider:ro" -v "$PWD/.work/labs/sprint4/f05-signer/approved.gpg:/etc/fplogin/f05-lab/candidate.gpg:ro" sha256:4da16761307d6db0754c243bc15b5f4dab17c9556f18bd93d952fe22eb7a606c "$@" <<<"$req"; }
-installer(){ invoke /bin/bash -ec 'chmod o+rx /etc/pacman.d/gnupg; chmod o+r /etc/pacman.d/gnupg/pubring.gpg; export TMPDIR=/var/lib/fplogin EXPECTED_ERROR="$1"; exec setpriv --reuid=1000 --regid=1000 --clear-groups /installer-test -test.run "^TestF05LabInstallerPreparation$" -test.v' -- "$1"; }
+installer(){ invoke /bin/bash -ec 'if [[ $2 == modified-pam ]]; then echo "# local change" >> /etc/pam.d/sddm; fi; chmod o+rx /etc/pacman.d/gnupg; chmod o+r /etc/pacman.d/gnupg/pubring.gpg; export TMPDIR=/var/lib/fplogin EXPECTED_ERROR="$1"; exec setpriv --reuid=1000 --regid=1000 --clear-groups /installer-test -test.run "^TestF05LabInstallerPreparation$" -test.v' -- "$1" "${2:-}"; }
 installer 'recoverable package apply unavailable'
+installer 'stock backup contents differ: /etc/pam.d/sddm' modified-pam
 response=$(invoke /provider); jq -e '.ok and (.result.references|length==7)' <<<"$response" || { echo "$response" >&2; exit 1; }
 # Remove an installed dependency only in the disposable container database.
 response=$(invoke /bin/bash -ec 'pacman -Rdd --dbonly --noconfirm fprintd >&2; exec /provider')
