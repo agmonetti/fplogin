@@ -16,8 +16,8 @@ const sddmUnit = "sddm.service"
 
 func loadFacts(req adapterv1.Request) (adapterv1.PreflightFacts, error) {
 	var facts adapterv1.PreflightFacts
-	if os.Getuid() == 0 || os.Geteuid() == 0 || !req.Context.DryRun || req.Context.Elevated || req.Context.Root != "/" || string(req.Context.Platform["distribution"]) != `"arch"` || req.Context.Architecture != "x86_64" {
-		return facts, fmt.Errorf("SDDM preview requires read-only Arch x86_64 host context")
+	if os.Getuid() == 0 || os.Geteuid() == 0 || req.Context.Elevated || req.Context.Root != "/" || string(req.Context.Platform["distribution"]) != `"arch"` || req.Context.Architecture != "x86_64" {
+		return facts, fmt.Errorf("SDDM adapter requires read-only Arch x86_64 host context")
 	}
 	err := protocol.DecodeStrict(req.Context.Platform["inventory"], &facts, "packages", "services")
 	if err != nil || facts.Packages == nil || facts.Services == nil {
@@ -154,6 +154,9 @@ func preflight(req adapterv1.Request) (json.RawMessage, error) {
 		return nil, err
 	}
 	t := detectSDDM(facts)
+	if !req.Context.DryRun {
+		t = detectSDDMLive(facts)
+	}
 	if req.Operation == "Detect" {
 		return json.Marshal(adapterv1.DetectionReport{Targets: []adapterv1.DetectedTarget{t}})
 	}
@@ -170,7 +173,7 @@ func preflight(req adapterv1.Request) (json.RawMessage, error) {
 	case "InspectState":
 		return json.Marshal(targetState(facts))
 	case "CheckPrerequisites":
-		r, err := prerequisites(facts)
+		r, err := prerequisitesForMode(facts, req.Context.DryRun)
 		if err != nil {
 			return nil, err
 		}
@@ -180,10 +183,17 @@ func preflight(req adapterv1.Request) (json.RawMessage, error) {
 		if err := json.Unmarshal(req.Payload, &payload); err != nil {
 			return nil, err
 		}
-		if len(payload.RequestedCapabilities) != 1 || payload.RequestedCapabilities[0] != "install.preview" {
-			return nil, fmt.Errorf("only install.preview is supported; executable plans are unavailable")
+		if req.Context.DryRun {
+			if len(payload.RequestedCapabilities) != 1 || payload.RequestedCapabilities[0] != "install.preview" {
+				return nil, fmt.Errorf("only install.preview is supported in dry-run")
+			}
+			r, err := planPreview(facts, t)
+			if err != nil {
+				return nil, err
+			}
+			return json.Marshal(r)
 		}
-		r, err := planPreview(facts, t)
+		r, err := planExecutableInstall(req, facts, t, payload)
 		if err != nil {
 			return nil, err
 		}

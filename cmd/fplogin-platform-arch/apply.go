@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -15,11 +16,12 @@ import (
 )
 
 func applyLab(req v1.Request) (json.RawMessage, error) {
-	if _, err := os.Stat(labTrust + "/candidate.gpg"); err != nil {
-		return nil, notImplemented(req.Operation)
+	trust, err := resolveTrust(req.Operation)
+	if err != nil {
+		return nil, err
 	}
 	if req.Context.Root != "/" || os.Geteuid() != 0 {
-		return nil, &opError{code: "mutation_failed", message: "F05 lab apply requires root on canonical root /"}
+		return nil, &opError{code: "mutation_failed", message: "platform apply requires root on canonical root /"}
 	}
 	var p v1.ApplyOperationPayload
 	if err := json.Unmarshal(req.Payload, &p); err != nil {
@@ -31,12 +33,11 @@ func applyLab(req v1.Request) (json.RawMessage, error) {
 	startedAt := time.Now().UTC().Format(time.RFC3339)
 
 	var receipt v1.OperationReceipt
-	var err error
 	switch p.Operation.Kind {
 	case protocol.InstallPackageArtifact:
-		receipt, err = applyInstallPackage(p, startedAt)
+		receipt, err = applyInstallPackage(trust, p, startedAt)
 	case protocol.RemoveOwnedPackage:
-		receipt, err = applyRemovePackage(p, startedAt)
+		receipt, err = applyRemovePackage(trust, p, startedAt)
 	case protocol.SetServiceEnabled:
 		receipt, err = applySetServiceEnabled(p, startedAt)
 	case protocol.SetServiceActive:
@@ -95,7 +96,7 @@ func packageStateObject(installed bool, ver string) protocol.Object {
 	return obj
 }
 
-func applyInstallPackage(p v1.ApplyOperationPayload, _ string) (v1.OperationReceipt, error) {
+func applyInstallPackage(trust trustConfig, p v1.ApplyOperationPayload, _ string) (v1.OperationReceipt, error) {
 	var params protocol.PackageArtifactParameters
 	if err := json.Unmarshal(p.Operation.Parameters, &params); err != nil {
 		return v1.OperationReceipt{}, err
@@ -110,7 +111,7 @@ func applyInstallPackage(p v1.ApplyOperationPayload, _ string) (v1.OperationRece
 	if ref.SHA256 != "" && ref.SHA256 != params.SHA256 {
 		return v1.OperationReceipt{}, fmt.Errorf("prepared_artifact_reference digest mismatch for %s", params.PackageReference)
 	}
-	pkgNameVer, err := verifyStagedArchive(ref.CanonicalPath, params.SHA256)
+	pkgNameVer, err := verifyStagedArchive(trust, ref.CanonicalPath, params.SHA256)
 	if err != nil {
 		return v1.OperationReceipt{}, err
 	}
@@ -150,7 +151,7 @@ func applyInstallPackage(p v1.ApplyOperationPayload, _ string) (v1.OperationRece
 			}
 		}
 	}
-	out, err := labCombined("/usr/bin/pacman", "--config", labTrust+"/pacman.conf", "--gpgdir", labTrust+"/public", "-U", "--noconfirm", "--ask=4", "--", ref.CanonicalPath)
+	out, err := labCombined("/usr/bin/pacman", "--config", filepath.Join(trust.dir, "pacman.conf"), "--gpgdir", filepath.Join(trust.dir, "public"), "-U", "--noconfirm", "--ask=4", "--", ref.CanonicalPath)
 	if err != nil {
 		return v1.OperationReceipt{}, fmt.Errorf("pacman -U %s failed: %v: %s", pkgName, err, out)
 	}
@@ -196,7 +197,7 @@ func isOwnedRemovablePackage(pkgName string) bool {
 	return false
 }
 
-func applyRemovePackage(p v1.ApplyOperationPayload, _ string) (v1.OperationReceipt, error) {
+func applyRemovePackage(trust trustConfig, p v1.ApplyOperationPayload, _ string) (v1.OperationReceipt, error) {
 	var params struct {
 		PackageReference string `json:"package_reference"`
 	}
@@ -204,7 +205,7 @@ func applyRemovePackage(p v1.ApplyOperationPayload, _ string) (v1.OperationRecei
 		return v1.OperationReceipt{}, err
 	}
 	if !isOwnedRemovablePackage(params.PackageReference) {
-		return v1.OperationReceipt{}, fmt.Errorf("package %q is not an owned removable F05 package", params.PackageReference)
+		return v1.OperationReceipt{}, fmt.Errorf("package %q is not an owned removable package", params.PackageReference)
 	}
 	beforeInstalled, beforeVer, err := queryInstalledPackage(params.PackageReference)
 	if err != nil {
@@ -218,7 +219,7 @@ func applyRemovePackage(p v1.ApplyOperationPayload, _ string) (v1.OperationRecei
 			Evidence:    []protocol.Evidence{evidence("package", params.PackageReference, "absent")},
 		}, nil
 	}
-	out, err := labCombined("/usr/bin/pacman", "--config", labTrust+"/pacman.conf", "-R", "--noconfirm", "--", params.PackageReference)
+	out, err := labCombined("/usr/bin/pacman", "--config", filepath.Join(trust.dir, "pacman.conf"), "-R", "--noconfirm", "--", params.PackageReference)
 	if err != nil {
 		return v1.OperationReceipt{}, fmt.Errorf("pacman -R %s failed: %v: %s", params.PackageReference, err, out)
 	}

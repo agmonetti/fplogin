@@ -466,3 +466,52 @@ func TestRun_VerificationFailureRollback(t *testing.T) {
 		t.Error("manifest must not exist after rollback")
 	}
 }
+
+func TestRun_ConflictingDMTriggersReplacesDM(t *testing.T) {
+	requireUnprivilegedLab(t)
+	cfg, adInvoker, _ := setupTestFixtures(t.TempDir())
+	adInvoker.dmState.Active = "no"
+	adInvoker.dmState.Enabled = "no"
+	adInvoker.dmState.ConflictingInstances = []string{"greetd.service"}
+
+	sawReplace := false
+	cfg.ApprovePlan = func(_ string, replacesDM bool) error {
+		sawReplace = replacesDM
+		return errors.New("refused replacement")
+	}
+	if _, err := Run(context.Background(), cfg); !errors.Is(err, ErrApprovalRequired) {
+		t.Fatalf("expected ErrApprovalRequired, got %v", err)
+	}
+	if !sawReplace {
+		t.Fatal("expected replacesDM=true when ConflictingInstances is non-empty")
+	}
+}
+
+func TestRun_AmbiguousTargetsRejected(t *testing.T) {
+	requireUnprivilegedLab(t)
+	cfg, adInvoker, _ := setupTestFixtures(t.TempDir())
+	second := adInvoker.detectReport.Targets[0]
+	second.InstanceID = "mock-dm-2"
+	adInvoker.detectReport.Targets = append(adInvoker.detectReport.Targets, second)
+
+	if _, err := Run(context.Background(), cfg); !errors.Is(err, ErrAmbiguousTarget) {
+		t.Fatalf("expected ErrAmbiguousTarget, got %v", err)
+	}
+	cfg.TargetDMID = "org.fplogin.adapter.sddm/mock-dm-2"
+	res, err := Run(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("explicit adapter/instance selection failed: %v", err)
+	}
+	if res.SelectedTarget.InstanceID != "mock-dm-2" {
+		t.Fatalf("selected %q, want mock-dm-2", res.SelectedTarget.InstanceID)
+	}
+}
+
+func TestRecoverPending_EmptyStateRoot(t *testing.T) {
+	requireUnprivilegedLab(t)
+	base := t.TempDir()
+	root := filepath.Join(base, "state")
+	if err := RecoverPending(context.Background(), root, []string{filepath.Join(base, "target")}, nil); err != nil {
+		t.Fatalf("expected nil on empty state root, got %v", err)
+	}
+}

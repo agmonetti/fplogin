@@ -71,11 +71,15 @@ func stageApprovedArchives(stateRoot, txID, cache string) (platformv1.PrepareArt
 	}
 	refs := make([]platformv1.ArtifactReference, 0, len(plan.ArtifactReferences))
 	for _, ref := range plan.ArtifactReferences {
+		srcArchive, err := resolveArchiveSource(cache, ref.SHA256, ref.Size)
+		if err != nil {
+			return p, fmt.Errorf("resolve %q: %w", ref.ArtifactID, err)
+		}
 		dst := filepath.Join(stage, ref.SHA256)
-		if err := snapshotArchive(cache, dst, ref.SHA256, ref.Size); err != nil {
+		if err := snapshotArchiveFile(srcArchive, dst, ref.SHA256, ref.Size); err != nil {
 			return p, fmt.Errorf("stage %q: %w", ref.ArtifactID, err)
 		}
-		if err := snapshotSignature(filepath.Join(cache, ref.SHA256+".sig"), dst+".sig"); err != nil {
+		if err := snapshotSignature(srcArchive+".sig", dst+".sig"); err != nil {
 			return p, fmt.Errorf("stage signature %q: %w", ref.ArtifactID, err)
 		}
 		refs = append(refs, platformv1.ArtifactReference{ArtifactID: ref.ArtifactID, MediaType: ref.MediaType, SHA256: ref.SHA256, Size: ref.Size, Role: ref.Role, CanonicalPath: dst})
@@ -131,11 +135,67 @@ func snapshotSignature(src, dst string) error {
 	return closeErr
 }
 
+// resolveArchiveSource locates a staged archive either by content-addressed
+// filename (<cache>/<sha256>) or by scanning regular top-level files in cache
+// (e.g., *.pkg.tar.zst) for an exact size + SHA-256 match.
+func resolveArchiveSource(cache, digest string, size int64) (string, error) {
+	if err := protocol.ValidDigest(digest); err != nil {
+		return "", err
+	}
+	direct := filepath.Join(cache, digest)
+	if _, err := os.Lstat(direct); err == nil {
+		return direct, nil
+	} else if !os.IsNotExist(err) {
+		return "", err
+	}
+	entries, err := os.ReadDir(cache)
+	if err != nil {
+		return "", err
+	}
+	var match string
+	for _, entry := range entries {
+		name := entry.Name()
+		if filepath.Ext(name) == ".sig" {
+			continue
+		}
+		cand := filepath.Join(cache, name)
+		f, err := os.OpenFile(cand, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+		if err != nil {
+			continue
+		}
+		st, statErr := f.Stat()
+		if statErr != nil || !st.Mode().IsRegular() || st.Size() != size {
+			f.Close()
+			continue
+		}
+		h := sha256.New()
+		n, copyErr := io.Copy(h, io.LimitReader(f, size+1))
+		f.Close()
+		if copyErr != nil || n != size {
+			continue
+		}
+		if fmt.Sprintf("%x", h.Sum(nil)) == digest {
+			if match != "" {
+				return "", fmt.Errorf("ambiguous duplicate archive matching %s", digest)
+			}
+			match = cand
+		}
+	}
+	if match == "" {
+		return "", fmt.Errorf("archive %s not found in %s", digest, cache)
+	}
+	return match, nil
+}
+
 func snapshotArchive(cache, dst, digest string, size int64) error {
+	return snapshotArchiveFile(filepath.Join(cache, digest), dst, digest, size)
+}
+
+func snapshotArchiveFile(srcPath, dst, digest string, size int64) error {
 	if err := protocol.ValidDigest(digest); err != nil {
 		return err
 	}
-	src, err := os.OpenFile(filepath.Join(cache, digest), os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	src, err := os.OpenFile(srcPath, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
 	if err != nil {
 		return err
 	}

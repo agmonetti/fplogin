@@ -37,6 +37,16 @@
         "package_inventory",
         "service_inventory"
       ]
+    },
+    {
+      "id": "biometric_auth",
+      "status": "provided",
+      "level": 1,
+      "constraints": {},
+      "evidence_requirements": [
+        "package_inventory",
+        "service_inventory"
+      ]
     }
   ],
   "prerequisites": [
@@ -62,7 +72,10 @@
     "arch"
   ],
   "operation_modes": [
-    "fresh_install"
+    "fresh_install",
+    "reinstall",
+    "upgrade",
+    "repair"
   ],
   "asset_root": "assets"
 }

@@ -75,6 +75,16 @@ const staticAdapterDescriptor = `{
         "package_inventory",
         "service_inventory"
       ]
+    },
+    {
+      "id": "biometric_auth",
+      "status": "provided",
+      "level": 1,
+      "constraints": {},
+      "evidence_requirements": [
+        "package_inventory",
+        "service_inventory"
+      ]
     }
   ],
   "prerequisites": [
@@ -100,7 +110,10 @@ const staticAdapterDescriptor = `{
     "arch"
   ],
   "operation_modes": [
-    "fresh_install"
+    "fresh_install",
+    "reinstall",
+    "upgrade",
+    "repair"
   ],
   "asset_root": "assets"
 }`
@@ -111,9 +124,11 @@ func handleRequest(req adapterv1.Request) (json.RawMessage, error) {
 		return json.RawMessage(staticAdapterDescriptor), nil
 	case "Detect", "CheckPrerequisites", "InspectState", "PlanInstall":
 		return preflight(req)
-	case "PrepareArtifacts", "PlanUninstall", "Verify":
-		// Fail closed: no fabricated detection, prerequisite, plan or
-		// verification result may be reported before a verified implementation.
+	case "Verify":
+		return verifyInstall(req)
+	case "PrepareArtifacts", "PlanUninstall":
+		// Fail closed: core stages approved archives directly and uninstall is
+		// adapter-independent via the durable manifest.
 		return nil, fmt.Errorf("adapter operation %q is not implemented (fail-closed; no display-manager state was read or changed)", req.Operation)
 	default:
 		return nil, fmt.Errorf("unsupported adapter operation %q", req.Operation)

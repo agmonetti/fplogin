@@ -115,3 +115,63 @@ func TestStageApprovedArchives(t *testing.T) {
 		})
 	}
 }
+
+func TestStageApprovedArchives_HumanNamedFiles(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "state")
+	cache := t.TempDir()
+	lock, err := transaction.AcquireLock(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Close()
+	_, a, _ := setupTestFixtures(root)
+	plan := a.plan
+	op := plan.Operations[0]
+	op.Kind = protocol.InstallPackageArtifact
+
+	candBody := []byte("fake-sddm-fplogin-pkg")
+	candFile := filepath.Join(cache, "sddm-fplogin-0.21.0-3.1-x86_64.pkg.tar.zst")
+	if err := os.WriteFile(candFile, candBody, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(candFile+".sig", []byte("sig-cand"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ref := adapterv1.ArtifactReference{
+		ArtifactID: "sddm-fplogin", Role: "display_manager_package",
+		SHA256: sha256Hex(candBody), Size: int64(len(candBody)),
+		MediaType: "application/octet-stream", CanonicalPath: "/ignored",
+	}
+	plan.ArtifactReferences = []adapterv1.ArtifactReference{ref}
+	op.Parameters = json.RawMessage(fmt.Sprintf(`{"package_reference":"sddm-fplogin","artifact_id":"sddm-fplogin","sha256":%q}`, ref.SHA256))
+	op.Compensation = json.RawMessage(`{"kind":"remove_package","package_reference":"sddm-fplogin"}`)
+	plan.Operations = []protocol.Operation{op}
+
+	digest, err := changePlanDigest(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := "tx-human-named"
+	dir := filepath.Join(root, "transactions")
+	j := validTestJournal(t, dir, "template", []string{op.OperationID})
+	data := j.Data()
+	data.TransactionID = id
+	data.AcceptedPlan.PlanDigest = digest
+	if _, err := transaction.Create(filepath.Join(dir, id+".json"), data); err != nil {
+		t.Fatal(err)
+	}
+	if err := persistApprovedPlan(root, id, digest, plan); err != nil {
+		t.Fatal(err)
+	}
+	payload, err := stageApprovedArchives(root, id, cache)
+	if err != nil {
+		t.Fatalf("stageApprovedArchives human-named: %v", err)
+	}
+	if len(payload.ArtifactReferences) != 1 || payload.ArtifactReferences[0].SHA256 != ref.SHA256 {
+		t.Fatalf("unexpected staged payload: %+v", payload)
+	}
+	sig, err := os.ReadFile(payload.ArtifactReferences[0].CanonicalPath + ".sig")
+	if err != nil || string(sig) != "sig-cand" {
+		t.Fatalf("staged signature mismatch: %q %v", sig, err)
+	}
+}

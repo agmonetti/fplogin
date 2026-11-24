@@ -211,6 +211,9 @@ func RecoverPending(ctx context.Context, root string, paths []string, platform P
 	txDir := filepath.Join(root, "transactions")
 	entries, err := os.ReadDir(txDir)
 	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return syncDir(root)
+		}
 		return err
 	}
 	for _, entry := range entries {

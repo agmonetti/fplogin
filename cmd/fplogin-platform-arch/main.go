@@ -94,7 +94,13 @@ const staticPlatformDescriptor = `{
       ]
     }
   ],
-  "operation_kinds": [],
+  "operation_kinds": [
+    "install_package_artifact",
+    "remove_owned_package",
+    "set_service_enabled",
+    "set_service_active",
+    "restore_service_state"
+  ],
   "package_formats": [
     "pkg.tar.zst",
     "pkg.tar.xz"

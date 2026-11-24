@@ -21,6 +21,7 @@ import (
 
 var (
 	ErrNoCompatibleTargets = errors.New("no compatible display manager targets detected")
+	ErrAmbiguousTarget     = errors.New("multiple compatible display manager targets detected; specify --target")
 	ErrPrerequisiteFailed  = errors.New("adapter prerequisite check failed")
 	ErrApprovalRequired    = errors.New("explicit approval of the exact change plan is required")
 	ErrPrivilegesRequired  = errors.New("only non-privileged isolated file transactions are supported")
@@ -170,7 +171,7 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 	// -------------------------------------------------------------------------
 	var selectedAdapter discovery.Adapter
 	var selectedTarget adapterv1.DetectedTarget
-	foundTarget := false
+	matchCount := 0
 
 	for _, adapter := range discRes.Adapters {
 		report, err := cfg.AdapterInvoker.Detect(ctx, adapter, cfg.Host)
@@ -181,21 +182,21 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 			if target.Compatibility != "compatible" {
 				continue
 			}
-			if cfg.TargetDMID != "" && target.DMID != cfg.TargetDMID {
+			pair := adapter.Descriptor.AdapterID + "/" + target.InstanceID
+			if cfg.TargetDMID != "" && target.DMID != cfg.TargetDMID && pair != cfg.TargetDMID {
 				continue
 			}
 			selectedAdapter = adapter
 			selectedTarget = target
-			foundTarget = true
-			break
-		}
-		if foundTarget {
-			break
+			matchCount++
 		}
 	}
 
-	if !foundTarget {
+	if matchCount == 0 {
 		return nil, ErrNoCompatibleTargets
+	}
+	if matchCount > 1 {
+		return nil, ErrAmbiguousTarget
 	}
 
 	// -------------------------------------------------------------------------
@@ -293,7 +294,7 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
-	replacesDM := dmState.Active == "yes" || dmState.Enabled == "yes"
+	replacesDM := len(dmState.ConflictingInstances) > 0 || dmState.Active == "yes" || dmState.Enabled == "yes"
 	if cfg.ApprovePlan == nil {
 		return nil, ErrApprovalRequired
 	}
