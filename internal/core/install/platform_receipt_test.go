@@ -12,18 +12,21 @@ func TestPinnedPackageCompensation(t *testing.T) {
 	const digest = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	comp := json.RawMessage(`{"kind":"install_package","package_reference":"sddm","artifact_id":"stock","sha256":"` + digest + `"}`)
 	for _, kind := range []protocol.OperationKind{protocol.InstallPackageArtifact, protocol.RemoveOwnedPackage} {
-		op := protocol.Operation{OperationID: "package", Kind: kind, Compensation: comp}
+		op := protocol.Operation{OperationID: "package", Kind: kind, Compensation: comp, Dependencies: []string{}, Preconditions: []json.RawMessage{}, ExpectedBefore: protocol.Object{}, ExpectedAfter: protocol.Object{}, Parameters: json.RawMessage(`{"package_reference":"sddm"}`)}
+		if kind == protocol.InstallPackageArtifact {
+			op.Parameters = json.RawMessage(`{"package_reference":"candidate","artifact_id":"candidate","sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}`)
+		}
 		r := manifestv1.OperationReceipt{OperationID: op.OperationID, Kind: kind, Status: "success", BeforeState: protocol.Object{"artifact_id": json.RawMessage(`"untrusted"`)}, AfterState: protocol.Object{}, Compensation: toObject(comp)}
 		r.Compensation["artifact_id"] = json.RawMessage(`"substitute"`)
 		if _, err := (&Executor{Platform: reportedReceipt{r}}).applyPlatform(context.Background(), op); err == nil {
 			t.Fatal("accepted substituted package compensation")
 		}
 		r.Compensation = nil
-		accepted, err := (&Executor{Platform: reportedReceipt{r}}).applyPlatform(context.Background(), op)
+		_, err := (&Executor{Platform: reportedReceipt{r}}).applyPlatform(context.Background(), op)
 		if err != nil {
 			t.Fatal(err)
 		}
-		undo, err := buildPlatformCompensationOperation(accepted)
+		undo, err := approvedPackageUndo(op)
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -532,7 +532,26 @@ func (e *Executor) compensateOperation(ctx context.Context, receipt manifestv1.O
 		if e.Platform == nil {
 			return errors.New("no platform provider configured for compensation")
 		}
-		compOp, err := buildPlatformCompensationOperation(receipt)
+		var compOp protocol.Operation
+		var err error
+		if receipt.Kind == protocol.InstallPackageArtifact || receipt.Kind == protocol.RemoveOwnedPackage {
+			root := filepath.Dir(filepath.Dir(e.Journal.Path()))
+			plan, loadErr := loadApprovedPlan(root, e.Journal.Data().TransactionID)
+			if loadErr != nil {
+				return loadErr
+			}
+			for _, approved := range plan.Operations {
+				if approved.OperationID == receipt.OperationID && approved.Kind == receipt.Kind {
+					compOp, err = approvedPackageUndo(approved)
+					break
+				}
+			}
+			if err == nil {
+				err = compOp.Validate()
+			}
+		} else {
+			compOp, err = buildPlatformCompensationOperation(receipt)
+		}
 		if err != nil {
 			return err
 		}
@@ -590,21 +609,6 @@ func buildPlatformCompensationOperation(receipt manifestv1.OperationReceipt) (pr
 	var forwardComp json.RawMessage
 
 	switch receipt.Kind {
-	case protocol.InstallPackageArtifact, protocol.RemoveOwnedPackage:
-		comp, err := protocol.DecodePackageCompensation(receipt.Kind, rawComp)
-		if err != nil {
-			return protocol.Operation{}, err
-		}
-		if comp.Kind == "install_package" {
-			kind = protocol.InstallPackageArtifact
-			params, _ = json.Marshal(comp.PackageArtifactParameters)
-			forwardComp, _ = json.Marshal(map[string]string{"kind": "remove_package", "package_reference": comp.PackageReference})
-		} else {
-			kind = protocol.RemoveOwnedPackage
-			params, _ = json.Marshal(map[string]string{"package_reference": comp.PackageReference})
-			// shortcut: fake appliers accept terminal rollback without an inverse; define a rollback wire contract before provider integration.
-			forwardComp = json.RawMessage(`{"kind":"none"}`)
-		}
 
 	case protocol.SetServiceEnabled:
 		var comp struct {

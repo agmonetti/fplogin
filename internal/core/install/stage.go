@@ -44,12 +44,16 @@ func stageApprovedArchives(stateRoot, txID, cache string) (platformv1.PrepareArt
 			}
 			used[pkg.ArtifactID] = true
 		}
-		undo, err := protocol.DecodePackageCompensation(op.Kind, op.Compensation)
+		undo, err := approvedPackageUndo(op)
 		if err != nil {
 			return p, err
 		}
-		if undo.Kind == "install_package" {
-			used[undo.ArtifactID] = true
+		if undo.Kind == protocol.InstallPackageArtifact {
+			var stock protocol.PackageArtifactParameters
+			if err := json.Unmarshal(undo.Parameters, &stock); err != nil {
+				return p, err
+			}
+			used[stock.ArtifactID] = true
 		}
 	}
 	for _, ref := range plan.ArtifactReferences {

@@ -15,6 +15,7 @@ import (
 
 	"fplogin/internal/core/transaction"
 	"fplogin/internal/protocol"
+	adapterv1 "fplogin/internal/protocol/adapter/v1"
 	manifestv1 "fplogin/internal/protocol/manifest/v1"
 )
 
@@ -560,13 +561,13 @@ func TestExecute_SymlinkRejection(t *testing.T) {
 }
 
 func TestExecute_PlatformDelegation_PackageInstallAndRollback(t *testing.T) {
-	tmpDir := t.TempDir()
-	j := validTestJournal(t, tmpDir, "tx-pkg", []string{"op-pkg"})
-	fakePlat := &fakePlatformApplier{}
-	exec, err := NewExecutor(j, fakePlat, filepath.Join(tmpDir, "backups"))
+	tmpDir := filepath.Join(t.TempDir(), "state")
+	lock, err := transaction.AcquireLock(tmpDir)
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer lock.Close()
+	fakePlat := &fakePlatformApplier{}
 
 	pkgParams, _ := json.Marshal(map[string]string{
 		"artifact_id":       "art-sddm-fplogin",
@@ -586,6 +587,28 @@ func TestExecute_PlatformDelegation_PackageInstallAndRollback(t *testing.T) {
 		Compensation:   pkgComp,
 	}
 
+	_, adapter, _ := setupTestFixtures(tmpDir)
+	plan := adapter.plan
+	plan.Operations = []protocol.Operation{op}
+	plan.ArtifactReferences = []adapterv1.ArtifactReference{{ArtifactID: "art-sddm-fplogin", SHA256: strings.Repeat("a", 64), Size: 1, Role: "package", MediaType: "package", CanonicalPath: "/ignored"}}
+	digest, err := changePlanDigest(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := validTestJournal(t, tmpDir, "template", []string{"op-pkg"}).Data()
+	data.TransactionID = "tx-pkg"
+	data.AcceptedPlan.PlanDigest = digest
+	if err := persistApprovedPlan(tmpDir, data.TransactionID, digest, plan); err != nil {
+		t.Fatal(err)
+	}
+	j, err := transaction.Create(filepath.Join(tmpDir, "transactions", "tx-pkg.json"), data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	exec, err := NewExecutor(j, fakePlat, filepath.Join(tmpDir, "backups"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	receipt, err := exec.Execute(context.Background(), op)
 	if err != nil {
 		t.Fatalf("Execute package install failed: %v", err)
@@ -612,6 +635,9 @@ func TestExecute_PlatformDelegation_PackageInstallAndRollback(t *testing.T) {
 	}
 
 	compOp := fakePlat.calledOps[1]
+	if err := compOp.Validate(); err != nil {
+		t.Fatalf("invalid wire undo: %v", err)
+	}
 	if compOp.Kind != protocol.RemoveOwnedPackage {
 		t.Fatalf("expected rollback operation kind %s, got %s", protocol.RemoveOwnedPackage, compOp.Kind)
 	}
