@@ -1805,7 +1805,7 @@
           "id": "S4-04",
           "title": "Descubrimiento y Ejecuci\u00f3n de Plataforma",
           "status": "partial",
-          "description": "El proveedor Arch consulta pacman/systemd y aplica paquetes, enablement y restore_service_state verificados en laboratorio aislado (S4-F05/F06); fuera del laboratorio falla cerrado hasta S4-F07.",
+          "description": "El proveedor Arch consulta pacman/systemd y ejecuta paquetes, enablement, activaci\u00f3n y restore_service_state verificados en VM Arch con systemd PID 1 (S4-F05/F06/F07); CLI en vivo bloqueada hasta aprobaci\u00f3n del owner.",
           "evidence": "docs/SPRINT_4_EXECUTION_PLAN.md"
         },
         {
@@ -1840,57 +1840,57 @@
           "id": "S4-09",
           "title": "Motor de Operaciones de Archivo At\u00f3micas",
           "status": "partial",
-          "description": "Integrado con paquetes, servicios, manifiesto durable y desinstalaci\u00f3n transaccional en Arch aislado (S4-F05/F06 verificados); falta VM real con systemd (S4-F07).",
+          "description": "Integrado con paquetes, servicios, manifiesto durable y desinstalaci\u00f3n transaccional en VM Arch systemd PID 1 (S4-F05/F06/F07 verificados); CLI en vivo bloqueada hasta aprobaci\u00f3n del owner.",
           "evidence": "internal/core/install/ops.go"
         },
         {
           "id": "S4-10",
           "title": "Creaci\u00f3n de Directorios con Seguimiento de Rollback",
           "status": "partial",
-          "description": "El motor elevado no crea directorios de destino; el ciclo real queda para S4-F07.",
+          "description": "El motor elevado no crea directorios de destino; ciclo real verificado en VM Arch systemd (S4-F07).",
           "evidence": "internal/core/install/ops.go"
         },
         {
           "id": "S4-11",
           "title": "Rotaci\u00f3n Autom\u00e1tica de Respaldos (.fplogin.bak.<ts>)",
           "status": "partial",
-          "description": "Respaldos privados verificados y l\u00ednea base original preservada a trav\u00e9s de reinstall/upgrade/repair en Arch aislado (S4-F06 verificado); falta VM real (S4-F07).",
+          "description": "Respaldos privados verificados y l\u00ednea base original preservada a trav\u00e9s de reinstall/upgrade/repair en VM Arch systemd (S4-F06/F07 verificados).",
           "evidence": "internal/core/install/manifest_builder.go"
         },
         {
           "id": "S4-12",
           "title": "Motor de Compensaci\u00f3n y Rollback ante Ca\u00eddas",
           "status": "partial",
-          "description": "Recuperaci\u00f3n tras SIGKILL verificada en paquetes, archivos, servicios, publicaci\u00f3n/eliminaci\u00f3n de manifiesto y cierre de journal en contenedor Arch (S4-F05/F06); falta VM systemd (S4-F07).",
+          "description": "Recuperaci\u00f3n tras SIGKILL y rollback completo de paquetes, archivos y servicios verificados en VM Arch systemd PID 1 con consola de texto y login por contrase\u00f1a (S4-F05/F06/F07).",
           "evidence": "internal/core/install/file_recovery.go"
         },
         {
           "id": "S4-13",
           "title": "Pipeline Instalador Monot\u00f3nico de 13 Fases",
           "status": "partial",
-          "description": "Flujo completo con verificaci\u00f3n previa a activaci\u00f3n, manifiesto durable y modos fresh/reinstall/upgrade/repair probado en laboratorio aislado (S4-F06); la CLI sigue bloqueada hasta S4-F07.",
+          "description": "Flujo completo con verificaci\u00f3n previa a activaci\u00f3n, manifiesto durable y modos fresh/reinstall/upgrade/repair probado en VM Arch systemd (S4-F07); CLI en vivo bloqueada hasta aprobaci\u00f3n del owner.",
           "evidence": "internal/core/install/installer.go"
         },
         {
           "id": "S4-14",
           "title": "Publicador de Manifiesto con Checksums SHA-256",
           "status": "partial",
-          "description": "Publicaci\u00f3n at\u00f3mica con l\u00ednea base inmutable, checksums reales y recuperaci\u00f3n ante SIGKILL verificada en contenedor Arch (S4-F06); falta ciclo completo en VM real (S4-F07).",
+          "description": "Publicaci\u00f3n at\u00f3mica con l\u00ednea base inmutable, checksums reales y recuperaci\u00f3n ante SIGKILL verificada en contenedor y VM Arch systemd (S4-F06/F07).",
           "evidence": "internal/core/install/manifest_builder.go"
         },
         {
           "id": "S4-15",
           "title": "Desinstalador Verificado contra Manifiesto",
           "status": "partial",
-          "description": "Desinstalaci\u00f3n transaccional sin adaptador verificada en contenedor Arch: preserva archivos modificados y dependencias compartidas, conserva manifiesto ante fallo y recupera SIGKILL (S4-F06); falta VM real (S4-F07).",
+          "description": "Desinstalaci\u00f3n transaccional sin adaptador verificada en VM Arch systemd: restaura sin DM, SDDM stock, DM previo (greetd) e instalaci\u00f3n parcial con login por consola verificado (S4-F06/F07).",
           "evidence": "internal/core/install/uninstall.go"
         },
         {
           "id": "S4-16",
           "title": "Suite de Pruebas de Integraci\u00f3n del Instalador E2E",
           "status": "partial",
-          "description": "Las pruebas de integraci\u00f3n usan dobles de prueba y simulaciones. Falta verificar el ciclo real en un hu\u00e9sped Arch desechable (S4-F07).",
-          "evidence": "tests/integration/core/installer_test.go"
+          "description": "5/5 escenarios (16 subcasos) verificados en VM Arch x86_64 desechable con systemd 262 PID 1, sin red ni lector (S4-F07); CLI en vivo sigue bloqueada hasta aprobaci\u00f3n del owner.",
+          "evidence": "tests/integration/s4-f07-run.sh"
         }
       ],
       "summary": {
