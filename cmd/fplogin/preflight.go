@@ -24,28 +24,24 @@ import (
 const preflightCapability = "install.preview"
 
 func runInstall(args []string) {
-	if len(args) == 1 && protocol.OneOf(args[0], "--help", "-help", "-h") {
-		fmt.Fprintln(os.Stderr, "Usage: fplogin install --dry-run [--target ADAPTER_ID/TARGET_ID]\nHost installation is disabled. Dry-run only reports proposed changes.")
-		return
-	}
-	if len(args) == 0 || args[0] != "--dry-run" {
-		disabledCommand("install", args, "host installation is disabled")
-		return
-	}
-	fs := flag.NewFlagSet("install --dry-run", flag.ExitOnError)
-	target := fs.String("target", "", "explicit adapter/target pair from preflight output")
-	_ = fs.Parse(args[1:])
-	if fs.NArg() != 0 {
-		fs.Usage()
-		os.Exit(2)
-	}
-	if err := previewInstall(*target); err != nil {
-		fmt.Fprintf(os.Stderr, "Preflight stopped: %v\nNo changes were made.\n", err)
-		if errors.Is(err, selection.ErrNoCompatibleTarget) {
-			os.Exit(selection.NoSelectableTargetExitCode)
+	if len(args) > 0 && args[0] == "--dry-run" {
+		fs := flag.NewFlagSet("install --dry-run", flag.ExitOnError)
+		target := fs.String("target", "", "explicit adapter/target pair from preflight output")
+		_ = fs.Parse(args[1:])
+		if fs.NArg() != 0 {
+			fs.Usage()
+			os.Exit(2)
 		}
-		os.Exit(1)
+		if err := previewInstall(*target); err != nil {
+			fmt.Fprintf(os.Stderr, "Preflight stopped: %v\nNo changes were made.\n", err)
+			if errors.Is(err, selection.ErrNoCompatibleTarget) {
+				os.Exit(selection.NoSelectableTargetExitCode)
+			}
+			os.Exit(1)
+		}
+		return
 	}
+	liveInstall(args)
 }
 
 func platformCall[T any](ctx context.Context, client platformclient.Client, p platformclient.Discovered, h protocol.HostContext, op string, payload any) (T, error) {

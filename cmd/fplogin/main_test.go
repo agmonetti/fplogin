@@ -10,7 +10,10 @@ import (
 	"time"
 )
 
-func TestDisabledCommands(t *testing.T) {
+func TestCLISafeguardsAndHelp(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("non-root CLI safeguard tests require an unprivileged user")
+	}
 	bin := filepath.Join(t.TempDir(), "fplogin")
 	if out, err := exec.Command("go", "build", "-o", bin, ".").CombinedOutput(); err != nil {
 		t.Fatalf("build fplogin: %v\n%s", err, out)
@@ -21,15 +24,19 @@ func TestDisabledCommands(t *testing.T) {
 		code int
 		want string
 	}{
-		{[]string{"install"}, 1, "Error: install: host installation is disabled"},
-		{[]string{"install", "--yes", "--adapter-dir", "/nonexistent"}, 1, "Error: install: host installation is disabled"},
-		{[]string{"uninstall"}, 1, "Error: uninstall: host uninstallation is disabled"},
-		{[]string{"uninstall", "--force", "--manifest", "/nonexistent"}, 1, "Error: uninstall: host uninstallation is disabled"},
+		{[]string{"install"}, 1, "Error: install requires root privileges"},
+		{[]string{"install", "--artifacts-dir", "/nonexistent"}, 1, "Error: install requires root privileges"},
+		{[]string{"install", "--yes", "--adapter-dir", "/nonexistent"}, 2, "flag provided but not defined"},
+		{[]string{"uninstall"}, 1, "Error: uninstall requires root privileges"},
+		{[]string{"uninstall", "--yes"}, 1, "Error: uninstall requires root privileges"},
+		{[]string{"uninstall", "--force", "--manifest", "/nonexistent"}, 2, "flag provided but not defined"},
+		{[]string{"recover"}, 1, "Error: recover requires root privileges"},
 		{[]string{"install", "--dry-run", "--yes"}, 2, "flag provided but not defined"},
 		{[]string{"install", "--dry-run", "--adapter-dir=/nonexistent"}, 2, "flag provided but not defined"},
-		{[]string{"help"}, 0, "unprivileged --dry-run (read-only)"},
-		{[]string{"install", "--help"}, 0, "Dry-run only reports proposed changes"},
-		{[]string{"uninstall", "--help"}, 0, "host uninstallation is disabled"},
+		{[]string{"help"}, 0, "recover"},
+		{[]string{"install", "--help"}, 0, "--artifacts-dir"},
+		{[]string{"uninstall", "--help"}, 0, "-modified-files"},
+		{[]string{"recover", "--help"}, 0, "Reconciles any interrupted"},
 		{[]string{"status", "--help"}, 0, "Path to install manifest"},
 		{[]string{"analyze", "--help"}, 0, "Output report as JSON"},
 	} {

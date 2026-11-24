@@ -45,7 +45,9 @@ func main() {
 	case "install":
 		runInstall(args)
 	case "uninstall":
-		disabledCommand(subcommand, args, "host uninstallation is disabled")
+		runUninstall(args)
+	case "recover":
+		runRecover(args)
 	case "help", "--help", "-h":
 		printUsage()
 	default:
@@ -55,15 +57,6 @@ func main() {
 	}
 }
 
-func disabledCommand(name string, args []string, reason string) {
-	if len(args) == 1 && (args[0] == "--help" || args[0] == "-h" || args[0] == "-help") {
-		fmt.Fprintf(os.Stderr, "Usage: fplogin %s\n\n%s.\n", name, reason)
-		return
-	}
-	fmt.Fprintf(os.Stderr, "Error: %s: %s.\n", name, reason)
-	os.Exit(1)
-}
-
 func printUsage() {
 	fmt.Fprintf(os.Stderr, `fplogin — Fingerprint display manager integration orchestrator
 
@@ -71,8 +64,9 @@ Usage:
   fplogin <subcommand> [flags]
 
 Subcommands:
-  install     Disabled except for unprivileged --dry-run (read-only)
-  uninstall   Disabled
+  install     Install fplogin (--dry-run unprivileged preview; live requires root + --artifacts-dir)
+  uninstall   Transactionally restore the pre-fplogin baseline from manifest (root required)
+  recover     Reconcile any interrupted install or uninstall transaction from disk (root required)
   status      Display current installation state from manifest (read-only)
   analyze     Inspect password-derived facilities impacted by biometric login (read-only, experimental)
   components  List packaged providers and adapters (read-only, unprivileged)
