@@ -58,6 +58,35 @@ func TestPackageOperationRequiresMatchingPlanArtifact(t *testing.T) {
 	}
 }
 
+func TestPackageRollbackRequiresMatchingPlanArtifact(t *testing.T) {
+	for _, kind := range []protocol.OperationKind{protocol.InstallPackageArtifact, protocol.RemoveOwnedPackage} {
+		t.Run(string(kind), func(t *testing.T) {
+			plan, err := adapterv1.DecodeChangePlan(mustRead(t, "../../contracts/adapter/v1/examples/change-plan.valid.json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			candidate := plan.ArtifactReferences[0]
+			stock := candidate
+			stock.ArtifactID, stock.SHA256 = "stock-sddm", plan.InputHash
+			plan.ArtifactReferences = []adapterv1.ArtifactReference{candidate, stock}
+			op := plan.Operations[0]
+			op.Kind = kind
+			op.Parameters = json.RawMessage(`{"package_reference":"sddm"}`)
+			if kind == protocol.InstallPackageArtifact {
+				op.Parameters = json.RawMessage(fmt.Sprintf(`{"package_reference":"sddm-fplogin","artifact_id":%q,"sha256":%q}`, candidate.ArtifactID, candidate.SHA256))
+			}
+			for _, tc := range []struct{ id, digest string }{{stock.ArtifactID, stock.SHA256}, {"missing", stock.SHA256}, {stock.ArtifactID, candidate.SHA256}, {stock.ArtifactID, ""}, {"", stock.SHA256}} {
+				op.Compensation = json.RawMessage(fmt.Sprintf(`{"kind":"install_package","package_reference":"sddm","artifact_id":%q,"sha256":%q}`, tc.id, tc.digest))
+				plan.Operations = []protocol.Operation{op}
+				want := tc.id == stock.ArtifactID && tc.digest == stock.SHA256
+				if err := plan.Validate(); (err == nil) != want {
+					t.Errorf("rollback artifact %+v: %v", tc, err)
+				}
+			}
+		})
+	}
+}
+
 func TestProtocolFixtures(t *testing.T) {
 	t.Parallel()
 	cases := []struct {

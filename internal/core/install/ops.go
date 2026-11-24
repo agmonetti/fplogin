@@ -559,6 +559,17 @@ func (e *Executor) applyPlatform(ctx context.Context, op protocol.Operation) (ma
 		}
 	}
 	// Only the approved operation supplies executable rollback instructions.
+	if (op.Kind == protocol.InstallPackageArtifact || op.Kind == protocol.RemoveOwnedPackage) && len(r.Compensation) != 0 {
+		reported, err := json.Marshal(r.Compensation)
+		if err != nil {
+			return r, err
+		}
+		want, wantErr := protocol.DecodePackageCompensation(op.Kind, op.Compensation)
+		got, gotErr := protocol.DecodePackageCompensation(op.Kind, reported)
+		if wantErr != nil || gotErr != nil || want != got {
+			return r, fmt.Errorf("provider substituted package compensation for %q", op.OperationID)
+		}
+	}
 	r.Compensation = toObject(op.Compensation)
 	return r, nil
 }
@@ -574,65 +585,21 @@ func buildPlatformCompensationOperation(receipt manifestv1.OperationReceipt) (pr
 	var forwardComp json.RawMessage
 
 	switch receipt.Kind {
-	case protocol.InstallPackageArtifact:
-		var comp struct {
-			Kind             string `json:"kind"`
-			PackageReference string `json:"package_reference"`
+	case protocol.InstallPackageArtifact, protocol.RemoveOwnedPackage:
+		comp, err := protocol.DecodePackageCompensation(receipt.Kind, rawComp)
+		if err != nil {
+			return protocol.Operation{}, err
 		}
-		if err := json.Unmarshal(rawComp, &comp); err != nil {
-			return protocol.Operation{}, fmt.Errorf("unmarshal package compensation: %w", err)
+		if comp.Kind == "install_package" {
+			kind = protocol.InstallPackageArtifact
+			params, _ = json.Marshal(comp.PackageArtifactParameters)
+			forwardComp, _ = json.Marshal(map[string]string{"kind": "remove_package", "package_reference": comp.PackageReference})
+		} else {
+			kind = protocol.RemoveOwnedPackage
+			params, _ = json.Marshal(map[string]string{"package_reference": comp.PackageReference})
+			// shortcut: fake appliers accept terminal rollback without an inverse; define a rollback wire contract before provider integration.
+			forwardComp = json.RawMessage(`{"kind":"none"}`)
 		}
-		if comp.Kind != "remove_package" || comp.PackageReference == "" {
-			return protocol.Operation{}, fmt.Errorf("invalid package compensation: kind=%q, package=%q", comp.Kind, comp.PackageReference)
-		}
-		kind = protocol.RemoveOwnedPackage
-		params, _ = json.Marshal(map[string]string{
-			"package_reference": comp.PackageReference,
-		})
-		forwardComp, _ = json.Marshal(map[string]string{
-			"kind":              "install_package",
-			"package_reference": comp.PackageReference,
-		})
-
-	case protocol.RemoveOwnedPackage:
-		var comp struct {
-			Kind             string `json:"kind"`
-			PackageReference string `json:"package_reference"`
-			ArtifactID       string `json:"artifact_id,omitempty"`
-			SHA256           string `json:"sha256,omitempty"`
-		}
-		if err := json.Unmarshal(rawComp, &comp); err != nil {
-			return protocol.Operation{}, fmt.Errorf("unmarshal package restore compensation: %w", err)
-		}
-		if comp.Kind != "install_package" || comp.PackageReference == "" {
-			return protocol.Operation{}, fmt.Errorf("invalid package restore compensation: kind=%q, package=%q", comp.Kind, comp.PackageReference)
-		}
-		artifactID := comp.ArtifactID
-		sha256Hex := comp.SHA256
-		if artifactID == "" || sha256Hex == "" {
-			var before struct {
-				ArtifactID string `json:"artifact_id"`
-				SHA256     string `json:"sha256"`
-			}
-			rawBefore, _ := json.Marshal(receipt.BeforeState)
-			_ = json.Unmarshal(rawBefore, &before)
-			if artifactID == "" {
-				artifactID = before.ArtifactID
-			}
-			if sha256Hex == "" {
-				sha256Hex = before.SHA256
-			}
-		}
-		kind = protocol.InstallPackageArtifact
-		params, _ = json.Marshal(map[string]string{
-			"artifact_id":       artifactID,
-			"package_reference": comp.PackageReference,
-			"sha256":            sha256Hex,
-		})
-		forwardComp, _ = json.Marshal(map[string]string{
-			"kind":              "remove_package",
-			"package_reference": comp.PackageReference,
-		})
 
 	case protocol.SetServiceEnabled:
 		var comp struct {

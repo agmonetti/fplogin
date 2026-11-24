@@ -697,13 +697,22 @@ func (p ChangePlan) Validate() error {
 		if err := operation.Validate(); err != nil {
 			return fmt.Errorf("operation %q: %w", operation.OperationID, err)
 		}
+		var pkg protocol.PackageArtifactParameters
 		if operation.Kind == protocol.InstallPackageArtifact {
-			var pkg protocol.PackageArtifactParameters
 			if err := json.Unmarshal(operation.Parameters, &pkg); err != nil {
 				return err
 			}
 			if artifactDigests[pkg.ArtifactID] != pkg.SHA256 {
 				return fmt.Errorf("operation %q: package artifact %q missing or digest mismatch", operation.OperationID, pkg.ArtifactID)
+			}
+		}
+		if operation.Kind == protocol.InstallPackageArtifact || operation.Kind == protocol.RemoveOwnedPackage {
+			comp, err := protocol.DecodePackageCompensation(operation.Kind, operation.Compensation)
+			if err != nil {
+				return fmt.Errorf("operation %q: %w", operation.OperationID, err)
+			}
+			if comp.Kind == "install_package" && (artifactDigests[comp.ArtifactID] != comp.SHA256 || pkg.SHA256 == comp.SHA256) {
+				return fmt.Errorf("operation %q: rollback artifact %q missing, mismatched, or identical to install artifact", operation.OperationID, comp.ArtifactID)
 			}
 		}
 		for _, dependency := range operation.Dependencies {

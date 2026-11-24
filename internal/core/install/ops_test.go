@@ -79,10 +79,6 @@ func (f *fakePlatformApplier) ApplyOperation(ctx context.Context, op protocol.Op
 		return manifestv1.OperationReceipt{}, f.retErr
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
-	var comp protocol.Object
-	if len(op.Compensation) > 0 {
-		_ = json.Unmarshal(op.Compensation, &comp)
-	}
 	return manifestv1.OperationReceipt{
 		OperationID:  op.OperationID,
 		Kind:         op.Kind,
@@ -91,7 +87,6 @@ func (f *fakePlatformApplier) ApplyOperation(ctx context.Context, op protocol.Op
 		Status:       "success",
 		BeforeState:  op.ExpectedBefore,
 		AfterState:   op.ExpectedAfter,
-		Compensation: comp,
 	}, nil
 }
 

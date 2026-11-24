@@ -225,6 +225,35 @@ type PackageArtifactParameters struct {
 	SHA256           string `json:"sha256"`
 }
 
+type PackageCompensation struct {
+	Kind string `json:"kind"`
+	PackageArtifactParameters
+}
+
+func DecodePackageCompensation(kind OperationKind, data json.RawMessage) (PackageCompensation, error) {
+	var c PackageCompensation
+	if err := DecodeStrict(data, &c, "kind", "package_reference"); err != nil {
+		return c, err
+	}
+	if c.PackageReference != "" {
+		switch c.Kind {
+		case "remove_package":
+			var removal struct {
+				Kind             string `json:"kind"`
+				PackageReference string `json:"package_reference"`
+			}
+			if kind == InstallPackageArtifact {
+				return c, DecodeStrict(data, &removal, "kind", "package_reference")
+			}
+		case "install_package":
+			if (kind == InstallPackageArtifact || kind == RemoveOwnedPackage) && c.ArtifactID != "" {
+				return c, ValidDigest(c.SHA256)
+			}
+		}
+	}
+	return c, fmt.Errorf("invalid package compensation %q for %s", c.Kind, kind)
+}
+
 func validateOperationPayload(o Operation) error {
 	type createDirectoryParameters struct {
 		Path  string `json:"path"`
@@ -346,10 +375,6 @@ func validateCompensation(operationKind OperationKind, data json.RawMessage) err
 		Owner            string `json:"owner,omitempty"`
 		Group            string `json:"group,omitempty"`
 	}
-	type packageCompensation struct {
-		Kind             string `json:"kind"`
-		PackageReference string `json:"package_reference"`
-	}
 	type serviceBoolCompensation struct {
 		Kind             string `json:"kind"`
 		ServiceReference string `json:"service_reference"`
@@ -409,18 +434,8 @@ func validateCompensation(operationKind OperationKind, data json.RawMessage) err
 		}
 		return nil
 	case InstallPackageArtifact, RemoveOwnedPackage:
-		var value packageCompensation
-		if err := DecodeStrict(data, &value, "kind", "package_reference"); err != nil {
-			return err
-		}
-		expected := "remove_package"
-		if operationKind == RemoveOwnedPackage {
-			expected = "install_package"
-		}
-		if value.Kind != expected || value.PackageReference == "" {
-			return fmt.Errorf("invalid package compensation %q", value.Kind)
-		}
-		return nil
+		_, err := DecodePackageCompensation(operationKind, data)
+		return err
 	case SetServiceEnabled, SetServiceActive:
 		var value serviceBoolCompensation
 		required := "enabled"

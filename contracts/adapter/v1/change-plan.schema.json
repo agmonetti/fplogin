@@ -270,13 +270,18 @@
         "expected_before": { "type": "object" },
         "expected_after": { "type": "object" },
         "compensation": {
-          "type": "object",
-          "required": ["kind", "package_reference"],
-          "additionalProperties": false,
-          "properties": {
-            "kind": { "const": "remove_package" },
-            "package_reference": { "type": "string" }
-          }
+          "oneOf": [
+            {
+              "type": "object",
+              "required": ["kind", "package_reference"],
+              "additionalProperties": false,
+              "properties": {
+                "kind": { "const": "remove_package" },
+                "package_reference": { "type": "string", "minLength": 1 }
+              }
+            },
+            { "$ref": "#/$defs/InstallPackageCompensation" }
+          ]
         }
       }
     },
@@ -299,15 +304,18 @@
         "preconditions": { "type": "array", "items": { "type": "object" } },
         "expected_before": { "type": "object" },
         "expected_after": { "type": "object" },
-        "compensation": {
-          "type": "object",
-          "required": ["kind", "package_reference"],
-          "additionalProperties": false,
-          "properties": {
-            "kind": { "const": "install_package" },
-            "package_reference": { "type": "string" }
-          }
-        }
+        "compensation": { "$ref": "#/$defs/InstallPackageCompensation" }
+      }
+    },
+    "InstallPackageCompensation": {
+      "type": "object",
+      "required": ["kind", "package_reference", "artifact_id", "sha256"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "const": "install_package" },
+        "package_reference": { "type": "string", "minLength": 1 },
+        "artifact_id": { "type": "string", "minLength": 1 },
+        "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
       }
     },
     "OpSetServiceEnabled": {
