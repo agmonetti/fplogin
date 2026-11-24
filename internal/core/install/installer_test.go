@@ -266,6 +266,22 @@ func TestRun_FullInstallSuccess(t *testing.T) {
 	if data.AcceptedPlan.PlanDigest != approved || approved == res.Plan.CanonicalPlanDigest {
 		t.Fatal("journal did not persist the core-approved digest")
 	}
+	stateRoot := filepath.Dir(cfg.JournalDir)
+	lock, err := transaction.AcquireLock(stateRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Close()
+	stored, err := loadApprovedPlan(stateRoot, data.TransactionID)
+	if err != nil || stored.PlanID != res.Plan.PlanID {
+		t.Fatalf("approved plan unavailable: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateRoot, "backups", data.TransactionID, "approved-plan.json"), []byte(`{}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loadApprovedPlan(stateRoot, data.TransactionID); err == nil {
+		t.Fatal("accepted modified plan")
+	}
 	res.Plan.Operations[0].Compensation = json.RawMessage(`{"kind":"remove_file","path":"/another-file"}`)
 	if digest, err := changePlanDigest(res.Plan); err != nil || digest == approved {
 		t.Fatalf("changing the operation did not produce a different digest: %v", err)

@@ -301,6 +301,9 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 		RollbackRecords:     []json.RawMessage{},
 	}
 
+	if err := persistApprovedPlan(stateRoot, txID, planDigest, plan); err != nil {
+		return nil, fmt.Errorf("persist approved plan: %w", err)
+	}
 	executor, err := beginFileTransaction(stateRoot, cfg.IsolatedFiles, initJournal, plan.Operations)
 	if err != nil {
 		return nil, err
