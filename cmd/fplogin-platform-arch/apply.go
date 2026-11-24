@@ -136,8 +136,18 @@ func applyInstallPackage(p v1.ApplyOperationPayload, _ string) (v1.OperationRece
 		}, nil
 	}
 	if pkgName == "sddm-fplogin" {
-		if err := checkStockFiles(); err != nil {
+		stockInstalled, _, err := queryInstalledPackage("sddm")
+		if err != nil {
 			return v1.OperationReceipt{}, err
+		}
+		if stockInstalled || beforeInstalled {
+			if err := checkStockFiles(); err != nil {
+				return v1.OperationReceipt{}, err
+			}
+		} else {
+			if err := checkStockFilesAbsentOrIntact(); err != nil {
+				return v1.OperationReceipt{}, err
+			}
 		}
 	}
 	out, err := labCombined("/usr/bin/pacman", "--config", labTrust+"/pacman.conf", "--gpgdir", labTrust+"/public", "-U", "--noconfirm", "--ask=4", "--", ref.CanonicalPath)

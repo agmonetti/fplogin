@@ -548,7 +548,7 @@ func (e *Executor) compensateOperation(ctx context.Context, receipt manifestv1.O
 		protocol.SetServiceEnabled,
 		protocol.SetServiceActive,
 		protocol.RestoreServiceState:
-		if e.Journal.Data().FileRecovery && receipt.Status == "success" && len(receipt.BeforeState) > 0 && objectEqual(receipt.BeforeState, receipt.AfterState) {
+		if e.Journal.Data().FileRecovery && len(receipt.BeforeState) > 0 && objectEqual(receipt.BeforeState, receipt.AfterState) {
 			return nil
 		}
 		if e.Platform == nil {
@@ -615,17 +615,17 @@ func (e *Executor) executeRecoverablePlatform(ctx context.Context, op protocol.O
 	}
 	applied, execErr := e.applyPlatformChecked(ctx, op, e.allowAlreadyAtTarget)
 	receipt.CompletedAt = time.Now().UTC().Format(time.RFC3339)
+	if len(applied.BeforeState) != 0 {
+		receipt.BeforeState = applied.BeforeState
+	}
+	if len(applied.AfterState) != 0 {
+		receipt.AfterState = applied.AfterState
+	}
 	if execErr != nil {
 		receipt.Status = "failed"
 		receipt.Error = json.RawMessage(fmt.Sprintf("%q", execErr.Error()))
 	} else {
 		receipt.Status = "success"
-		if len(applied.BeforeState) != 0 {
-			receipt.BeforeState = applied.BeforeState
-		}
-		if len(applied.AfterState) != 0 {
-			receipt.AfterState = applied.AfterState
-		}
 		receipt.Evidence = applied.Evidence
 	}
 	return receipt, errors.Join(execErr, e.Journal.RecordResult(op.OperationID, receipt))

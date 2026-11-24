@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -42,31 +43,50 @@ func verifyStock(req platformv1.Request) (json.RawMessage, error) {
 	return json.Marshal(platformv1.PlatformVerificationReport{ReportID: p.OperationID, VerifiedAt: time.Now().UTC().Format(time.RFC3339), Checks: []platformv1.VerificationCheck{{CheckID: "stock_backup_files_match_archive", Status: "passed", Severity: "info", Evidence: []protocol.Evidence{evidence("package", "sddm", "stock backup files match pinned archive")}}}})
 }
 
+func checkOneStockFile(entryPath, digest string, mode os.FileMode) error {
+	path, err := filepath.EvalSymlinks(entryPath)
+	if err != nil || path != entryPath {
+		return fmt.Errorf("stock backup path not intact: %s", entryPath)
+	}
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK|syscall.O_NOFOLLOW, 0)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return err
+	}
+	st := info.Sys().(*syscall.Stat_t)
+	if info.Mode() != mode || st.Uid != 0 || st.Gid != 0 || info.Size() > 4096 {
+		return fmt.Errorf("stock backup metadata differs: %s", path)
+	}
+	h := sha256.New()
+	if _, err := io.Copy(h, io.LimitReader(f, 4097)); err != nil {
+		return err
+	}
+	if fmt.Sprintf("%x", h.Sum(nil)) != digest {
+		return fmt.Errorf("stock backup contents differ: %s", path)
+	}
+	return nil
+}
+
 func checkStockFiles() error {
 	for _, entry := range stockFiles {
-		path, err := filepath.EvalSymlinks(entry.path)
-		if err != nil || path != entry.path {
-			return fmt.Errorf("stock backup path not intact: %s", entry.path)
-		}
-		f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK|syscall.O_NOFOLLOW, 0)
-		if err != nil {
+		if err := checkOneStockFile(entry.path, entry.digest, entry.mode); err != nil {
 			return err
 		}
-		defer f.Close()
-		info, err := f.Stat()
-		if err != nil {
+	}
+	return nil
+}
+
+func checkStockFilesAbsentOrIntact() error {
+	for _, entry := range stockFiles {
+		if _, err := os.Lstat(entry.path); errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err := checkOneStockFile(entry.path, entry.digest, entry.mode); err != nil {
 			return err
-		}
-		st := info.Sys().(*syscall.Stat_t)
-		if info.Mode() != entry.mode || st.Uid != 0 || st.Gid != 0 || info.Size() > 4096 {
-			return fmt.Errorf("stock backup metadata differs: %s", path)
-		}
-		h := sha256.New()
-		if _, err := io.Copy(h, io.LimitReader(f, 4097)); err != nil {
-			return err
-		}
-		if fmt.Sprintf("%x", h.Sum(nil)) != entry.digest {
-			return fmt.Errorf("stock backup contents differ: %s", path)
 		}
 	}
 	return nil

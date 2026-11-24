@@ -836,3 +836,53 @@ func TestExecute_PlatformDelegation_RollbackFailure(t *testing.T) {
 		t.Fatalf("expected journal state 'rolling_back', got %s", j.Data().State)
 	}
 }
+
+type noopBeforeMismatchApplier struct {
+	calls int
+}
+
+func (a *noopBeforeMismatchApplier) ApplyOperation(_ context.Context, op protocol.Operation) (manifestv1.OperationReceipt, error) {
+	a.calls++
+	already := protocol.Object{"enabled": json.RawMessage(`true`)}
+	return manifestv1.OperationReceipt{
+		OperationID: op.OperationID,
+		Kind:        op.Kind,
+		Status:      "success",
+		BeforeState: already,
+		AfterState:  already,
+	}, nil
+}
+
+func TestRollback_FailedNoOpDoesNotCompensate(t *testing.T) {
+	stateRoot := t.TempDir()
+	base := validTestJournal(t, t.TempDir(), "tx-noop-mismatch", []string{"enable-sddm"}).Data()
+	base.FileRecovery = true
+	j, err := transaction.Create(filepath.Join(stateRoot, "transactions", "tx-noop-mismatch.json"), base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	op := protocol.Operation{
+		OperationID:    "enable-sddm",
+		Kind:           protocol.SetServiceEnabled,
+		Dependencies:   []string{},
+		Preconditions:  []json.RawMessage{},
+		ExpectedBefore: protocol.Object{"enabled": json.RawMessage(`false`)},
+		ExpectedAfter:  protocol.Object{"enabled": json.RawMessage(`true`)},
+		Parameters:     json.RawMessage(`{"service_reference":"sddm.service","enabled":true}`),
+		Compensation:   json.RawMessage(`{"kind":"set_service_enabled","service_reference":"sddm.service","enabled":false}`),
+	}
+	applier := &noopBeforeMismatchApplier{}
+	exec, err := NewExecutor(j, applier, filepath.Join(stateRoot, "backups"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := exec.Execute(context.Background(), op); err == nil {
+		t.Fatal("expected starting-state mismatch error")
+	}
+	if _, err := exec.Rollback(context.Background()); err != nil {
+		t.Fatalf("rollback failed: %v", err)
+	}
+	if applier.calls != 1 {
+		t.Fatalf("expected rollback to skip compensation for provider-confirmed no-op, got %d platform calls", applier.calls)
+	}
+}

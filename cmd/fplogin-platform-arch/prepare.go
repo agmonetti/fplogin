@@ -89,7 +89,8 @@ func prepareLab(req v1.Request) (json.RawMessage, error) {
 		return nil, notImplemented(req.Operation)
 	}
 	stage := p.StagingHandoff.Workspace
-	if req.Context.Root != "/" || !strings.HasPrefix(stage, "/var/lib/fplogin/") || p.StagingHandoff.SourceCache != stage || len(p.ArtifactReferences) != len(baselinePackages) {
+	if req.Context.Root != "/" || !strings.HasPrefix(stage, "/var/lib/fplogin/") || p.StagingHandoff.SourceCache != stage ||
+		(len(p.ArtifactReferences) != len(baselinePackages) && len(p.ArtifactReferences) != len(baselinePackages)-1) {
 		return nil, fmt.Errorf("not a staged F05 baseline")
 	}
 	seen := map[string]bool{}
@@ -125,12 +126,37 @@ func prepareLab(req v1.Request) (json.RawMessage, error) {
 	}
 	const candidateArchive = "675904869fa349291eddd348e47fa376b5e07dace2e3f8d86d3bf60390e31be0"
 	invLines := "\n" + inventory + "\n"
-	if !strings.Contains(invLines, "\n"+baselinePackages[stockArchive]+"\n") &&
-		!strings.Contains(invLines, "\n"+baselinePackages[candidateArchive]+"\n") {
+	hasStock := strings.Contains(invLines, "\n"+baselinePackages[stockArchive]+"\n")
+	hasCandidate := strings.Contains(invLines, "\n"+baselinePackages[candidateArchive]+"\n")
+	if strings.Contains(invLines, "\nsddm ") && !hasStock {
 		return nil, fmt.Errorf("installed stock does not match rollback archive")
 	}
-	if err := checkStockFiles(); err != nil {
-		return nil, err
+	if strings.Contains(invLines, "\nsddm-fplogin ") && !hasCandidate {
+		return nil, fmt.Errorf("installed sddm-fplogin does not match approved candidate")
+	}
+	switch {
+	case hasStock:
+		if len(p.ArtifactReferences) != len(baselinePackages) || !seen[stockArchive] {
+			return nil, fmt.Errorf("stock sddm replacement requires full F05 archive set including stock rollback archive")
+		}
+		if err := checkStockFiles(); err != nil {
+			return nil, err
+		}
+	case hasCandidate:
+		if len(p.ArtifactReferences) != len(baselinePackages) &&
+			(len(p.ArtifactReferences) != len(baselinePackages)-1 || seen[stockArchive]) {
+			return nil, fmt.Errorf("not a staged F05 baseline")
+		}
+		if err := checkStockFiles(); err != nil {
+			return nil, err
+		}
+	default:
+		if len(p.ArtifactReferences) != len(baselinePackages)-1 || seen[stockArchive] {
+			return nil, fmt.Errorf("fresh no-stock install requires the 6 non-stock F05 archives")
+		}
+		if err := checkStockFilesAbsentOrIntact(); err != nil {
+			return nil, err
+		}
 	}
 	out, err := labOutput("/usr/bin/pacman", args...)
 	actual := strings.Split(out, "\n")
