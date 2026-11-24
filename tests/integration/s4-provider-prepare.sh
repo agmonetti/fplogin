@@ -15,7 +15,10 @@ done
 req=$(jq -c --arg dir "$guest" --argjson refs "$refs" '.operation="PrepareArtifactInstall" | .context.deadline=(now+120|todateiso8601) | .payload={plan_digest:("a"*64),selected_capabilities:[],operation_ids:["install"],artifact_references:$refs,staging_handoff:{workspace:$dir,source_cache:$dir}}' contracts/platform/v1/examples/request.valid.json)
 CGO_ENABLED=0 go build -o "$lab/platform-arch" ./cmd/fplogin-platform-arch
 printf '[options]\nLocalFileSigLevel = Required TrustedOnly\n' > "$stage/pacman.conf"
-invoke(){ docker run --rm --network none -i -v "$stage:$guest:ro" -v "$stage/pacman.conf:/etc/fplogin/f05-lab/pacman.conf:ro" -v "$PWD/.work/labs/sprint4/f05-signer/pacman:/etc/fplogin/f05-lab/public:ro" -v "$lab/platform-arch:/provider:ro" -v "$PWD/.work/labs/sprint4/f05-signer/approved.gpg:/etc/fplogin/f05-lab/candidate.gpg:ro" sha256:4da16761307d6db0754c243bc15b5f4dab17c9556f18bd93d952fe22eb7a606c /provider <<<"$req"; }
-response=$(invoke); jq -e '.ok and (.result.references|length==7)' <<<"$response" || { echo "$response" >&2; exit 1; }
+invoke(){ docker run --rm --network none -i -v "$stage:$guest:ro" -v "$stage/pacman.conf:/etc/fplogin/f05-lab/pacman.conf:ro" -v "$PWD/.work/labs/sprint4/f05-signer/pacman:/etc/fplogin/f05-lab/public:ro" -v "$lab/platform-arch:/provider:ro" -v "$PWD/.work/labs/sprint4/f05-signer/approved.gpg:/etc/fplogin/f05-lab/candidate.gpg:ro" sha256:4da16761307d6db0754c243bc15b5f4dab17c9556f18bd93d952fe22eb7a606c "$@" <<<"$req"; }
+response=$(invoke /provider); jq -e '.ok and (.result.references|length==7)' <<<"$response" || { echo "$response" >&2; exit 1; }
+# Remove an installed dependency only in the disposable container database.
+response=$(invoke /bin/bash -ec 'pacman -Rdd --dbonly --noconfirm fprintd >&2; exec /provider')
+jq -e '.ok==false and (.error.message|contains("offline package resolution"))' <<<"$response" || { echo "$response" >&2; exit 1; }
 printf 'bad' > "$stage/$sum.sig"
-invoke | jq -e '.ok==false and (.error.message|contains("signature rejected"))'
+invoke /provider | jq -e '.ok==false and (.error.message|contains("signature rejected"))'
