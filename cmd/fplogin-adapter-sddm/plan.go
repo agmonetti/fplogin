@@ -321,13 +321,35 @@ func planExecutableInstall(req adapterv1.Request, facts adapterv1.PreflightFacts
 		mode = "fresh_install"
 	}
 
+	type normPkg struct {
+		Ref       string          `json:"ref"`
+		Installed string          `json:"installed"`
+		Version   json.RawMessage `json:"version"`
+	}
+	type normSvc struct {
+		Ref          string   `json:"ref"`
+		Enabled      string   `json:"enabled"`
+		Active       string   `json:"active"`
+		Configurable string   `json:"configurable"`
+		Packages     []string `json:"packages,omitempty"`
+	}
+	normPkgs := make([]normPkg, 0, len(facts.Packages))
+	for _, p := range facts.Packages {
+		normPkgs = append(normPkgs, normPkg{Ref: p.PackageReference, Installed: p.Installed, Version: p.Version})
+	}
+	normSvcs := make([]normSvc, 0, len(facts.Services))
+	for _, s := range facts.Services {
+		normSvcs = append(normSvcs, normSvc{Ref: s.ServiceReference, Enabled: s.Enabled, Active: s.Active, Configurable: s.Configurable, Packages: s.PackageReferences})
+	}
+
 	inputRaw, _ := json.Marshal(struct {
-		Facts    adapterv1.PreflightFacts `json:"facts"`
-		Artifacts []artifactMeta          `json:"artifacts"`
-		Target   string                   `json:"target"`
-		Mode     string                   `json:"mode"`
-		Activate bool                     `json:"activate"`
-	}{facts, artifacts, target.InstanceID, mode, activate})
+		Packages  []normPkg      `json:"packages"`
+		Services  []normSvc      `json:"services"`
+		Artifacts []artifactMeta `json:"artifacts"`
+		Target    string         `json:"target"`
+		Mode      string         `json:"mode"`
+		Activate  bool           `json:"activate"`
+	}{normPkgs, normSvcs, artifacts, target.InstanceID, mode, activate})
 	inputHash := calcSHA256(inputRaw)
 
 	canonicalRaw, _ := json.Marshal(struct {

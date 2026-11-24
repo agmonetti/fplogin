@@ -90,14 +90,19 @@ func TestPlanExecutableInstall_Scenarios(t *testing.T) {
 		if err != nil {
 			t.Fatalf("planExecutableInstall: %v", err)
 		}
-		p2, err := planExecutableInstall(req, facts, target, adapterv1.PlanInstallPayload{Mode: "fresh_install"})
+		// Volatile probe timestamps must not change the core-approved plan digest.
+		facts2 := facts
+		facts2.Packages = append([]platformv1.PackageCandidate(nil), facts.Packages...)
+		facts2.Packages[0].Evidence = []protocol.Evidence{{Source: "platform", Kind: "package", Subject: "sddm", Timestamp: "2026-11-24T12:00:01Z", ObservedValue: "0.21.0-7"}}
+		req2 := makeLiveReq(t, facts2, baseTestArtifacts(), map[string]string{"sddm": "0.21.0-7"}, false)
+		p2, err := planExecutableInstall(req2, facts2, target, adapterv1.PlanInstallPayload{Mode: "fresh_install"})
 		if err != nil {
 			t.Fatalf("second planExecutableInstall: %v", err)
 		}
 		b1, _ := json.Marshal(p1)
 		b2, _ := json.Marshal(p2)
 		if string(b1) != string(b2) {
-			t.Fatalf("plan is not deterministic across identical runs")
+			t.Fatalf("plan is not deterministic across identical runs with different probe timestamps")
 		}
 		// Verify dependency ordering: qt5-translations before qt5-base before sddm-fplogin before write-theme before enable-sddm.
 		wantOrder := []string{"pkg-qt5-translations", "pkg-qt5-base", "pkg-sddm-fplogin", "write-theme", "enable-sddm"}

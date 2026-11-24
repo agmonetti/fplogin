@@ -16,6 +16,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unsafe"
 
 	"fplogin/internal/adapterclient"
 	"fplogin/internal/core/discovery"
@@ -48,8 +49,9 @@ func requireRoot(cmd string) error {
 }
 
 func isTerminal(f *os.File) bool {
-	st, err := f.Stat()
-	return err == nil && (st.Mode()&os.ModeCharDevice) != 0
+	var termios syscall.Termios
+	_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, f.Fd(), uintptr(syscall.TCGETS), uintptr(unsafe.Pointer(&termios)))
+	return errno == 0
 }
 
 func newLiveClients() (platformclient.Client, adapterclient.Client, error) {
