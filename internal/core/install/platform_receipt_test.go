@@ -40,6 +40,16 @@ func (r reportedReceipt) ApplyOperation(context.Context, protocol.Operation) (ma
 	return r.OperationReceipt, nil
 }
 
+func TestProviderCannotReplaceRollbackBaseline(t *testing.T) {
+	op := protocol.Operation{OperationID: "enable", Kind: protocol.SetServiceEnabled, ExpectedBefore: protocol.Object{"enabled": json.RawMessage(`false`)}, ExpectedAfter: protocol.Object{"enabled": json.RawMessage(`true`)}}
+	for _, before := range []protocol.Object{{}, op.ExpectedAfter} {
+		r := manifestv1.OperationReceipt{OperationID: op.OperationID, Kind: op.Kind, Status: "success", BeforeState: before, AfterState: op.ExpectedAfter}
+		if _, err := (&Executor{Platform: reportedReceipt{r}}).applyPlatform(context.Background(), op); err == nil {
+			t.Fatal("accepted a missing or changed rollback baseline")
+		}
+	}
+}
+
 func TestPlatformRollbackNeedsMatchingSuccessReceipt(t *testing.T) {
 	op := protocol.Operation{OperationID: "enable-rollback", Kind: protocol.SetServiceEnabled, ExpectedAfter: protocol.Object{"enabled": json.RawMessage(`false`)}, Compensation: json.RawMessage(`{"kind":"set_service_enabled"}`)}
 	for _, tc := range []struct {

@@ -553,6 +553,11 @@ func (e *Executor) applyPlatform(ctx context.Context, op protocol.Operation) (ma
 	if r.OperationID != op.OperationID || r.Kind != op.Kind || r.Status != "success" || r.BeforeState == nil || r.AfterState == nil || len(r.Error) != 0 {
 		return r, fmt.Errorf("provider did not confirm operation %q", op.OperationID)
 	}
+	for k, expected := range op.ExpectedBefore {
+		if string(r.BeforeState[k]) != string(expected) {
+			return r, fmt.Errorf("provider reported a different starting state for %q in %q", k, op.OperationID)
+		}
+	}
 	for k, expected := range op.ExpectedAfter {
 		if string(r.AfterState[k]) != string(expected) {
 			return r, fmt.Errorf("provider did not confirm postcondition %q for %q", k, op.OperationID)
