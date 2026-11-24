@@ -25,6 +25,10 @@
       "type": "string",
       "pattern": "^[0-9]+\\.[0-9]+$"
     },
+    "transaction_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9_-]+$"
+    },
     "fplogin_version": {
       "type": "string"
     },
@@ -92,6 +96,7 @@
       "properties": {
         "plan_id": { "type": "string" },
         "plan_digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "input_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
         "mode": {
           "type": "string",
           "enum": ["fresh_install", "upgrade", "repair", "reinstall", "uninstall"]
@@ -123,7 +128,8 @@
         "properties": {
           "package_reference": { "type": "string" },
           "version": { "type": "string" },
-          "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+          "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+          "stage_tx_id": { "type": "string", "pattern": "^[a-zA-Z0-9_-]+$" }
         }
       }
     },
@@ -167,6 +173,7 @@
         "properties": {
           "operation_id": { "type": "string" },
           "kind": { "type": "string" },
+          "started_at": { "type": "string", "format": "date-time" },
           "status": { "type": "string" },
           "completed_at": { "type": "string", "format": "date-time" },
           "before_state": { "type": "object" },
@@ -195,6 +202,79 @@
               "evidence": { "type": "array", "items": { "type": "object" } },
               "message": { "type": "string" }
             }
+          }
+        }
+      }
+    },
+    "recovery_baseline": {
+      "type": "object",
+      "required": ["baseline_transaction_id", "recorded_at", "files", "packages", "services", "previous_dm_state"],
+      "additionalProperties": false,
+      "properties": {
+        "baseline_transaction_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_-]+$"
+        },
+        "recorded_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["path", "existed"],
+            "additionalProperties": false,
+            "properties": {
+              "path": { "type": "string", "pattern": "^/" },
+              "existed": { "type": "boolean" },
+              "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+              "mode": { "type": "string", "pattern": "^0[0-7]{3}$" },
+              "backup_tx_id": { "type": "string", "pattern": "^[a-zA-Z0-9_-]+$" },
+              "backup_op_id": { "type": "string" }
+            }
+          }
+        },
+        "packages": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["package_reference"],
+            "additionalProperties": false,
+            "properties": {
+              "package_reference": { "type": "string" },
+              "installed_artifact_id": { "type": "string" },
+              "installed_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+              "replaced_package_reference": { "type": "string" },
+              "replaced_artifact_id": { "type": "string" },
+              "replaced_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+              "shared_dependency": { "type": "boolean" },
+              "existed_before": { "type": "boolean" },
+              "stage_tx_id": { "type": "string", "pattern": "^[a-zA-Z0-9_-]+$" }
+            }
+          }
+        },
+        "services": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["service_reference", "enabled", "active"],
+            "additionalProperties": false,
+            "properties": {
+              "service_reference": { "type": "string" },
+              "enabled": { "type": "string", "enum": ["yes", "no", "unknown"] },
+              "active": { "type": "string", "enum": ["yes", "no", "unknown"] }
+            }
+          }
+        },
+        "previous_dm_state": {
+          "type": "object",
+          "required": ["service_name", "enabled", "active"],
+          "additionalProperties": false,
+          "properties": {
+            "service_name": { "type": "string" },
+            "enabled": { "type": "string", "enum": ["yes", "no", "unknown"] },
+            "active": { "type": "string", "enum": ["yes", "no", "unknown"] }
           }
         }
       }
