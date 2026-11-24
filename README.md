@@ -4,7 +4,7 @@ Biometric login for Linux, under active development. The v1 target is fingerprin
 
 [![fplogin Project Telemetry & Milestone Matrix](docs/assets/dashboard.png)](dashboard.html)
 
-The dashboard reflects the [Sprint 3 physical closeout review](docs/reviews/sprint-3-physical-closure.md) and the [independent Qt5/Qt6 technical review](docs/reviews/sprint-3-e7-2026-11-17.md) (PASS). SDDM timed out before PAM, and GNOME Keyring did not block Hyprland and could be unlocked manually on demand. KWallet unlock was not tested; automatic wallet unlock by fingerprint is outside v1. The owner accepted the verified Qt5/Qt6 compatibility scope and closed Sprint 3 on 2026-11-18. [Sprint 2 remains accepted and closed](docs/reviews/sprint-2-acceptance-2026-11-12.md).
+The dashboard reflects the accepted closure of [Sprint 4 (transactional installer and uninstaller)](docs/reviews/sprint-4.md) on 2026-11-24 (`fplogin-git 0.2.0.r10.325e477-1`, verified 5/5 packaged E2E and 16/16 lifecycle cases on Arch x86_64 with real systemd PID 1). Prior accepted gates: [Sprint 3 physical closeout](docs/reviews/sprint-3-physical-closure.md) (closed 2026-11-18), [Sprint 2 acceptance](docs/reviews/sprint-2-acceptance-2026-11-12.md) (closed 2026-11-12), and [Sprint 1 review](docs/reviews/sprint-1.md) (closed 2026-10-04). Next milestone: Sprint 5 — System difference analyzer ([Implementation Plan](docs/IMPLEMENTATION_PLAN.md)).
 
 ## The problem
 
@@ -127,6 +127,7 @@ To build the Arch tools package, run `make package` as an ordinary user in an is
 - [SDDM Concurrent Authentication Design](docs/architecture/SDDM_AUTHENTICATION_DESIGN.md): Pinned baseline, stock message flow, winner gate, cancellation boundary, and proposed SDDM IPC.
 - [SDDM Greeter and Theme Design](docs/architecture/SDDM_GREETER_DESIGN.md): Sprint 2 context correlation, typed reader states, controlling-view lifecycle and password fallback.
 - [Sprint 2 Execution Plan](docs/SPRINT_2_EXECUTION_PLAN.md): Implementation slices, affected source paths and actual-surface acceptance matrix.
+- [Sprint 4 Acceptance Review](docs/reviews/sprint-4.md): Transactional installer/uninstaller closure, packaged KVM E2E evidence, and known limits.
 - [Synaptics Test Hardware](docs/hardware/SYNAPTICS_06CB_00BD.md): Primary physical-reader record and scenario matrix.
 - [Research Lessons](docs/LESSONS.md): Grounded investigation, reference platforms, failed experiments, and security analysis.
 
