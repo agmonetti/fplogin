@@ -354,8 +354,17 @@ func queryServices(ctx context.Context, packages []platformv1.PackageCandidate, 
 }
 
 func preflightQuery(req platformv1.Request) (json.RawMessage, error) {
-	if req.Context.Root != "/" || !req.Context.DryRun || req.Context.Elevated || os.Geteuid() == 0 || os.Getuid() == 0 {
-		return nil, fmt.Errorf("Arch preflight requires an ordinary user and the local root")
+	if req.Context.Root != "/" {
+		return nil, fmt.Errorf("Arch query requires the local root /")
+	}
+	if req.Context.DryRun {
+		if req.Context.Elevated || os.Geteuid() == 0 || os.Getuid() == 0 {
+			return nil, fmt.Errorf("Arch preflight requires an ordinary user and the local root")
+		}
+	} else {
+		if !req.Context.Elevated || os.Geteuid() != 0 || os.Getuid() != 0 {
+			return nil, fmt.Errorf("Arch live inventory query requires elevated root context")
+		}
 	}
 	host, err := inspectHost()
 	if err != nil {

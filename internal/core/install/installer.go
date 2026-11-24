@@ -171,11 +171,13 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 	// -------------------------------------------------------------------------
 	var selectedAdapter discovery.Adapter
 	var selectedTarget adapterv1.DetectedTarget
+	var lastDetectErr error
 	matchCount := 0
 
 	for _, adapter := range discRes.Adapters {
 		report, err := cfg.AdapterInvoker.Detect(ctx, adapter, cfg.Host)
 		if err != nil {
+			lastDetectErr = err
 			continue
 		}
 		for _, target := range report.Targets {
@@ -193,6 +195,9 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 	}
 
 	if matchCount == 0 {
+		if lastDetectErr != nil {
+			return nil, fmt.Errorf("%w: %v", ErrNoCompatibleTargets, lastDetectErr)
+		}
 		return nil, ErrNoCompatibleTargets
 	}
 	if matchCount > 1 {
