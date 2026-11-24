@@ -101,7 +101,7 @@ func (e *Executor) Execute(ctx context.Context, op protocol.Operation) (manifest
 		if e.Platform == nil {
 			execErr = fmt.Errorf("no platform provider configured for %s", op.Kind)
 		} else {
-			receipt, execErr = e.Platform.ApplyOperation(ctx, op)
+			receipt, execErr = e.applyPlatform(ctx, op)
 		}
 	default:
 		execErr = fmt.Errorf("%w: %s", ErrUnsupportedKind, op.Kind)
@@ -159,7 +159,7 @@ func (e *Executor) Rollback(ctx context.Context) ([]manifestv1.OperationReceipt,
 	for _, receipt := range toCompensate {
 		startedAt := time.Now().UTC().Format(time.RFC3339)
 		var compErr error
-		if e.Journal.Data().FileRecovery {
+		if e.Journal.Data().FileRecovery && manifestv1.IsRecoverableFileKind(receipt.Kind) {
 			compErr = e.restoreFile(receipt)
 		} else {
 			compErr = e.compensateOperation(ctx, receipt)
@@ -188,7 +188,7 @@ func (e *Executor) Rollback(ctx context.Context) ([]manifestv1.OperationReceipt,
 		}
 
 		rollbackReceipts = append(rollbackReceipts, rbReceipt)
-		if compErr != nil && e.Journal.Data().FileRecovery {
+		if compErr != nil && e.Journal.Data().FileRecovery && manifestv1.IsRecoverableFileKind(receipt.Kind) {
 			return rollbackReceipts, errors.Join(rollbackErrors...)
 		}
 	}
@@ -532,27 +532,194 @@ func (e *Executor) compensateOperation(ctx context.Context, receipt manifestv1.O
 		if e.Platform == nil {
 			return errors.New("no platform provider configured for compensation")
 		}
-		// Platform compensation is dispatched via ApplyOperation with compensation payload
-		compRaw, err := json.Marshal(receipt.Compensation)
+		compOp, err := buildPlatformCompensationOperation(receipt)
 		if err != nil {
 			return err
 		}
-		compOp := protocol.Operation{
-			OperationID:    receipt.OperationID + "-rollback",
-			Kind:           protocol.RestoreServiceState,
-			Dependencies:   []string{},
-			Preconditions:  []json.RawMessage{},
-			ExpectedBefore: receipt.AfterState,
-			ExpectedAfter:  receipt.BeforeState,
-			Parameters:     compRaw,
-			Compensation:   json.RawMessage(`{"kind":"none"}`),
-		}
-		_, err = e.Platform.ApplyOperation(ctx, compOp)
+		_, err = e.applyPlatform(ctx, compOp)
 		return err
 
 	default:
 		return fmt.Errorf("%w: %s", ErrUnsupportedKind, receipt.Kind)
 	}
+}
+
+// A normal subprocess exit is not proof the requested state was reached.
+func (e *Executor) applyPlatform(ctx context.Context, op protocol.Operation) (manifestv1.OperationReceipt, error) {
+	r, err := e.Platform.ApplyOperation(ctx, op)
+	if err != nil { return r, err }
+	if r.OperationID != op.OperationID || r.Kind != op.Kind || r.Status != "success" || r.BeforeState == nil || r.AfterState == nil || len(r.Error) != 0 {
+		return r, fmt.Errorf("provider did not confirm operation %q", op.OperationID)
+	}
+	for k, expected := range op.ExpectedAfter {
+		if string(r.AfterState[k]) != string(expected) { return r, fmt.Errorf("provider did not confirm postcondition %q for %q", k, op.OperationID) }
+	}
+	// Only the approved operation supplies executable rollback instructions.
+	r.Compensation = toObject(op.Compensation)
+	return r, nil
+}
+
+func buildPlatformCompensationOperation(receipt manifestv1.OperationReceipt) (protocol.Operation, error) {
+	rawComp, err := json.Marshal(receipt.Compensation)
+	if err != nil {
+		return protocol.Operation{}, fmt.Errorf("marshal compensation: %w", err)
+	}
+
+	var kind protocol.OperationKind
+	var params json.RawMessage
+	var forwardComp json.RawMessage
+
+	switch receipt.Kind {
+	case protocol.InstallPackageArtifact:
+		var comp struct {
+			Kind             string `json:"kind"`
+			PackageReference string `json:"package_reference"`
+		}
+		if err := json.Unmarshal(rawComp, &comp); err != nil {
+			return protocol.Operation{}, fmt.Errorf("unmarshal package compensation: %w", err)
+		}
+		if comp.Kind != "remove_package" || comp.PackageReference == "" {
+			return protocol.Operation{}, fmt.Errorf("invalid package compensation: kind=%q, package=%q", comp.Kind, comp.PackageReference)
+		}
+		kind = protocol.RemoveOwnedPackage
+		params, _ = json.Marshal(map[string]string{
+			"package_reference": comp.PackageReference,
+		})
+		forwardComp, _ = json.Marshal(map[string]string{
+			"kind":              "install_package",
+			"package_reference": comp.PackageReference,
+		})
+
+	case protocol.RemoveOwnedPackage:
+		var comp struct {
+			Kind             string `json:"kind"`
+			PackageReference string `json:"package_reference"`
+			ArtifactID       string `json:"artifact_id,omitempty"`
+			SHA256           string `json:"sha256,omitempty"`
+		}
+		if err := json.Unmarshal(rawComp, &comp); err != nil {
+			return protocol.Operation{}, fmt.Errorf("unmarshal package restore compensation: %w", err)
+		}
+		if comp.Kind != "install_package" || comp.PackageReference == "" {
+			return protocol.Operation{}, fmt.Errorf("invalid package restore compensation: kind=%q, package=%q", comp.Kind, comp.PackageReference)
+		}
+		artifactID := comp.ArtifactID
+		sha256Hex := comp.SHA256
+		if artifactID == "" || sha256Hex == "" {
+			var before struct {
+				ArtifactID string `json:"artifact_id"`
+				SHA256     string `json:"sha256"`
+			}
+			rawBefore, _ := json.Marshal(receipt.BeforeState)
+			_ = json.Unmarshal(rawBefore, &before)
+			if artifactID == "" {
+				artifactID = before.ArtifactID
+			}
+			if sha256Hex == "" {
+				sha256Hex = before.SHA256
+			}
+		}
+		kind = protocol.InstallPackageArtifact
+		params, _ = json.Marshal(map[string]string{
+			"artifact_id":       artifactID,
+			"package_reference": comp.PackageReference,
+			"sha256":            sha256Hex,
+		})
+		forwardComp, _ = json.Marshal(map[string]string{
+			"kind":              "remove_package",
+			"package_reference": comp.PackageReference,
+		})
+
+	case protocol.SetServiceEnabled:
+		var comp struct {
+			Kind             string `json:"kind"`
+			ServiceReference string `json:"service_reference"`
+			Enabled          *bool  `json:"enabled"`
+		}
+		if err := json.Unmarshal(rawComp, &comp); err != nil {
+			return protocol.Operation{}, fmt.Errorf("unmarshal service enabled compensation: %w", err)
+		}
+		if comp.Kind != "set_service_enabled" || comp.ServiceReference == "" || comp.Enabled == nil {
+			return protocol.Operation{}, fmt.Errorf("invalid service enabled compensation: service=%q, enabled=%v", comp.ServiceReference, comp.Enabled)
+		}
+		kind = protocol.SetServiceEnabled
+		params, _ = json.Marshal(map[string]any{
+			"service_reference": comp.ServiceReference,
+			"enabled":           *comp.Enabled,
+		})
+		forwardComp, _ = json.Marshal(map[string]any{
+			"kind":              "set_service_enabled",
+			"service_reference": comp.ServiceReference,
+			"enabled":           !*comp.Enabled,
+		})
+
+	case protocol.SetServiceActive:
+		var comp struct {
+			Kind             string `json:"kind"`
+			ServiceReference string `json:"service_reference"`
+			Active           *bool  `json:"active"`
+		}
+		if err := json.Unmarshal(rawComp, &comp); err != nil {
+			return protocol.Operation{}, fmt.Errorf("unmarshal service active compensation: %w", err)
+		}
+		if comp.Kind != "set_service_active" || comp.ServiceReference == "" || comp.Active == nil {
+			return protocol.Operation{}, fmt.Errorf("invalid service active compensation: service=%q, active=%v", comp.ServiceReference, comp.Active)
+		}
+		kind = protocol.SetServiceActive
+		params, _ = json.Marshal(map[string]any{
+			"service_reference": comp.ServiceReference,
+			"active":            *comp.Active,
+		})
+		forwardComp, _ = json.Marshal(map[string]any{
+			"kind":              "set_service_active",
+			"service_reference": comp.ServiceReference,
+			"active":            !*comp.Active,
+		})
+
+	case protocol.RestoreServiceState:
+		var comp struct {
+			Kind             string `json:"kind"`
+			ServiceReference string `json:"service_reference"`
+			Enabled          string `json:"enabled"`
+			Active           string `json:"active"`
+		}
+		if err := json.Unmarshal(rawComp, &comp); err != nil {
+			return protocol.Operation{}, fmt.Errorf("unmarshal restore service state compensation: %w", err)
+		}
+		if comp.Kind != "restore_service_state" || comp.ServiceReference == "" {
+			return protocol.Operation{}, fmt.Errorf("invalid restore service state compensation: service=%q", comp.ServiceReference)
+		}
+		kind = protocol.RestoreServiceState
+		params, _ = json.Marshal(map[string]string{
+			"service_reference": comp.ServiceReference,
+			"enabled":           comp.Enabled,
+			"active":            comp.Active,
+		})
+		forwardComp = rawComp
+
+	default:
+		return protocol.Operation{}, fmt.Errorf("%w: %s", ErrUnsupportedKind, receipt.Kind)
+	}
+
+	before := receipt.AfterState
+	if before == nil {
+		before = protocol.Object{}
+	}
+	after := receipt.BeforeState
+	if after == nil {
+		after = protocol.Object{}
+	}
+
+	return protocol.Operation{
+		OperationID:    receipt.OperationID + "-rollback",
+		Kind:           kind,
+		Dependencies:   []string{},
+		Preconditions:  []json.RawMessage{},
+		ExpectedBefore: before,
+		ExpectedAfter:  after,
+		Parameters:     params,
+		Compensation:   forwardComp,
+	}, nil
 }
 
 func toObject(raw json.RawMessage) protocol.Object {

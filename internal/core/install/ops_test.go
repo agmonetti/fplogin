@@ -79,15 +79,19 @@ func (f *fakePlatformApplier) ApplyOperation(ctx context.Context, op protocol.Op
 		return manifestv1.OperationReceipt{}, f.retErr
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
+	var comp protocol.Object
+	if len(op.Compensation) > 0 {
+		_ = json.Unmarshal(op.Compensation, &comp)
+	}
 	return manifestv1.OperationReceipt{
 		OperationID:  op.OperationID,
 		Kind:         op.Kind,
 		StartedAt:    now,
 		CompletedAt:  now,
 		Status:       "success",
-		BeforeState:  protocol.Object{"state": json.RawMessage(`"disabled"`)},
-		AfterState:   protocol.Object{"state": json.RawMessage(`"enabled"`)},
-		Compensation: protocol.Object{"restore": json.RawMessage(`"disabled"`)},
+		BeforeState:  op.ExpectedBefore,
+		AfterState:   op.ExpectedAfter,
+		Compensation: comp,
 	}, nil
 }
 
@@ -560,3 +564,254 @@ func TestExecute_SymlinkRejection(t *testing.T) {
 	})
 }
 
+func TestExecute_PlatformDelegation_PackageInstallAndRollback(t *testing.T) {
+	tmpDir := t.TempDir()
+	j := validTestJournal(t, tmpDir, "tx-pkg", []string{"op-pkg"})
+	fakePlat := &fakePlatformApplier{}
+	exec, err := NewExecutor(j, fakePlat, filepath.Join(tmpDir, "backups"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	pkgParams, _ := json.Marshal(map[string]string{
+		"artifact_id":       "art-sddm-fplogin",
+		"package_reference": "sddm-fplogin",
+		"sha256":            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+	})
+	pkgComp := json.RawMessage(`{"kind":"remove_package","package_reference":"sddm-fplogin"}`)
+
+	op := protocol.Operation{
+		OperationID:    "op-pkg",
+		Kind:           protocol.InstallPackageArtifact,
+		Dependencies:   []string{},
+		Preconditions:  []json.RawMessage{},
+		ExpectedBefore: protocol.Object{"installed": json.RawMessage(`false`)},
+		ExpectedAfter:  protocol.Object{"installed": json.RawMessage(`true`)},
+		Parameters:     pkgParams,
+		Compensation:   pkgComp,
+	}
+
+	receipt, err := exec.Execute(context.Background(), op)
+	if err != nil {
+		t.Fatalf("Execute package install failed: %v", err)
+	}
+	if receipt.Status != "success" {
+		t.Fatalf("receipt status not success: %s", receipt.Status)
+	}
+
+	// Trigger Rollback
+	rollbackReceipts, err := exec.Rollback(context.Background())
+	if err != nil {
+		t.Fatalf("Rollback failed: %v", err)
+	}
+	if len(rollbackReceipts) != 1 {
+		t.Fatalf("expected 1 rollback receipt, got %d", len(rollbackReceipts))
+	}
+	if rollbackReceipts[0].Status != "rolled_back" {
+		t.Fatalf("expected rollback receipt status 'rolled_back', got %s", rollbackReceipts[0].Status)
+	}
+
+	// Platform should have been called twice: 1 for install, 1 for rollback
+	if len(fakePlat.calledOps) != 2 {
+		t.Fatalf("expected 2 platform calls, got %d", len(fakePlat.calledOps))
+	}
+
+	compOp := fakePlat.calledOps[1]
+	if compOp.Kind != protocol.RemoveOwnedPackage {
+		t.Fatalf("expected rollback operation kind %s, got %s", protocol.RemoveOwnedPackage, compOp.Kind)
+	}
+	var compParams struct {
+		PackageReference string `json:"package_reference"`
+	}
+	if err := json.Unmarshal(compOp.Parameters, &compParams); err != nil {
+		t.Fatalf("unmarshal rollback parameters: %v", err)
+	}
+	if compParams.PackageReference != "sddm-fplogin" {
+		t.Fatalf("expected package_reference 'sddm-fplogin', got %s", compParams.PackageReference)
+	}
+}
+
+func TestExecute_PlatformDelegation_ServiceOperationsAndRollbackLIFO(t *testing.T) {
+	tmpDir := t.TempDir()
+	j := validTestJournal(t, tmpDir, "tx-svc-lifo", []string{"op-enable", "op-start"})
+	fakePlat := &fakePlatformApplier{}
+	exec, err := NewExecutor(j, fakePlat, filepath.Join(tmpDir, "backups"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	enableParams, _ := json.Marshal(map[string]any{"service_reference": "sddm.service", "enabled": true})
+	enableComp := json.RawMessage(`{"kind":"set_service_enabled","service_reference":"sddm.service","enabled":false}`)
+	opEnable := protocol.Operation{
+		OperationID:    "op-enable",
+		Kind:           protocol.SetServiceEnabled,
+		Dependencies:   []string{},
+		Preconditions:  []json.RawMessage{},
+		ExpectedBefore: protocol.Object{"enabled": json.RawMessage(`false`)},
+		ExpectedAfter:  protocol.Object{"enabled": json.RawMessage(`true`)},
+		Parameters:     enableParams,
+		Compensation:   enableComp,
+	}
+
+	startParams, _ := json.Marshal(map[string]any{"service_reference": "sddm.service", "active": true})
+	startComp := json.RawMessage(`{"kind":"set_service_active","service_reference":"sddm.service","active":false}`)
+	opStart := protocol.Operation{
+		OperationID:    "op-start",
+		Kind:           protocol.SetServiceActive,
+		Dependencies:   []string{"op-enable"},
+		Preconditions:  []json.RawMessage{},
+		ExpectedBefore: protocol.Object{"active": json.RawMessage(`false`)},
+		ExpectedAfter:  protocol.Object{"active": json.RawMessage(`true`)},
+		Parameters:     startParams,
+		Compensation:   startComp,
+	}
+
+	if _, err := exec.Execute(context.Background(), opEnable); err != nil {
+		t.Fatalf("execute opEnable failed: %v", err)
+	}
+	if _, err := exec.Execute(context.Background(), opStart); err != nil {
+		t.Fatalf("execute opStart failed: %v", err)
+	}
+
+	// Rollback must execute in reverse order (LIFO): stop first, then disable
+	rbReceipts, err := exec.Rollback(context.Background())
+	if err != nil {
+		t.Fatalf("Rollback failed: %v", err)
+	}
+	if len(rbReceipts) != 2 {
+		t.Fatalf("expected 2 rollback receipts, got %d", len(rbReceipts))
+	}
+	if len(fakePlat.calledOps) != 4 {
+		t.Fatalf("expected 4 platform calls, got %d", len(fakePlat.calledOps))
+	}
+
+	// Call 2 (first rollback call) must be active=false
+	rbCall1 := fakePlat.calledOps[2]
+	if rbCall1.Kind != protocol.SetServiceActive {
+		t.Fatalf("expected first rollback call to be %s, got %s", protocol.SetServiceActive, rbCall1.Kind)
+	}
+	var actParams struct {
+		Active bool `json:"active"`
+	}
+	_ = json.Unmarshal(rbCall1.Parameters, &actParams)
+	if actParams.Active {
+		t.Fatalf("expected active=false in rollback, got true")
+	}
+
+	// Call 3 (second rollback call) must be enabled=false
+	rbCall2 := fakePlat.calledOps[3]
+	if rbCall2.Kind != protocol.SetServiceEnabled {
+		t.Fatalf("expected second rollback call to be %s, got %s", protocol.SetServiceEnabled, rbCall2.Kind)
+	}
+	var enParams struct {
+		Enabled bool `json:"enabled"`
+	}
+	_ = json.Unmarshal(rbCall2.Parameters, &enParams)
+	if enParams.Enabled {
+		t.Fatalf("expected enabled=false in rollback, got true")
+	}
+}
+
+func TestExecute_PlatformDelegation_RestoreServiceStateRollback(t *testing.T) {
+	tmpDir := t.TempDir()
+	j := validTestJournal(t, tmpDir, "tx-restore-svc", []string{"op-restore"})
+	fakePlat := &fakePlatformApplier{}
+	exec, err := NewExecutor(j, fakePlat, filepath.Join(tmpDir, "backups"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	restoreParams, _ := json.Marshal(map[string]string{
+		"service_reference": "gdm.service",
+		"enabled":           "no",
+		"active":            "no",
+	})
+	restoreComp := json.RawMessage(`{
+		"kind": "restore_service_state",
+		"service_reference": "gdm.service",
+		"enabled": "yes",
+		"active": "yes"
+	}`)
+
+	op := protocol.Operation{
+		OperationID:    "op-restore",
+		Kind:           protocol.RestoreServiceState,
+		Dependencies:   []string{},
+		Preconditions:  []json.RawMessage{},
+		ExpectedBefore: protocol.Object{"enabled": json.RawMessage(`"yes"`)},
+		ExpectedAfter:  protocol.Object{"enabled": json.RawMessage(`"no"`)},
+		Parameters:     restoreParams,
+		Compensation:   restoreComp,
+	}
+
+	if _, err := exec.Execute(context.Background(), op); err != nil {
+		t.Fatalf("Execute restore service failed: %v", err)
+	}
+
+	rbReceipts, err := exec.Rollback(context.Background())
+	if err != nil {
+		t.Fatalf("Rollback failed: %v", err)
+	}
+	if len(rbReceipts) != 1 {
+		t.Fatalf("expected 1 rollback receipt, got %d", len(rbReceipts))
+	}
+
+	rbCall := fakePlat.calledOps[1]
+	if rbCall.Kind != protocol.RestoreServiceState {
+		t.Fatalf("expected rollback kind %s, got %s", protocol.RestoreServiceState, rbCall.Kind)
+	}
+	var rbState struct {
+		Enabled string `json:"enabled"`
+		Active  string `json:"active"`
+	}
+	_ = json.Unmarshal(rbCall.Parameters, &rbState)
+	if rbState.Enabled != "yes" || rbState.Active != "yes" {
+		t.Fatalf("expected restored state enabled=yes, active=yes; got enabled=%s, active=%s", rbState.Enabled, rbState.Active)
+	}
+}
+
+func TestExecute_PlatformDelegation_RollbackFailure(t *testing.T) {
+	tmpDir := t.TempDir()
+	j := validTestJournal(t, tmpDir, "tx-rb-fail", []string{"op-svc"})
+	fakePlat := &fakePlatformApplier{}
+	exec, err := NewExecutor(j, fakePlat, filepath.Join(tmpDir, "backups"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	params, _ := json.Marshal(map[string]any{"service_reference": "sddm.service", "enabled": true})
+	comp := json.RawMessage(`{"kind":"set_service_enabled","service_reference":"sddm.service","enabled":false}`)
+	op := protocol.Operation{
+		OperationID:    "op-svc",
+		Kind:           protocol.SetServiceEnabled,
+		Dependencies:   []string{},
+		Preconditions:  []json.RawMessage{},
+		ExpectedBefore: protocol.Object{"enabled": json.RawMessage(`false`)},
+		ExpectedAfter:  protocol.Object{"enabled": json.RawMessage(`true`)},
+		Parameters:     params,
+		Compensation:   comp,
+	}
+
+	if _, err := exec.Execute(context.Background(), op); err != nil {
+		t.Fatalf("execute failed: %v", err)
+	}
+
+	// Cause platform applier to fail on rollback
+	fakePlat.retErr = errors.New("systemctl failed during compensation")
+
+	rbReceipts, err := exec.Rollback(context.Background())
+	if err == nil {
+		t.Fatal("expected Rollback to fail, got nil")
+	}
+	if len(rbReceipts) != 1 {
+		t.Fatalf("expected 1 receipt, got %d", len(rbReceipts))
+	}
+	if rbReceipts[0].Status != "rollback_failed" {
+		t.Fatalf("expected receipt status 'rollback_failed', got %s", rbReceipts[0].Status)
+	}
+
+	// Journal should NOT be marked rolled_back; state remains rolling_back
+	if j.Data().State != "rolling_back" {
+		t.Fatalf("expected journal state 'rolling_back', got %s", j.Data().State)
+	}
+}
