@@ -27,15 +27,9 @@ info=$(bsdtar -xOf "$candidate" .PKGINFO)
 mapfile -t deps < <(awk -F ' = ' '$1=="depend" {print $2}' <<<"$info")
 expected=(bash glibc libgcc libstdc++ libxau libxcb pam qt6-base qt6-declarative qt5-base qt5-declarative qt5-quickcontrols2 qt5-svg systemd-libs ttf-font xorg-server xorg-xauth fprintd)
 diff <(printf '%s\n' "${expected[@]}" | sort) <(printf '%s\n' "${deps[@]}" | sort)
-failed=0
-pacman --dbpath "$db" -T -- "${expected[@]}" || failed=1
-if [[ ! -f $candidate.sig ]]; then
-    echo 'Missing detached candidate signature' >&2
-    failed=1
-elif [[ ${1:-} != /* || ! -f $1 ]]; then
-    echo 'Missing approved candidate signer keyring (absolute path required)' >&2
-    failed=1
-else
-    gpgv --keyring "$1" "$candidate.sig" "$candidate" || failed=1
-fi
-exit "$failed"
+[[ -f $candidate.sig ]] || { echo 'Missing detached candidate signature' >&2; exit 1; }
+[[ ${1:-} == /* && -f $1 ]] || { echo 'Missing approved lab signer keyring' >&2; exit 1; }
+gpgv --keyring "$1" --status-fd 1 "$candidate.sig" "$candidate" |
+    grep -F '[GNUPG:] VALIDSIG CBFAD8C1A4FDE6D8FE5FA8F59911358499AA1EA6 '
+# Resolve with the verified local dependencies, not against installed packages alone.
+bash "$root/tests/integration/s4-qt5-runtime.sh" "$candidate"

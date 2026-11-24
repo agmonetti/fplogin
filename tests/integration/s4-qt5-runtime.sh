@@ -16,6 +16,12 @@ for name in qt5-base qt5-declarative qt5-quickcontrols2 qt5-svg qt5-translations
         grep -F '[GNUPG:] VALIDSIG 1519D5ABA65BF6FC2B73C7567A4E76095D8A52E4 '
     archives+=("$file") expected+=("$name $version")
 done
-# Empty config: resolve against the fixture DB only, never host repositories.
-actual=$(pacman --config /dev/null --dbpath "$guest/var/lib/pacman" -Up --print-format '%n %v' -- "${archives[@]}")
+# The combined probe has already authenticated this candidate before calling us.
+keydir=$guest/etc/pacman.d/gnupg
+if (( $# )); then
+    archives+=("$1") expected+=("sddm-fplogin 0.21.0-3.1")
+    keydir=$root/.work/labs/sprint4/f05-signer/pacman
+fi
+# No repositories; even print mode must use the lab keyring, never the host one.
+actual=$(pacman --config <(printf '[options]\nLocalFileSigLevel = Required TrustedOnly\n') --gpgdir "$keydir" --dbpath "$guest/var/lib/pacman" -Up --print-format '%n %v' -- "${archives[@]}")
 diff <(printf '%s\n' "${expected[@]}" | sort) <(sort <<<"$actual")
