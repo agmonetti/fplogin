@@ -1805,8 +1805,8 @@
           "id": "S4-04",
           "title": "Descubrimiento y Ejecuci\u00f3n de Plataforma",
           "status": "partial",
-          "description": "El proveedor Arch consulta pacman y systemd. Las operaciones de mutaci\u00f3n siguen sin implementar (S4-F05).",
-          "evidence": "docs/reviews/cli-provider-audit-2026-11-12.md"
+          "description": "El proveedor Arch consulta pacman/systemd y aplica paquetes y enablement verificados en el laboratorio aislado (S4-F05 verificado); fuera del laboratorio falla cerrado hasta S4-F07.",
+          "evidence": "docs/SPRINT_4_EXECUTION_PLAN.md"
         },
         {
           "id": "S4-05",
@@ -1840,7 +1840,7 @@
           "id": "S4-09",
           "title": "Motor de Operaciones de Archivo At\u00f3micas",
           "status": "partial",
-          "description": "Escritura confinada y at\u00f3mica probada en Arch aislado; falta integrarla con paquetes y servicios (S4-F05).",
+          "description": "Integrado con paquetes y servicio en el diario recuperable en Arch aislado (S4-F05 verificado); faltan manifiesto, desinstalaci\u00f3n y VM real (S4-F06/F07).",
           "evidence": "internal/core/install/ops.go"
         },
         {
@@ -1861,14 +1861,14 @@
           "id": "S4-12",
           "title": "Motor de Compensaci\u00f3n y Rollback ante Ca\u00eddas",
           "status": "partial",
-          "description": "Recuperaci\u00f3n desde disco tras SIGKILL verificada para archivos; paquetes, servicios y ciclo completo siguen pendientes (S4-F05/F07).",
+          "description": "Recuperaci\u00f3n desde disco tras SIGKILL y rollback de paquetes, archivo y servicio verificados en contenedor Arch (S4-F05); falta ciclo completo en VM systemd (S4-F07).",
           "evidence": "internal/core/install/installer.go"
         },
         {
           "id": "S4-13",
           "title": "Pipeline Instalador Monot\u00f3nico de 13 Fases",
           "status": "partial",
-          "description": "Existe un orquestador en core; la CLI no ejecuta instalaciones y falta verificar el ciclo real (S4-F05/F07).",
+          "description": "Verificaci\u00f3n previa a activaci\u00f3n y rollback real probados en laboratorio aislado (S4-F05); la CLI sigue bloqueada hasta S4-F06/F07.",
           "evidence": "internal/core/install/installer.go"
         },
         {
