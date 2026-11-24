@@ -32,6 +32,11 @@ func approvedPackageUndo(op protocol.Operation) (protocol.Operation, error) {
 	} else {
 		u.Kind = protocol.InstallPackageArtifact
 		u.Parameters, _ = json.Marshal(c.PackageArtifactParameters)
+		if op.Kind == protocol.InstallPackageArtifact && original.PackageReference != c.PackageReference {
+			// Replacing a package with another package: the restored package transitions from absent to installed.
+			u.ExpectedBefore = protocol.Object{"installed": json.RawMessage(`false`)}
+			u.ExpectedAfter = protocol.Object{"installed": json.RawMessage(`true`)}
+		}
 	}
 	switch op.Kind {
 	case protocol.InstallPackageArtifact:

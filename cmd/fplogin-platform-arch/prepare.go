@@ -1,16 +1,19 @@
 package main
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"fplogin/internal/platformclient"
 	"fplogin/internal/protocol"
 	v1 "fplogin/internal/protocol/platform/v1"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
 )
 
 // This policy is only for the signed, offline F05 baseline. The lab supplies
@@ -33,6 +36,50 @@ func labOutput(path string, args ...string) (string, error) {
 	b, err := c.Output()
 	return strings.TrimSpace(string(b)), err
 }
+
+func verifyStagedArchive(canonicalPath, digest string) (string, error) {
+	name := baselinePackages[digest]
+	if name == "" {
+		return "", fmt.Errorf("unexpected package archive %q", digest)
+	}
+	if canonicalPath == "" || filepath.Clean(canonicalPath) != canonicalPath ||
+		!strings.HasPrefix(canonicalPath, "/var/lib/fplogin/") || filepath.Base(canonicalPath) != digest {
+		return "", fmt.Errorf("unexpected staged archive path %q", canonicalPath)
+	}
+	f, err := os.OpenFile(canonicalPath, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil || !info.Mode().IsRegular() || info.Size() <= 0 {
+		return "", fmt.Errorf("invalid staged archive %q", canonicalPath)
+	}
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	if fmt.Sprintf("%x", h.Sum(nil)) != digest {
+		return "", fmt.Errorf("staged archive digest mismatch for %s", name)
+	}
+	key := "/etc/pacman.d/gnupg/pubring.gpg"
+	signer := "1519D5ABA65BF6FC2B73C7567A4E76095D8A52E4"
+	if strings.HasPrefix(name, "sddm-fplogin ") {
+		key = labTrust + "/candidate.gpg"
+		signer = "CBFAD8C1A4FDE6D8FE5FA8F59911358499AA1EA6"
+	}
+	sig := canonicalPath + ".sig"
+	st, err := os.Lstat(sig)
+	if err != nil || !st.Mode().IsRegular() || st.Size() <= 0 || st.Size() > 65536 {
+		return "", fmt.Errorf("invalid signature sidecar")
+	}
+	status, err := labOutput("/usr/bin/gpgv", "--keyring", key, "--status-fd", "1", sig, canonicalPath)
+	if err != nil || !strings.Contains("\n"+status, "\n[GNUPG:] VALIDSIG "+signer+" ") {
+		return "", fmt.Errorf("signature rejected for %s", name)
+	}
+	return name, nil
+}
+
 func prepareLab(req v1.Request) (json.RawMessage, error) {
 	var p v1.PrepareArtifactInstallPayload
 	if err := json.Unmarshal(req.Payload, &p); err != nil {
@@ -62,21 +109,9 @@ func prepareLab(req v1.Request) (json.RawMessage, error) {
 		return nil, err
 	}
 	for _, r := range p.ArtifactReferences {
-		name := baselinePackages[r.SHA256]
-		key := "/etc/pacman.d/gnupg/pubring.gpg"
-		signer := "1519D5ABA65BF6FC2B73C7567A4E76095D8A52E4"
-		if strings.HasPrefix(name, "sddm-fplogin ") {
-			key = labTrust + "/candidate.gpg"
-			signer = "CBFAD8C1A4FDE6D8FE5FA8F59911358499AA1EA6"
-		}
-		sig := r.CanonicalPath + ".sig"
-		st, err := os.Lstat(sig)
-		if err != nil || !st.Mode().IsRegular() || st.Size() > 65536 {
-			return nil, fmt.Errorf("invalid signature sidecar")
-		}
-		status, err := labOutput("/usr/bin/gpgv", "--keyring", key, "--status-fd", "1", sig, r.CanonicalPath)
-		if err != nil || !strings.Contains("\n"+status, "\n[GNUPG:] VALIDSIG "+signer+" ") {
-			return nil, fmt.Errorf("signature rejected for %s", name)
+		name, err := verifyStagedArchive(r.CanonicalPath, r.SHA256)
+		if err != nil {
+			return nil, err
 		}
 		if r.SHA256 != stockArchive {
 			expected = append(expected, name)

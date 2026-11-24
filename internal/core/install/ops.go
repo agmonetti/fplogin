@@ -36,6 +36,20 @@ type PlatformApplier interface {
 	ApplyOperation(ctx context.Context, op protocol.Operation) (manifestv1.OperationReceipt, error)
 }
 
+// PlatformOperationRequest passes core-owned plan identity and staged archive
+// paths to out-of-process platform providers during forward apply and rollback.
+type PlatformOperationRequest struct {
+	Operation  protocol.Operation
+	PlanDigest string
+	StageDir   string
+}
+
+// PreparedPlatformApplier is optionally implemented by out-of-process platform
+// providers that need the verified plan digest and core-staged archive path.
+type PreparedPlatformApplier interface {
+	ApplyPreparedOperation(ctx context.Context, req PlatformOperationRequest) (manifestv1.OperationReceipt, error)
+}
+
 // Executor coordinates the execution of operations with pre-mutation journaling,
 // rollback compensation, and backup persistence.
 type Executor struct {
@@ -73,7 +87,10 @@ func (e *Executor) Execute(ctx context.Context, op protocol.Operation) (manifest
 	}
 
 	if e.Journal.Data().FileRecovery {
-		return e.executeRecoverableFile(op)
+		if manifestv1.IsRecoverableFileKind(op.Kind) {
+			return e.executeRecoverableFile(op)
+		}
+		return e.executeRecoverablePlatform(ctx, op)
 	}
 
 	startedAt := time.Now().UTC().Format(time.RFC3339)
@@ -188,7 +205,7 @@ func (e *Executor) Rollback(ctx context.Context) ([]manifestv1.OperationReceipt,
 		}
 
 		rollbackReceipts = append(rollbackReceipts, rbReceipt)
-		if compErr != nil && e.Journal.Data().FileRecovery && manifestv1.IsRecoverableFileKind(receipt.Kind) {
+		if compErr != nil && e.Journal.Data().FileRecovery {
 			return rollbackReceipts, errors.Join(rollbackErrors...)
 		}
 	}
@@ -555,7 +572,7 @@ func (e *Executor) compensateOperation(ctx context.Context, receipt manifestv1.O
 		if err != nil {
 			return err
 		}
-		_, err = e.applyPlatform(ctx, compOp)
+		_, err = e.applyPlatformChecked(ctx, compOp, receipt.Status != "success")
 		return err
 
 	default:
@@ -563,18 +580,84 @@ func (e *Executor) compensateOperation(ctx context.Context, receipt manifestv1.O
 	}
 }
 
+func (e *Executor) executeRecoverablePlatform(ctx context.Context, op protocol.Operation) (manifestv1.OperationReceipt, error) {
+	if !manifestv1.IsRecoverableKind(op.Kind) {
+		return manifestv1.OperationReceipt{}, fmt.Errorf("%w: %s", ErrUnsupportedKind, op.Kind)
+	}
+	if e.Platform == nil {
+		return manifestv1.OperationReceipt{}, fmt.Errorf("no platform provider configured for %s", op.Kind)
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	before, after := op.ExpectedBefore, op.ExpectedAfter
+	if before == nil {
+		before = protocol.Object{}
+	}
+	if after == nil {
+		after = protocol.Object{}
+	}
+	receipt := manifestv1.OperationReceipt{
+		OperationID:  op.OperationID,
+		Kind:         op.Kind,
+		StartedAt:    now,
+		CompletedAt:  now,
+		Status:       "pending",
+		BeforeState:  before,
+		AfterState:   after,
+		Compensation: toObject(op.Compensation),
+	}
+	if err := e.Journal.RecordFileIntent(receipt); err != nil {
+		return receipt, err
+	}
+	applied, execErr := e.applyPlatform(ctx, op)
+	receipt.CompletedAt = time.Now().UTC().Format(time.RFC3339)
+	if execErr != nil {
+		receipt.Status = "failed"
+		receipt.Error = json.RawMessage(fmt.Sprintf("%q", execErr.Error()))
+	} else {
+		receipt.Status = "success"
+		receipt.Evidence = applied.Evidence
+	}
+	return receipt, errors.Join(execErr, e.Journal.RecordResult(op.OperationID, receipt))
+}
+
+func objectMatchesExpected(actual, expected protocol.Object) bool {
+	for k, want := range expected {
+		if string(actual[k]) != string(want) {
+			return false
+		}
+	}
+	return true
+}
+
 // A normal subprocess exit is not proof the requested state was reached.
 func (e *Executor) applyPlatform(ctx context.Context, op protocol.Operation) (manifestv1.OperationReceipt, error) {
-	r, err := e.Platform.ApplyOperation(ctx, op)
+	return e.applyPlatformChecked(ctx, op, false)
+}
+
+func (e *Executor) applyPlatformChecked(ctx context.Context, op protocol.Operation, allowAlreadyAtTarget bool) (manifestv1.OperationReceipt, error) {
+	var r manifestv1.OperationReceipt
+	var err error
+	if pa, ok := e.Platform.(PreparedPlatformApplier); ok {
+		req := PlatformOperationRequest{Operation: op}
+		if e.Journal != nil {
+			req.PlanDigest = e.Journal.Data().AcceptedPlan.PlanDigest
+		}
+		if e.BackupDir != "" {
+			req.StageDir = filepath.Join(e.BackupDir, "archives")
+		}
+		r, err = pa.ApplyPreparedOperation(ctx, req)
+	} else {
+		r, err = e.Platform.ApplyOperation(ctx, op)
+	}
 	if err != nil {
 		return r, err
 	}
 	if r.OperationID != op.OperationID || r.Kind != op.Kind || r.Status != "success" || r.BeforeState == nil || r.AfterState == nil || len(r.Error) != 0 {
 		return r, fmt.Errorf("provider did not confirm operation %q", op.OperationID)
 	}
-	for k, expected := range op.ExpectedBefore {
-		if string(r.BeforeState[k]) != string(expected) {
-			return r, fmt.Errorf("provider reported a different starting state for %q in %q", k, op.OperationID)
+	if !objectMatchesExpected(r.BeforeState, op.ExpectedBefore) {
+		if !allowAlreadyAtTarget || len(op.ExpectedAfter) == 0 || !objectMatchesExpected(r.BeforeState, op.ExpectedAfter) {
+			return r, fmt.Errorf("provider reported a different starting state in %q", op.OperationID)
 		}
 	}
 	for k, expected := range op.ExpectedAfter {

@@ -85,7 +85,7 @@ type OperationReceipt struct {
 }
 
 func (r OperationReceipt) Validate(journal bool) error {
-	if r.OperationID == "" || r.Compensation == nil || !(protocol.OneOf(r.Status, "success", "failed", "rolled_back", "rollback_failed") || journal && r.Status == "pending" && IsRecoverableFileKind(r.Kind)) {
+	if r.OperationID == "" || r.Compensation == nil || !(protocol.OneOf(r.Status, "success", "failed", "rolled_back", "rollback_failed") || journal && r.Status == "pending" && IsRecoverableKind(r.Kind)) {
 		return errors.New("invalid operation receipt")
 	}
 	if err := r.Kind.Validate(); err != nil {
@@ -104,6 +104,15 @@ func (r OperationReceipt) Validate(journal bool) error {
 
 func IsRecoverableFileKind(kind protocol.OperationKind) bool {
 	return kind == protocol.WriteFileAtomic || kind == protocol.RemoveOwnedFile
+}
+
+func IsRecoverableKind(kind protocol.OperationKind) bool {
+	return IsRecoverableFileKind(kind) ||
+		kind == protocol.InstallPackageArtifact ||
+		kind == protocol.RemoveOwnedPackage ||
+		kind == protocol.SetServiceEnabled ||
+		kind == protocol.SetServiceActive ||
+		kind == protocol.RestoreServiceState
 }
 
 type TransactionJournal struct {
@@ -189,10 +198,10 @@ func (j TransactionJournal) Validate() error {
 		if receipt.Status == "pending" && (!j.FileRecovery || i != len(j.AppliedOperations)-1 || !protocol.OneOf(j.State, "applying", "rolling_back")) {
 			return errors.New("invalid pending file intent")
 		}
-		if j.FileRecovery && (i >= len(j.OperationOrder) || j.OperationOrder[i] != receipt.OperationID || !IsRecoverableFileKind(receipt.Kind)) {
-			return errors.New("invalid order or operation kind in recoverable file journal")
+		if j.FileRecovery && (i >= len(j.OperationOrder) || j.OperationOrder[i] != receipt.OperationID || !IsRecoverableKind(receipt.Kind)) {
+			return errors.New("invalid order or operation kind in recoverable journal")
 		}
-		if j.PreparedFiles != nil && !j.MatchesPreparedFile(i, receipt) {
+		if j.PreparedFiles != nil && IsRecoverableFileKind(receipt.Kind) && !j.MatchesPreparedFile(i, receipt) {
 			return errors.New("file intent differs from prepared plan")
 		}
 		if (j.State == "completed" && receipt.Status != "success") || (j.State == "rolled_back" && receipt.Status != "rolled_back" && (j.FileRecovery || receipt.Status != "failed")) {
@@ -215,14 +224,21 @@ func (j TransactionJournal) validatePreparedFiles() error {
 	if j.PreparedFiles == nil {
 		return nil
 	}
-	if !j.FileRecovery || len(j.PreparedFiles) == 0 || len(j.PreparedFiles) != len(j.OperationOrder) {
+	if !j.FileRecovery || len(j.PreparedFiles) == 0 || len(j.PreparedFiles) > len(j.OperationOrder) {
 		return errors.New("invalid prepared file plan length or type")
 	}
+	orderPos := make(map[string]int, len(j.OperationOrder))
+	for i, id := range j.OperationOrder {
+		orderPos[id] = i
+	}
 	paths := make(map[string]bool, len(j.PreparedFiles))
-	for i, r := range j.PreparedFiles {
-		if r.OperationID != j.OperationOrder[i] || r.Status != "pending" || !IsRecoverableFileKind(r.Kind) {
+	prevPos := -1
+	for _, r := range j.PreparedFiles {
+		pos, ok := orderPos[r.OperationID]
+		if !ok || pos <= prevPos || r.Status != "pending" || !IsRecoverableFileKind(r.Kind) {
 			return errors.New("invalid prepared file operation")
 		}
+		prevPos = pos
 		if err := r.Validate(true); err != nil {
 			return err
 		}
@@ -272,14 +288,19 @@ func DecodeFileState(obj protocol.Object) (FileState, error) {
 
 // MatchesPreparedFile compares only the immutable execution and recovery data.
 func (j TransactionJournal) MatchesPreparedFile(i int, r OperationReceipt) bool {
-	if i < 0 || i >= len(j.PreparedFiles) {
+	if i < 0 || i >= len(j.OperationOrder) || j.OperationOrder[i] != r.OperationID {
 		return false
 	}
-	p := j.PreparedFiles[i]
-	equal := func(a, b json.RawMessage) bool { return bytes.Equal(a, b) }
-	return p.OperationID == r.OperationID && p.Kind == r.Kind &&
-		maps.EqualFunc(p.BeforeState, r.BeforeState, equal) &&
-		maps.EqualFunc(p.AfterState, r.AfterState, equal)
+	for _, p := range j.PreparedFiles {
+		if p.OperationID != r.OperationID {
+			continue
+		}
+		equal := func(a, b json.RawMessage) bool { return bytes.Equal(a, b) }
+		return p.Kind == r.Kind &&
+			maps.EqualFunc(p.BeforeState, r.BeforeState, equal) &&
+			maps.EqualFunc(p.AfterState, r.AfterState, equal)
+	}
+	return false
 }
 
 type InstalledFile struct {

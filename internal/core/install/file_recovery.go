@@ -101,9 +101,19 @@ func filePolicy(root string, paths []string) func(string) bool {
 	return isolatedFilePolicy(filepath.Dir(root), root, paths)
 }
 
-// beginFileTransaction runs under the shared lock. Only the typed, prepared file
-// engine is available when elevated; discovery/orchestration remain separate.
+// beginFileTransaction runs under the shared lock for file-only transactions.
 func beginFileTransaction(root string, paths []string, init manifestv1.TransactionJournal, ops []protocol.Operation) (*Executor, error) {
+	for _, op := range ops {
+		if !manifestv1.IsRecoverableFileKind(op.Kind) {
+			return nil, fmt.Errorf("prepare rollback for operation %q: %w", op.OperationID, ErrUnsupportedKind)
+		}
+	}
+	return beginTransaction(root, paths, init, ops, nil)
+}
+
+// beginTransaction runs under the shared lock and persists durable file backups
+// and the prepared journal before any file, package, or service mutation.
+func beginTransaction(root string, paths []string, init manifestv1.TransactionJournal, ops []protocol.Operation, platform PlatformApplier) (*Executor, error) {
 	allow := filePolicy(root, paths)
 	if allow == nil {
 		return nil, ErrPrivilegesRequired
@@ -115,19 +125,37 @@ func beginFileTransaction(root string, paths []string, init manifestv1.Transacti
 	if err != nil {
 		return nil, err
 	}
-	e := &Executor{BackupDir: backups, allowFile: allow, systemFiles: root == systemStateRoot}
+	e := &Executor{Platform: platform, BackupDir: backups, allowFile: allow, systemFiles: root == systemStateRoot}
 	init.FileRecovery = true
 	init.OperationOrder = make([]string, len(ops))
-	init.PreparedFiles = make([]manifestv1.OperationReceipt, len(ops))
+	var preparedFiles []manifestv1.OperationReceipt
 	for i, op := range ops {
 		if err := op.Validate(); err != nil {
 			return nil, err
 		}
-		receipt, _, _, _, err := e.prepareFile(op, true)
-		if err != nil {
-			return nil, fmt.Errorf("prepare rollback for operation %q: %w", op.OperationID, err)
+		init.OperationOrder[i] = op.OperationID
+		switch {
+		case manifestv1.IsRecoverableFileKind(op.Kind):
+			receipt, _, _, _, err := e.prepareFile(op, true)
+			if err != nil {
+				return nil, fmt.Errorf("prepare rollback for operation %q: %w", op.OperationID, err)
+			}
+			preparedFiles = append(preparedFiles, receipt)
+		case manifestv1.IsRecoverableKind(op.Kind):
+			if platform == nil {
+				return nil, fmt.Errorf("prepare rollback for operation %q: no platform provider configured", op.OperationID)
+			}
+			if op.Kind == protocol.InstallPackageArtifact || op.Kind == protocol.RemoveOwnedPackage {
+				if _, err := approvedPackageUndo(op); err != nil {
+					return nil, fmt.Errorf("prepare rollback for operation %q: %w", op.OperationID, err)
+				}
+			}
+		default:
+			return nil, fmt.Errorf("prepare rollback for operation %q: %w", op.OperationID, ErrUnsupportedKind)
 		}
-		init.OperationOrder[i], init.PreparedFiles[i] = op.OperationID, receipt
+	}
+	if len(preparedFiles) > 0 {
+		init.PreparedFiles = preparedFiles
 	}
 	j, err := transaction.Create(filepath.Join(root, "transactions", init.TransactionID+".json"), init)
 	if err != nil {
@@ -138,16 +166,26 @@ func beginFileTransaction(root string, paths []string, init manifestv1.Transacti
 	return e, nil
 }
 
-// RecoverFiles rolls back under the same destination policy used for apply.
+// RecoverFiles rolls back file-only transactions under the same destination policy used for apply.
 func RecoverFiles(ctx context.Context, root, id string, paths []string) error {
+	return RecoverTransaction(ctx, root, id, paths, nil)
+}
+
+// RecoverTransaction rolls back an interrupted recoverable transaction (packages, files, services)
+// from disk under the shared lock and destination policy.
+func RecoverTransaction(ctx context.Context, root, id string, paths []string, platform PlatformApplier) error {
 	allow := filePolicy(root, paths)
 	if allow == nil {
 		return ErrPrivilegesRequired
 	}
-	return recoverFiles(ctx, root, id, allow)
+	return recoverTransaction(ctx, root, id, allow, platform)
 }
 
 func recoverFiles(ctx context.Context, root, id string, allow func(string) bool) error {
+	return recoverTransaction(ctx, root, id, allow, nil)
+}
+
+func recoverTransaction(ctx context.Context, root, id string, allow func(string) bool, platform PlatformApplier) error {
 	lock, err := transaction.AcquireLock(root)
 	if err != nil {
 		return err
@@ -158,13 +196,13 @@ func recoverFiles(ctx context.Context, root, id string, allow func(string) bool)
 		return err
 	}
 	data := j.Data()
-	if !data.FileRecovery || (root == systemStateRoot && data.PreparedFiles == nil) || data.State == "completed" || data.State == "aborted" || data.State == "planned" {
+	if !data.FileRecovery || (root == systemStateRoot && data.PreparedFiles == nil && hasAppliedFileOp(data)) || data.State == "completed" || data.State == "aborted" || data.State == "planned" {
 		return transaction.ErrInvalidState
 	}
 	if data.State == "rolled_back" {
 		return nil
 	}
-	// Manifest publication is not yet part of the file transaction.
+	// Manifest publication is not yet part of the transaction.
 	if _, err := os.Lstat(filepath.Join(root, "manifest.json")); !errors.Is(err, os.ErrNotExist) {
 		return ErrRecoveryRequired
 	}
@@ -172,11 +210,21 @@ func recoverFiles(ctx context.Context, root, id string, allow func(string) bool)
 	if err != nil {
 		return err
 	}
+	e.Platform = platform
 	_, err = e.Rollback(ctx)
 	if err != nil {
 		return errors.Join(ErrRecoveryRequired, err)
 	}
 	return nil
+}
+
+func hasAppliedFileOp(data manifestv1.TransactionJournal) bool {
+	for _, r := range data.AppliedOperations {
+		if manifestv1.IsRecoverableFileKind(r.Kind) {
+			return true
+		}
+	}
+	return false
 }
 
 // The caller holds the shared lock and supplies a policy for a trusted isolated tree.

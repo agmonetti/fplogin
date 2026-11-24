@@ -220,7 +220,7 @@ func (j *Journal) RecordIntent(operationID string) error {
 	return j.flushLocked()
 }
 
-// RecordFileIntent appends the immutable recovery snapshot before a file change.
+// RecordFileIntent appends the immutable recovery snapshot before a recoverable change.
 func (j *Journal) RecordFileIntent(receipt manifestv1.OperationReceipt) error {
 	j.mu.Lock()
 	defer j.mu.Unlock()
@@ -231,7 +231,7 @@ func (j *Journal) RecordFileIntent(receipt manifestv1.OperationReceipt) error {
 		i >= len(j.data.OperationOrder) || j.data.OperationOrder[i] != receipt.OperationID || receipt.Status != "pending" {
 		return ErrInvalidState
 	}
-	if j.data.PreparedFiles != nil && !j.data.MatchesPreparedFile(i, receipt) {
+	if j.data.PreparedFiles != nil && manifestv1.IsRecoverableFileKind(receipt.Kind) && !j.data.MatchesPreparedFile(i, receipt) {
 		return fmt.Errorf("%w: file intent differs from prepared operation %q", ErrInvalidState, receipt.OperationID)
 	}
 	j.data.AppliedOperations = append(j.data.AppliedOperations, receipt)
@@ -267,6 +267,12 @@ func (j *Journal) RecordResult(operationID string, receipt manifestv1.OperationR
 		// Keep the durable before/after snapshots even when applying failed.
 		saved := j.data.AppliedOperations[i]
 		saved.Status, saved.CompletedAt = receipt.Status, receipt.CompletedAt
+		if len(receipt.Error) != 0 {
+			saved.Error = receipt.Error
+		}
+		if receipt.Status == "success" && !manifestv1.IsRecoverableFileKind(saved.Kind) && len(receipt.Evidence) != 0 {
+			saved.Evidence = receipt.Evidence
+		}
 		receipt = saved
 	}
 

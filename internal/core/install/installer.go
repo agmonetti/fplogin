@@ -12,6 +12,7 @@ import (
 
 	"fplogin/internal/core/discovery"
 	"fplogin/internal/core/transaction"
+	"fplogin/internal/descriptortrust"
 	"fplogin/internal/protocol"
 	adapterv1 "fplogin/internal/protocol/adapter/v1"
 	manifestv1 "fplogin/internal/protocol/manifest/v1"
@@ -108,17 +109,18 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 
 	stateRoot := filepath.Dir(cfg.JournalDir)
 	var allowFile func(string) bool
-	if os.Getuid() == 0 || os.Geteuid() == 0 || cfg.Host.Elevated {
+	elevated := descriptortrust.Elevated()
+	if elevated && (cfg.DryRun || !cfg.Host.Elevated || cfg.IsolatedArchiveCache == "" || stateRoot != systemStateRoot || len(cfg.IsolatedFiles) != 0) {
+		return nil, ErrPrivilegesRequired
+	}
+	if !elevated && cfg.Host.Elevated {
 		return nil, ErrPrivilegesRequired
 	}
 	if !cfg.DryRun {
-		if len(cfg.IsolatedFiles) == 0 {
-			return nil, ErrPrivilegesRequired
-		}
 		if cfg.JournalDir != filepath.Join(stateRoot, "transactions") || cfg.ManifestPath != filepath.Join(stateRoot, "manifest.json") {
 			return nil, errors.New("manifest and transactions must share the canonical transaction state root")
 		}
-		allowFile = isolatedFilePolicy(filepath.Dir(stateRoot), stateRoot, cfg.IsolatedFiles)
+		allowFile = filePolicy(stateRoot, cfg.IsolatedFiles)
 		if allowFile == nil {
 			return nil, ErrPrivilegesRequired
 		}
@@ -242,13 +244,26 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 		return nil, fmt.Errorf("%w: empty file plan", ErrPrecondition)
 	}
 	packagePlan := cfg.IsolatedArchiveCache != "" && len(plan.ArtifactReferences) != 0
+	if packagePlan && cfg.PlatformInvoker == nil {
+		return nil, fmt.Errorf("%w: platform provider is required for package transactions", ErrPrecondition)
+	}
+	isServiceOp := func(kind protocol.OperationKind) bool {
+		return kind == protocol.SetServiceEnabled || kind == protocol.SetServiceActive || kind == protocol.RestoreServiceState
+	}
 	paths := make(map[string]bool, len(plan.Operations))
-	for _, op := range plan.Operations {
-		if packagePlan {
-			switch op.Kind {
-			case protocol.InstallPackageArtifact, protocol.RemoveOwnedPackage, protocol.SetServiceEnabled, protocol.SetServiceActive:
-				continue
+	firstService := len(plan.Operations)
+	for i, op := range plan.Operations {
+		if packagePlan && isServiceOp(op.Kind) {
+			if firstService == len(plan.Operations) {
+				firstService = i
 			}
+			continue
+		}
+		if firstService < len(plan.Operations) {
+			return nil, fmt.Errorf("operation %q cannot follow service activation: %w", op.OperationID, ErrPrecondition)
+		}
+		if packagePlan && (op.Kind == protocol.InstallPackageArtifact || op.Kind == protocol.RemoveOwnedPackage) {
+			continue
 		}
 		_, path, err := recoverableFile(op)
 		if err != nil || !allowFile(path) || paths[path] {
@@ -310,54 +325,49 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 		RollbackRecords:     []json.RawMessage{},
 	}
 
+	if err := transaction.CheckNoUnresolved(cfg.JournalDir); err != nil {
+		return nil, err
+	}
 	if err := persistApprovedPlan(stateRoot, txID, planDigest, plan); err != nil {
 		return nil, fmt.Errorf("persist approved plan: %w", err)
 	}
+	var platform PlatformApplier
 	if packagePlan {
-		if err := transaction.CheckNoUnresolved(cfg.JournalDir); err != nil {
-			return nil, err
-		}
-		for _, op := range plan.Operations {
-			initJournal.OperationOrder = append(initJournal.OperationOrder, op.OperationID)
-		}
-		j, err := transaction.Create(journalPath, initJournal)
-		if err != nil {
-			return nil, fmt.Errorf("%w: create preparation journal: %w", ErrRecoveryRequired, err)
-		}
+		platform = cfg.PlatformInvoker
+	}
+	executor, err := beginTransaction(stateRoot, cfg.IsolatedFiles, initJournal, plan.Operations, platform)
+	if err != nil {
+		return nil, err
+	}
+	if packagePlan {
 		payload, prepErr := stageApprovedArchives(stateRoot, txID, cfg.IsolatedArchiveCache)
 		if prepErr == nil {
 			prepErr = cfg.PlatformInvoker.PrepareArtifactInstall(ctx, selectedProvider, payload, cfg.Host)
 		}
-		// Do not route prepared packages into the legacy, non-recoverable executor.
-		if prepErr == nil {
-			prepErr = fmt.Errorf("%w: recoverable package apply unavailable", ErrUnsupportedKind)
+		if prepErr != nil {
+			if err := executor.Journal.AbortPrepared(); err != nil {
+				return nil, errors.Join(ErrRecoveryRequired, prepErr, err)
+			}
+			return nil, fmt.Errorf("package transaction stopped before mutation: %w", prepErr)
 		}
-		if err := j.AbortPrepared(); err != nil {
-			return nil, errors.Join(ErrRecoveryRequired, prepErr, err)
-		}
-		return nil, fmt.Errorf("package transaction stopped before mutation: %w", prepErr)
-	}
-	executor, err := beginFileTransaction(stateRoot, cfg.IsolatedFiles, initJournal, plan.Operations)
-	if err != nil {
-		return nil, err
 	}
 
 	// -------------------------------------------------------------------------
-	// Fase 9: Aplicar operaciones tipadas; journalizar cada resultado
+	// Fase 9a: Aplicar paquetes y archivos tipados; journalizar cada resultado
 	// -------------------------------------------------------------------------
 	var appliedReceipts []manifestv1.OperationReceipt
-	var mutationErr error
-
-	for _, op := range plan.Operations {
-		receipt, execErr := executor.Execute(ctx, op)
-		if execErr != nil {
-			mutationErr = fmt.Errorf("operation %q failed: %w", op.OperationID, execErr)
-			break
+	executeOps := func(ops []protocol.Operation) error {
+		for _, op := range ops {
+			receipt, execErr := executor.Execute(ctx, op)
+			if execErr != nil {
+				return fmt.Errorf("operation %q failed: %w", op.OperationID, execErr)
+			}
+			appliedReceipts = append(appliedReceipts, receipt)
 		}
-		appliedReceipts = append(appliedReceipts, receipt)
+		return nil
 	}
 
-	if mutationErr != nil {
+	if mutationErr := executeOps(plan.Operations[:firstService]); mutationErr != nil {
 		// Rollback compensatorio
 		rbReceipts, rbErr := executor.Rollback(ctx)
 		if rbErr != nil {
@@ -367,7 +377,7 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 	}
 
 	// -------------------------------------------------------------------------
-	// Fase 10: Verificación del adapter
+	// Fase 10: Verificación del adapter ANTES de habilitar/activar el servicio
 	// -------------------------------------------------------------------------
 	verifyReport, err := cfg.AdapterInvoker.Verify(ctx, selectedAdapter, cfg.Host)
 	if err != nil {
@@ -377,6 +387,17 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 		if chk.Severity == "required" && chk.Status != "passed" {
 			return nil, rollbackAfterError(ctx, executor, fmt.Errorf("%w: check %q status is %s", ErrVerificationFailed, chk.CheckID, chk.Status))
 		}
+	}
+
+	// -------------------------------------------------------------------------
+	// Fase 9b: Aplicar operaciones de servicio solo tras verificación exitosa
+	// -------------------------------------------------------------------------
+	if mutationErr := executeOps(plan.Operations[firstService:]); mutationErr != nil {
+		rbReceipts, rbErr := executor.Rollback(ctx)
+		if rbErr != nil {
+			return nil, fmt.Errorf("%w: %w (rollback also failed: %w)", ErrRecoveryRequired, mutationErr, rbErr)
+		}
+		return nil, fmt.Errorf("%w: %w (compensated %d operations)", ErrTransactionAborted, mutationErr, len(rbReceipts))
 	}
 
 	// Manifest publication stays disabled until it can be recovered atomically with the journal.
