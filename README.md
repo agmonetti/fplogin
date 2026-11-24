@@ -128,6 +128,7 @@ To build the Arch tools package, run `make package` as an ordinary user in an is
 - [SDDM Greeter and Theme Design](docs/architecture/SDDM_GREETER_DESIGN.md): Sprint 2 context correlation, typed reader states, controlling-view lifecycle and password fallback.
 - [Sprint 2 Execution Plan](docs/SPRINT_2_EXECUTION_PLAN.md): Implementation slices, affected source paths and actual-surface acceptance matrix.
 - [Sprint 4 Acceptance Review](docs/reviews/sprint-4.md): Transactional installer/uninstaller closure, packaged KVM E2E evidence, and known limits.
+- [Sprint 5 Execution Plan](docs/SPRINT_5_EXECUTION_PLAN.md): System difference analyzer corrections, probes, wording accuracy, and postflight integration.
 - [Synaptics Test Hardware](docs/hardware/SYNAPTICS_06CB_00BD.md): Primary physical-reader record and scenario matrix.
 - [Research Lessons](docs/LESSONS.md): Grounded investigation, reference platforms, failed experiments, and security analysis.
 
