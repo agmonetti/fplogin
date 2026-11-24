@@ -1805,7 +1805,7 @@
           "id": "S4-04",
           "title": "Descubrimiento y Ejecuci\u00f3n de Plataforma",
           "status": "partial",
-          "description": "El proveedor Arch consulta pacman/systemd y aplica paquetes y enablement verificados en el laboratorio aislado (S4-F05 verificado); fuera del laboratorio falla cerrado hasta S4-F07.",
+          "description": "El proveedor Arch consulta pacman/systemd y aplica paquetes, enablement y restore_service_state verificados en laboratorio aislado (S4-F05/F06); fuera del laboratorio falla cerrado hasta S4-F07.",
           "evidence": "docs/SPRINT_4_EXECUTION_PLAN.md"
         },
         {
@@ -1840,7 +1840,7 @@
           "id": "S4-09",
           "title": "Motor de Operaciones de Archivo At\u00f3micas",
           "status": "partial",
-          "description": "Integrado con paquetes y servicio en el diario recuperable en Arch aislado (S4-F05 verificado); faltan manifiesto, desinstalaci\u00f3n y VM real (S4-F06/F07).",
+          "description": "Integrado con paquetes, servicios, manifiesto durable y desinstalaci\u00f3n transaccional en Arch aislado (S4-F05/F06 verificados); falta VM real con systemd (S4-F07).",
           "evidence": "internal/core/install/ops.go"
         },
         {
@@ -1854,36 +1854,36 @@
           "id": "S4-11",
           "title": "Rotaci\u00f3n Autom\u00e1tica de Respaldos (.fplogin.bak.<ts>)",
           "status": "partial",
-          "description": "Respaldos privados verificados y sincronizados en el motor de archivos; falta conservar la l\u00ednea base al reinstalar (S4-F06).",
-          "evidence": "internal/core/install/ops.go"
+          "description": "Respaldos privados verificados y l\u00ednea base original preservada a trav\u00e9s de reinstall/upgrade/repair en Arch aislado (S4-F06 verificado); falta VM real (S4-F07).",
+          "evidence": "internal/core/install/manifest_builder.go"
         },
         {
           "id": "S4-12",
           "title": "Motor de Compensaci\u00f3n y Rollback ante Ca\u00eddas",
           "status": "partial",
-          "description": "Recuperaci\u00f3n desde disco tras SIGKILL y rollback de paquetes, archivo y servicio verificados en contenedor Arch (S4-F05); falta ciclo completo en VM systemd (S4-F07).",
-          "evidence": "internal/core/install/installer.go"
+          "description": "Recuperaci\u00f3n tras SIGKILL verificada en paquetes, archivos, servicios, publicaci\u00f3n/eliminaci\u00f3n de manifiesto y cierre de journal en contenedor Arch (S4-F05/F06); falta VM systemd (S4-F07).",
+          "evidence": "internal/core/install/file_recovery.go"
         },
         {
           "id": "S4-13",
           "title": "Pipeline Instalador Monot\u00f3nico de 13 Fases",
           "status": "partial",
-          "description": "Verificaci\u00f3n previa a activaci\u00f3n y rollback real probados en laboratorio aislado (S4-F05); la CLI sigue bloqueada hasta S4-F06/F07.",
+          "description": "Flujo completo con verificaci\u00f3n previa a activaci\u00f3n, manifiesto durable y modos fresh/reinstall/upgrade/repair probado en laboratorio aislado (S4-F06); la CLI sigue bloqueada hasta S4-F07.",
           "evidence": "internal/core/install/installer.go"
         },
         {
           "id": "S4-14",
           "title": "Publicador de Manifiesto con Checksums SHA-256",
           "status": "partial",
-          "description": "Existe publicaci\u00f3n de manifiesto; falta verificar su durabilidad y conservar la l\u00ednea base al repetir operaciones (S4-F06).",
-          "evidence": "internal/core/manifest/manifest.go"
+          "description": "Publicaci\u00f3n at\u00f3mica con l\u00ednea base inmutable, checksums reales y recuperaci\u00f3n ante SIGKILL verificada en contenedor Arch (S4-F06); falta ciclo completo en VM real (S4-F07).",
+          "evidence": "internal/core/install/manifest_builder.go"
         },
         {
           "id": "S4-15",
           "title": "Desinstalador Verificado contra Manifiesto",
           "status": "partial",
-          "description": "Hay l\u00f3gica de comparaci\u00f3n de hashes y restauraci\u00f3n de archivos; falta desinstalaci\u00f3n transaccional y verificaci\u00f3n de la restauraci\u00f3n (S4-F06).",
-          "evidence": "internal/core/manifest/manifest.go"
+          "description": "Desinstalaci\u00f3n transaccional sin adaptador verificada en contenedor Arch: preserva archivos modificados y dependencias compartidas, conserva manifiesto ante fallo y recupera SIGKILL (S4-F06); falta VM real (S4-F07).",
+          "evidence": "internal/core/install/uninstall.go"
         },
         {
           "id": "S4-16",
