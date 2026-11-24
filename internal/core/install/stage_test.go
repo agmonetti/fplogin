@@ -12,7 +12,7 @@ import (
 )
 
 func TestStageApprovedArchives(t *testing.T) {
-	for _, test := range []string{"success", "stock missing", "stock corrupt", "symlink", "extra"} {
+	for _, test := range []string{"success", "stock missing", "stock corrupt", "symlink", "stock signature missing", "stock signature symlink", "extra"} {
 		t.Run(test, func(t *testing.T) {
 			root := filepath.Join(t.TempDir(), "state")
 			cache := t.TempDir()
@@ -41,6 +41,15 @@ func TestStageApprovedArchives(t *testing.T) {
 							t.Fatal(err)
 						}
 						continue
+					}
+				}
+				if id == "stock" && test == "stock signature symlink" {
+					if err := os.Symlink(path, path+".sig"); err != nil {
+						t.Fatal(err)
+					}
+				} else if id != "stock" || test != "stock signature missing" {
+					if err := os.WriteFile(path+".sig", []byte("signature:"+id), 0600); err != nil {
+						t.Fatal(err)
 					}
 				}
 				if err := os.WriteFile(path, []byte(body), 0600); err != nil {
@@ -87,6 +96,13 @@ func TestStageApprovedArchives(t *testing.T) {
 			for _, ref := range payload.ArtifactReferences {
 				if err := os.WriteFile(filepath.Join(cache, ref.SHA256), []byte("changed"), 0600); err != nil {
 					t.Fatal(err)
+				}
+				if err := os.Remove(filepath.Join(cache, ref.SHA256+".sig")); err != nil {
+					t.Fatal(err)
+				}
+				sig, err := os.ReadFile(ref.CanonicalPath + ".sig")
+				if err != nil || string(sig) != "signature:"+ref.ArtifactID {
+					t.Fatal("private signature missing")
 				}
 				b, err := os.ReadFile(ref.CanonicalPath)
 				if err != nil || string(b) != ref.ArtifactID {

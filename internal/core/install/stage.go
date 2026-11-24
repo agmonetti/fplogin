@@ -71,6 +71,9 @@ func stageApprovedArchives(stateRoot, txID, cache string) (platformv1.PrepareArt
 		if err := snapshotArchive(cache, dst, ref.SHA256, ref.Size); err != nil {
 			return p, fmt.Errorf("stage %q: %w", ref.ArtifactID, err)
 		}
+		if err := snapshotSignature(filepath.Join(cache, ref.SHA256+".sig"), dst+".sig"); err != nil {
+			return p, fmt.Errorf("stage signature %q: %w", ref.ArtifactID, err)
+		}
 		refs = append(refs, platformv1.ArtifactReference{ArtifactID: ref.ArtifactID, MediaType: ref.MediaType, SHA256: ref.SHA256, Size: ref.Size, Role: ref.Role, CanonicalPath: dst})
 	}
 	for _, path := range []string{stage, dir} {
@@ -85,7 +88,43 @@ func stageApprovedArchives(stateRoot, txID, cache string) (platformv1.PrepareArt
 		}
 	}
 
-	return platformv1.PrepareArtifactInstallPayload{PlanDigest: digest, ArtifactReferences: refs, SelectedCapabilities: plan.ExpectedCapabilities, OperationIDs: ids, StagingHandoff: platformv1.StagingHandoff{Workspace: stage, SourceCache: cache}}, nil
+	return platformv1.PrepareArtifactInstallPayload{PlanDigest: digest, ArtifactReferences: refs, SelectedCapabilities: plan.ExpectedCapabilities, OperationIDs: ids, StagingHandoff: platformv1.StagingHandoff{Workspace: stage, SourceCache: stage}}, nil
+}
+
+// The sidecar is untrusted until the provider verifies it against its own keyring.
+func snapshotSignature(src, dst string) error {
+	const max = 64 << 10
+	f, err := os.OpenFile(src, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	st, err := f.Stat()
+	if err != nil {
+		return err
+	}
+	if !st.Mode().IsRegular() || st.Size() <= 0 || st.Size() > max {
+		return fmt.Errorf("invalid detached signature file")
+	}
+	b, err := io.ReadAll(io.LimitReader(f, max+1))
+	if err != nil {
+		return err
+	}
+	if int64(len(b)) != st.Size() {
+		return fmt.Errorf("signature size changed")
+	}
+	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0400)
+	if err != nil {
+		return err
+	}
+	if _, err = out.Write(b); err == nil {
+		err = out.Sync()
+	}
+	closeErr := out.Close()
+	if err != nil {
+		return err
+	}
+	return closeErr
 }
 
 func snapshotArchive(cache, dst, digest string, size int64) error {
