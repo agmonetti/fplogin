@@ -1,7 +1,6 @@
 package manifest
 
 import (
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -15,10 +14,11 @@ import (
 	manifestv1 "fplogin/internal/protocol/manifest/v1"
 )
 
-func validTestManifest(tmpDir string) manifestv1.InstallManifest {
+func validTestManifest() manifestv1.InstallManifest {
 	now := time.Now().UTC().Format(time.RFC3339)
 	return manifestv1.InstallManifest{
 		SchemaVersion:  manifestv1.SchemaVersion,
+		TransactionID:  "tx-1",
 		FPLoginVersion: "0.2.0",
 		InstalledAt:    now,
 		Target: manifestv1.Target{
@@ -68,35 +68,16 @@ func validTestManifest(tmpDir string) manifestv1.InstallManifest {
 	}
 }
 
-type fakePlatformApplier struct {
-	calledOps []protocol.Operation
-}
-
-func (f *fakePlatformApplier) ApplyOperation(ctx context.Context, op protocol.Operation) (manifestv1.OperationReceipt, error) {
-	f.calledOps = append(f.calledOps, op)
-	now := time.Now().UTC().Format(time.RFC3339)
-	return manifestv1.OperationReceipt{
-		OperationID:  op.OperationID,
-		Kind:         op.Kind,
-		StartedAt:    now,
-		CompletedAt:  now,
-		Status:       "success",
-		BeforeState:  protocol.Object{},
-		AfterState:   protocol.Object{},
-		Compensation: protocol.Object{},
-	}, nil
-}
-
 func sha256Str(b []byte) string {
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:])
 }
 
-func TestPublishAndLoad(t *testing.T) {
+func TestPublishLoadAndRemove(t *testing.T) {
 	tmpDir := t.TempDir()
 	path := filepath.Join(tmpDir, "manifest.json")
 
-	m := validTestManifest(tmpDir)
+	m := validTestManifest()
 	if err := Publish(path, m); err != nil {
 		t.Fatalf("Publish failed: %v", err)
 	}
@@ -105,91 +86,75 @@ func TestPublishAndLoad(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load failed: %v", err)
 	}
-
-	if loaded.FPLoginVersion != "0.2.0" {
-		t.Errorf("expected FPLoginVersion 0.2.0, got %q", loaded.FPLoginVersion)
+	if loaded.FPLoginVersion != "0.2.0" || loaded.TransactionID != "tx-1" {
+		t.Fatalf("unexpected manifest identity: %+v", loaded)
 	}
-	if loaded.Target.DMID != "org.freedesktop.DisplayManager.sddm" {
-		t.Errorf("expected target DMID SDDM, got %q", loaded.Target.DMID)
+
+	if err := Remove(path); err != nil {
+		t.Fatalf("Remove failed: %v", err)
+	}
+	if _, err := Load(path); !errors.Is(err, ErrManifestNotFound) {
+		t.Fatalf("expected ErrManifestNotFound after Remove, got %v", err)
+	}
+	if err := Remove(path); !errors.Is(err, ErrManifestNotFound) {
+		t.Fatalf("expected ErrManifestNotFound on second Remove, got %v", err)
 	}
 }
 
-func TestVerifyFiles_AndUninstallFlow(t *testing.T) {
+func TestLoadRejectsSymlink(t *testing.T) {
 	tmpDir := t.TempDir()
-	path := filepath.Join(tmpDir, "state", "manifest.json")
+	realPath := filepath.Join(tmpDir, "real.json")
+	linkPath := filepath.Join(tmpDir, "manifest.json")
+	if err := Publish(realPath, validTestManifest()); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(realPath, linkPath); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(linkPath); !errors.Is(err, ErrCorruptManifest) {
+		t.Fatalf("expected ErrCorruptManifest for symlink manifest, got %v", err)
+	}
+}
 
-	// Create a dummy installed file
-	installedFilePath := filepath.Join(tmpDir, "usr", "share", "fplogin", "asset.txt")
-	_ = os.MkdirAll(filepath.Dir(installedFilePath), 0o755)
+func TestVerifyFiles(t *testing.T) {
+	tmpDir := t.TempDir()
+	installedFilePath := filepath.Join(tmpDir, "asset.txt")
 	fileContent := []byte("Initial asset content")
-	_ = os.WriteFile(installedFilePath, fileContent, 0o644)
-	fileHash := sha256Str(fileContent)
+	if err := os.WriteFile(installedFilePath, fileContent, 0o644); err != nil {
+		t.Fatal(err)
+	}
 
-	m := validTestManifest(tmpDir)
+	m := validTestManifest()
 	m.InstalledFiles = []manifestv1.InstalledFile{
 		{
 			Path:   installedFilePath,
-			SHA256: fileHash,
+			SHA256: sha256Str(fileContent),
 			Mode:   "0644",
 			Owner:  "root",
 			Group:  "root",
 			Size:   int64(len(fileContent)),
 		},
 	}
-	m.InstalledPackages = []manifestv1.InstalledPackage{
-		{
-			PackageReference: "fplogin-theme-sddm",
-			Version:          "1.0.0",
-		},
-	}
 
-	if err := Publish(path, m); err != nil {
-		t.Fatal(err)
-	}
-
-	// Verify intact files
 	mismatches, err := VerifyFiles(m)
 	if err != nil || len(mismatches) != 0 {
 		t.Fatalf("expected 0 mismatches, got %v (err: %v)", mismatches, err)
 	}
 
-	// Modify file
-	_ = os.WriteFile(installedFilePath, []byte("Tampered content"), 0o644)
-
+	if err := os.WriteFile(installedFilePath, []byte("Tampered content"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	mismatches, err = VerifyFiles(m)
 	if err != nil || len(mismatches) != 1 || mismatches[0].Kind != "modified" {
-		t.Fatalf("expected 1 modified mismatch, got %v", mismatches)
+		t.Fatalf("expected 1 modified mismatch, got %v (err: %v)", mismatches, err)
 	}
 
-	// Uninstall without force must fail
-	fakePlat := &fakePlatformApplier{}
-	cfg := UninstallConfig{
-		ManifestPath: path,
-		Force:        false,
-		Platform:     fakePlat,
+	if err := os.Remove(installedFilePath); err != nil {
+		t.Fatal(err)
 	}
-
-	err = Uninstall(context.Background(), cfg)
-	if !errors.Is(err, ErrModifiedFiles) {
-		t.Fatalf("expected ErrModifiedFiles, got %v", err)
-	}
-
-	// Uninstall with Force: must succeed, remove file, remove manifest, call restore DM
-	cfg.Force = true
-	if err := Uninstall(context.Background(), cfg); err != nil {
-		t.Fatalf("Uninstall with Force failed: %v", err)
-	}
-
-	if _, err := os.Stat(installedFilePath); !os.IsNotExist(err) {
-		t.Errorf("expected installed file to be removed, err: %v", err)
-	}
-	if _, err := os.Stat(path); !os.IsNotExist(err) {
-		t.Errorf("expected manifest to be removed, err: %v", err)
-	}
-
-	// Check platform was invoked for package removal and restore DM
-	if len(fakePlat.calledOps) != 2 {
-		t.Errorf("expected 2 platform ops (pkg remove + restore DM), got %d", len(fakePlat.calledOps))
+	mismatches, err = VerifyFiles(m)
+	if err != nil || len(mismatches) != 1 || mismatches[0].Kind != "missing" {
+		t.Fatalf("expected 1 missing mismatch, got %v (err: %v)", mismatches, err)
 	}
 }
 
@@ -197,8 +162,7 @@ func TestPublish_SecretRejection(t *testing.T) {
 	tmpDir := t.TempDir()
 	path := filepath.Join(tmpDir, "manifest.json")
 
-	m := validTestManifest(tmpDir)
-	// Inject secret into verification check message
+	m := validTestManifest()
 	m.Verification.Checks = []manifestv1.VerificationCheck{
 		{
 			CheckID:  "chk-1",

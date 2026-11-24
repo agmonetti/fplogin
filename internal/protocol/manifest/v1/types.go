@@ -315,6 +315,7 @@ type InstalledPackage struct {
 	PackageReference string `json:"package_reference"`
 	Version          string `json:"version"`
 	SHA256           string `json:"sha256,omitempty"`
+	StageTxID        string `json:"stage_tx_id,omitempty"`
 }
 type ServiceState struct {
 	ServiceReference string `json:"service_reference"`
@@ -343,8 +344,39 @@ type Verification struct {
 	Checks     []VerificationCheck `json:"checks"`
 }
 
+type BaselineFile struct {
+	Path       string `json:"path"`
+	Existed    bool   `json:"existed"`
+	SHA256     string `json:"sha256,omitempty"`
+	Mode       string `json:"mode,omitempty"`
+	BackupTxID string `json:"backup_tx_id,omitempty"`
+	BackupOpID string `json:"backup_op_id,omitempty"`
+}
+
+type BaselinePackage struct {
+	PackageReference         string `json:"package_reference"`
+	InstalledArtifactID      string `json:"installed_artifact_id,omitempty"`
+	InstalledSHA256          string `json:"installed_sha256,omitempty"`
+	ReplacedPackageReference string `json:"replaced_package_reference,omitempty"`
+	ReplacedArtifactID       string `json:"replaced_artifact_id,omitempty"`
+	ReplacedSHA256           string `json:"replaced_sha256,omitempty"`
+	SharedDependency         bool   `json:"shared_dependency,omitempty"`
+	ExistedBefore            bool   `json:"existed_before,omitempty"`
+	StageTxID                string `json:"stage_tx_id,omitempty"`
+}
+
+type RecoveryBaseline struct {
+	BaselineTransactionID string            `json:"baseline_transaction_id"`
+	RecordedAt            string            `json:"recorded_at"`
+	Files                 []BaselineFile    `json:"files"`
+	Packages              []BaselinePackage `json:"packages"`
+	Services              []ServiceState    `json:"services"`
+	PreviousDMState       PreviousDMState   `json:"previous_dm_state"`
+}
+
 type InstallManifest struct {
 	SchemaVersion     string             `json:"schema_version"`
+	TransactionID     string             `json:"transaction_id,omitempty"`
 	FPLoginVersion    string             `json:"fplogin_version"`
 	InstalledAt       string             `json:"installed_at"`
 	Target            Target             `json:"target"`
@@ -357,6 +389,7 @@ type InstallManifest struct {
 	PreviousDMState   PreviousDMState    `json:"previous_dm_state"`
 	OperationReceipts []OperationReceipt `json:"operation_receipts"`
 	Verification      Verification       `json:"verification"`
+	RecoveryBaseline  *RecoveryBaseline  `json:"recovery_baseline,omitempty"`
 }
 
 func DecodeInstallManifest(data []byte) (InstallManifest, error) {
@@ -410,6 +443,9 @@ func (m InstallManifest) Validate() error {
 				return err
 			}
 		}
+		if pkg.StageTxID != "" && !validTxID(pkg.StageTxID) {
+			return errors.New("invalid installed package stage_tx_id")
+		}
 	}
 	for _, state := range append(append([]ServiceState{}, m.Services.PriorStates...), ServiceState{ServiceReference: m.PreviousDMState.ServiceName, Enabled: m.PreviousDMState.Enabled, Active: m.PreviousDMState.Active}) {
 		if state.ServiceReference == "" || !triState(state.Enabled) || !triState(state.Active) {
@@ -430,6 +466,79 @@ func (m InstallManifest) Validate() error {
 	for _, check := range m.Verification.Checks {
 		if check.CheckID == "" || check.Evidence == nil || !protocol.OneOf(check.Status, "passed", "failed", "unknown") {
 			return errors.New("invalid verification check")
+		}
+	}
+	if m.TransactionID != "" && !validTxID(m.TransactionID) {
+		return errors.New("invalid manifest transaction_id")
+	}
+	if m.RecoveryBaseline != nil {
+		if err := validateRecoveryBaseline(*m.RecoveryBaseline); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validTxID(id string) bool {
+	if id == "" || filepath.Base(id) != id || id == "." || id == ".." {
+		return false
+	}
+	for _, r := range id {
+		if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_') {
+			return false
+		}
+	}
+	return true
+}
+
+func validateRecoveryBaseline(b RecoveryBaseline) error {
+	if !validTxID(b.BaselineTransactionID) {
+		return errors.New("invalid baseline_transaction_id")
+	}
+	if err := protocol.ValidTimestamp(b.RecordedAt); err != nil {
+		return fmt.Errorf("baseline recorded_at: %w", err)
+	}
+	if b.Files == nil || b.Packages == nil || b.Services == nil {
+		return errors.New("recovery baseline collections are required")
+	}
+	seenFiles := make(map[string]bool, len(b.Files))
+	for _, f := range b.Files {
+		if !filepath.IsAbs(f.Path) || filepath.Clean(f.Path) != f.Path || f.Path == "/" || seenFiles[f.Path] {
+			return errors.New("invalid baseline file path")
+		}
+		seenFiles[f.Path] = true
+		if f.Existed {
+			mode, err := strconv.ParseUint(f.Mode, 8, 9)
+			if err != nil || f.Mode != fmt.Sprintf("%04o", mode) || protocol.ValidDigest(f.SHA256) != nil || !validTxID(f.BackupTxID) || f.BackupOpID == "" {
+				return errors.New("invalid baseline file backup metadata")
+			}
+		} else if f.SHA256 != "" || f.Mode != "" || f.BackupTxID != "" || f.BackupOpID != "" {
+			return errors.New("absent baseline file must not carry backup metadata")
+		}
+	}
+	seenPkgs := make(map[string]bool, len(b.Packages))
+	for _, pkg := range b.Packages {
+		if pkg.PackageReference == "" || seenPkgs[pkg.PackageReference] {
+			return errors.New("invalid baseline package reference")
+		}
+		seenPkgs[pkg.PackageReference] = true
+		if pkg.InstalledSHA256 != "" {
+			if err := protocol.ValidDigest(pkg.InstalledSHA256); err != nil {
+				return err
+			}
+		}
+		if pkg.ReplacedPackageReference != "" {
+			if pkg.ReplacedArtifactID == "" || protocol.ValidDigest(pkg.ReplacedSHA256) != nil {
+				return errors.New("invalid replaced baseline package metadata")
+			}
+		}
+		if pkg.StageTxID != "" && !validTxID(pkg.StageTxID) {
+			return errors.New("invalid baseline package stage_tx_id")
+		}
+	}
+	for _, s := range append(append([]ServiceState{}, b.Services...), ServiceState{ServiceReference: b.PreviousDMState.ServiceName, Enabled: b.PreviousDMState.Enabled, Active: b.PreviousDMState.Active}) {
+		if s.ServiceReference == "" || !triState(s.Enabled) || !triState(s.Active) {
+			return errors.New("invalid baseline service state")
 		}
 	}
 	return nil

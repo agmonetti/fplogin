@@ -284,8 +284,12 @@ func TestIntegration_FreshInstall_Clean(t *testing.T) {
 	if len(res.AppliedReceipts) != 2 || res.JournalPath == "" {
 		t.Fatalf("missing durable file receipts: %+v", res)
 	}
-	if _, err := os.Lstat(cfg.ManifestPath); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("lab must not publish a manifest: %v", err)
+	m, err := manifest.Load(cfg.ManifestPath)
+	if err != nil {
+		t.Fatalf("expected published manifest: %v", err)
+	}
+	if len(m.InstalledFiles) != 2 || m.RecoveryBaseline == nil || len(m.RecoveryBaseline.Files) != 2 {
+		t.Fatalf("unexpected manifest contents: %+v", m)
 	}
 }
 
@@ -351,18 +355,32 @@ func TestIntegration_RejectsBadHashBeforeMutation(t *testing.T) {
 	}
 }
 
-func TestIntegration_LabDoesNotAuthorizeUninstall(t *testing.T) {
+func TestIntegration_TransactionalUninstallRestoresBaseline(t *testing.T) {
 	cfg, file1, file2 := buildIntegrationFixture(t, t.TempDir(), "")
 	if _, err := install.Run(context.Background(), cfg); err != nil {
 		t.Fatal(err)
 	}
-	err := manifest.Uninstall(context.Background(), manifest.UninstallConfig{ManifestPath: cfg.ManifestPath, Force: true})
-	if !errors.Is(err, manifest.ErrManifestNotFound) {
-		t.Fatalf("uninstall without a manifest: %v", err)
+	// Uninstall runs without any adapter invoker and removes both files + manifest.
+	uRes, err := install.Uninstall(context.Background(), install.UninstallConfig{
+		ManifestPath:  cfg.ManifestPath,
+		IsolatedFiles: cfg.IsolatedFiles,
+	})
+	if err != nil {
+		t.Fatalf("Uninstall failed: %v", err)
 	}
-	for _, file := range []string{file1, file2} {
-		if _, err := os.Stat(file); err != nil {
-			t.Fatal(err)
+	if len(uRes.AppliedReceipts) != 2 {
+		t.Fatalf("expected 2 uninstall receipts, got %d", len(uRes.AppliedReceipts))
+	}
+	for _, file := range []string{file1, file2, cfg.ManifestPath} {
+		if _, err := os.Stat(file); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("expected %s to be removed, got %v", file, err)
 		}
+	}
+	// Repeated uninstall makes no changes and reports ErrManifestNotFound.
+	if _, err := install.Uninstall(context.Background(), install.UninstallConfig{
+		ManifestPath:  cfg.ManifestPath,
+		IsolatedFiles: cfg.IsolatedFiles,
+	}); !errors.Is(err, manifest.ErrManifestNotFound) {
+		t.Fatalf("expected ErrManifestNotFound on repeated uninstall, got %v", err)
 	}
 }

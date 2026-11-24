@@ -6,11 +6,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"time"
 
 	"fplogin/internal/core/discovery"
+	"fplogin/internal/core/manifest"
 	"fplogin/internal/core/transaction"
 	"fplogin/internal/descriptortrust"
 	"fplogin/internal/protocol"
@@ -70,6 +70,7 @@ type Config struct {
 // Result captures the outcome of an installer run.
 type Result struct {
 	DryRun           bool                          `json:"dry_run"`
+	Mode             string                        `json:"mode,omitempty"`
 	TransactionID    string                        `json:"transaction_id,omitempty"`
 	SelectedTarget   adapterv1.DetectedTarget      `json:"selected_target"`
 	SelectedAdapter  discovery.Adapter             `json:"selected_adapter"`
@@ -116,6 +117,8 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 	if !elevated && cfg.Host.Elevated {
 		return nil, ErrPrivilegesRequired
 	}
+	var prevManifest *manifestv1.InstallManifest
+	var prevMismatches []manifest.FileMismatch
 	if !cfg.DryRun {
 		if cfg.JournalDir != filepath.Join(stateRoot, "transactions") || cfg.ManifestPath != filepath.Join(stateRoot, "manifest.json") {
 			return nil, errors.New("manifest and transactions must share the canonical transaction state root")
@@ -129,9 +132,21 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 			return nil, err
 		}
 		defer lock.Close()
-		if _, err := os.Lstat(cfg.ManifestPath); !errors.Is(err, os.ErrNotExist) {
-			return nil, errors.New("isolated transactions require an unused manifest path")
+		if err := transaction.CheckNoUnresolved(cfg.JournalDir); err != nil {
+			return nil, err
 		}
+		if loaded, loadErr := manifest.Load(cfg.ManifestPath); loadErr == nil {
+			prevManifest = &loaded
+			prevMismatches, err = manifest.VerifyFiles(loaded)
+			if err != nil {
+				return nil, fmt.Errorf("verify existing installation manifest: %w", err)
+			}
+		} else if !errors.Is(loadErr, manifest.ErrManifestNotFound) {
+			return nil, loadErr
+		}
+	} else if loaded, loadErr := manifest.Load(cfg.ManifestPath); loadErr == nil {
+		prevManifest = &loaded
+		prevMismatches, _ = manifest.VerifyFiles(loaded)
 	}
 
 	// -------------------------------------------------------------------------
@@ -189,7 +204,7 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 	prereqPayload := adapterv1.CheckPrerequisitesPayload{
 		Target:                selectedTarget,
 		RequestedCapabilities: []string{"biometric_auth"},
-		Mode:                  "fresh_install",
+		Mode:                  preliminaryInstallMode(prevManifest, prevMismatches, selectedAdapter),
 	}
 	prereqReport, err := cfg.AdapterInvoker.CheckPrerequisites(ctx, selectedAdapter, prereqPayload, cfg.Host)
 	if err != nil {
@@ -217,10 +232,13 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 		return nil, fmt.Errorf("phase 5 (validate change plan): %w", err)
 	}
 
+	effectiveMode := classifyInstallMode(prevManifest, prevMismatches, selectedAdapter, plan)
+
 	// Si es Dry-Run, terminamos aquí sin tocar journal ni mutar nada
 	if cfg.DryRun {
 		return &Result{
 			DryRun:           true,
+			Mode:             effectiveMode,
 			SelectedTarget:   selectedTarget,
 			SelectedAdapter:  selectedAdapter,
 			SelectedProvider: selectedProvider,
@@ -318,7 +336,7 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 			PlanID:     plan.PlanID,
 			PlanDigest: planDigest,
 			InputHash:  plan.InputHash,
-			Mode:       plan.Mode,
+			Mode:       effectiveMode,
 		},
 		AppliedOperations:   []manifestv1.OperationReceipt{},
 		VerificationResults: []json.RawMessage{},
@@ -388,6 +406,21 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 			return nil, rollbackAfterError(ctx, executor, fmt.Errorf("%w: check %q status is %s", ErrVerificationFailed, chk.CheckID, chk.Status))
 		}
 	}
+	verifyRaw := make([]json.RawMessage, 0, len(verifyReport.Checks)+1)
+	for _, chk := range verifyReport.Checks {
+		raw, marshalErr := json.Marshal(chk)
+		if marshalErr != nil {
+			return nil, rollbackAfterError(ctx, executor, marshalErr)
+		}
+		verifyRaw = append(verifyRaw, raw)
+	}
+	if len(verifyRaw) == 0 {
+		raw, _ := json.Marshal(map[string]any{"report_id": verifyReport.ReportID, "status": "passed"})
+		verifyRaw = append(verifyRaw, raw)
+	}
+	if err := executor.Journal.RecordVerification(verifyRaw, true); err != nil {
+		return nil, fmt.Errorf("%w: record verification for transaction %q: %w", ErrRecoveryRequired, txID, err)
+	}
 
 	// -------------------------------------------------------------------------
 	// Fase 9b: Aplicar operaciones de servicio solo tras verificación exitosa
@@ -400,8 +433,25 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 		return nil, fmt.Errorf("%w: %w (compensated %d operations)", ErrTransactionAborted, mutationErr, len(rbReceipts))
 	}
 
-	// Manifest publication stays disabled until it can be recovered atomically with the journal.
-
+	// -------------------------------------------------------------------------
+	// Fase 11 & 12: Publicar manifiesto durable y completar el journal
+	// -------------------------------------------------------------------------
+	installedManifest, err := buildInstallManifest(
+		cfg, txID, effectiveMode, planDigest, selectedTarget, selectedAdapter,
+		selectedProvider, dmState, plan, appliedReceipts, verifyReport, prevManifest, packagePlan,
+	)
+	if err != nil {
+		return nil, rollbackAfterError(ctx, executor, fmt.Errorf("build install manifest: %w", err))
+	}
+	if testBeforeManifestPublish != nil {
+		testBeforeManifestPublish(txID)
+	}
+	if err := manifest.Publish(cfg.ManifestPath, installedManifest); err != nil {
+		return nil, fmt.Errorf("%w: publish manifest for transaction %q: %w", ErrRecoveryRequired, txID, err)
+	}
+	if testAfterManifestPublish != nil {
+		testAfterManifestPublish(txID)
+	}
 	if err := executor.Journal.Checkpoint(); err != nil {
 		return nil, fmt.Errorf("%w: complete transaction %q: %w", ErrRecoveryRequired, txID, err)
 	}
@@ -411,12 +461,14 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 	// -------------------------------------------------------------------------
 	return &Result{
 		DryRun:           false,
+		Mode:             effectiveMode,
 		TransactionID:    txID,
 		SelectedTarget:   selectedTarget,
 		SelectedAdapter:  selectedAdapter,
 		SelectedProvider: selectedProvider,
 		Plan:             plan,
 		AppliedReceipts:  appliedReceipts,
+		ManifestPath:     cfg.ManifestPath,
 		JournalPath:      journalPath,
 	}, nil
 }

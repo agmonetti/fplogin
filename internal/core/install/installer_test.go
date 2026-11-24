@@ -294,8 +294,12 @@ func TestRun_FullInstallSuccess(t *testing.T) {
 	if !data.FileRecovery || data.State != "completed" || len(data.AppliedOperations) != 1 {
 		t.Fatalf("file operation missing from completed journal: %+v", data)
 	}
-	if _, err := os.Lstat(cfg.ManifestPath); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("lab published a manifest: %v", err)
+	m, err := manifest.Load(cfg.ManifestPath)
+	if err != nil {
+		t.Fatalf("expected published durable manifest: %v", err)
+	}
+	if m.TransactionID != res.TransactionID || m.AcceptedPlan.Mode != "fresh_install" || len(m.InstalledFiles) != 1 || m.RecoveryBaseline == nil {
+		t.Fatalf("unexpected published manifest: %+v", m)
 	}
 
 	// Verify directory was created
@@ -385,7 +389,10 @@ func TestRun_BlocksConcurrentAndUnresolvedTransactions(t *testing.T) {
 		if res != nil || !errors.Is(err, transaction.ErrTransactionBusy) {
 			t.Fatalf("second run got %+v, %v; want transaction busy", res, err)
 		}
-		err = manifest.Uninstall(context.Background(), manifest.UninstallConfig{ManifestPath: cfg.ManifestPath})
+		_, err = Uninstall(context.Background(), UninstallConfig{
+			ManifestPath:  cfg.ManifestPath,
+			IsolatedFiles: cfg.IsolatedFiles,
+		})
 		if !errors.Is(err, transaction.ErrTransactionBusy) {
 			t.Fatalf("uninstall did not contend for install lock: %v", err)
 		}

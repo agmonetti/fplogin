@@ -53,11 +53,13 @@ type PreparedPlatformApplier interface {
 // Executor coordinates the execution of operations with pre-mutation journaling,
 // rollback compensation, and backup persistence.
 type Executor struct {
-	Journal     *transaction.Journal
-	Platform    PlatformApplier
-	BackupDir   string
-	allowFile   func(path string) bool
-	systemFiles bool
+	Journal              *transaction.Journal
+	Platform             PlatformApplier
+	BackupDir            string
+	allowFile            func(path string) bool
+	systemFiles          bool
+	allowUninstallFiles  bool
+	allowAlreadyAtTarget bool
 }
 
 // NewExecutor creates a new Executor. If backupDir is empty, a directory
@@ -546,6 +548,9 @@ func (e *Executor) compensateOperation(ctx context.Context, receipt manifestv1.O
 		protocol.SetServiceEnabled,
 		protocol.SetServiceActive,
 		protocol.RestoreServiceState:
+		if e.Journal.Data().FileRecovery && receipt.Status == "success" && len(receipt.BeforeState) > 0 && objectEqual(receipt.BeforeState, receipt.AfterState) {
+			return nil
+		}
 		if e.Platform == nil {
 			return errors.New("no platform provider configured for compensation")
 		}
@@ -608,16 +613,35 @@ func (e *Executor) executeRecoverablePlatform(ctx context.Context, op protocol.O
 	if err := e.Journal.RecordFileIntent(receipt); err != nil {
 		return receipt, err
 	}
-	applied, execErr := e.applyPlatform(ctx, op)
+	applied, execErr := e.applyPlatformChecked(ctx, op, e.allowAlreadyAtTarget)
 	receipt.CompletedAt = time.Now().UTC().Format(time.RFC3339)
 	if execErr != nil {
 		receipt.Status = "failed"
 		receipt.Error = json.RawMessage(fmt.Sprintf("%q", execErr.Error()))
 	} else {
 		receipt.Status = "success"
+		if len(applied.BeforeState) != 0 {
+			receipt.BeforeState = applied.BeforeState
+		}
+		if len(applied.AfterState) != 0 {
+			receipt.AfterState = applied.AfterState
+		}
 		receipt.Evidence = applied.Evidence
 	}
 	return receipt, errors.Join(execErr, e.Journal.RecordResult(op.OperationID, receipt))
+}
+
+func objectEqual(a, b protocol.Object) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k, va := range a {
+		vb, ok := b[k]
+		if !ok || string(va) != string(vb) {
+			return false
+		}
+	}
+	return true
 }
 
 func objectMatchesExpected(actual, expected protocol.Object) bool {
@@ -771,6 +795,19 @@ func buildPlatformCompensationOperation(receipt manifestv1.OperationReceipt) (pr
 	after := receipt.BeforeState
 	if after == nil {
 		after = protocol.Object{}
+	}
+	if kind == protocol.RestoreServiceState && len(after) == 0 {
+		var comp struct {
+			Enabled string `json:"enabled"`
+			Active  string `json:"active"`
+		}
+		_ = json.Unmarshal(rawComp, &comp)
+		if comp.Enabled == "yes" || comp.Enabled == "no" {
+			after["enabled"] = json.RawMessage(fmt.Sprintf("%q", comp.Enabled))
+		}
+		if comp.Active == "yes" || comp.Active == "no" {
+			after["active"] = json.RawMessage(fmt.Sprintf("%q", comp.Active))
+		}
 	}
 
 	return protocol.Operation{

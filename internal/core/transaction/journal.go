@@ -270,8 +270,16 @@ func (j *Journal) RecordResult(operationID string, receipt manifestv1.OperationR
 		if len(receipt.Error) != 0 {
 			saved.Error = receipt.Error
 		}
-		if receipt.Status == "success" && !manifestv1.IsRecoverableFileKind(saved.Kind) && len(receipt.Evidence) != 0 {
-			saved.Evidence = receipt.Evidence
+		if receipt.Status == "success" && !manifestv1.IsRecoverableFileKind(saved.Kind) {
+			if len(receipt.BeforeState) != 0 {
+				saved.BeforeState = receipt.BeforeState
+			}
+			if len(receipt.AfterState) != 0 {
+				saved.AfterState = receipt.AfterState
+			}
+			if len(receipt.Evidence) != 0 {
+				saved.Evidence = receipt.Evidence
+			}
 		}
 		receipt = saved
 	}

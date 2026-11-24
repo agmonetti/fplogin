@@ -120,7 +120,13 @@ func prepareLab(req v1.Request) (json.RawMessage, error) {
 		result.References = append(result.References, v1.PreparedArtifactReference{ArtifactID: r.ArtifactID, ProviderReference: r.SHA256, MediaType: r.MediaType, SHA256: r.SHA256, Size: r.Size, OperationParameters: protocol.Object{}})
 	}
 	inventory, err := labOutput("/usr/bin/pacman", "--config", "/dev/null", "-Q")
-	if err != nil || !strings.Contains("\n"+inventory+"\n", "\n"+baselinePackages[stockArchive]+"\n") {
+	if err != nil {
+		return nil, fmt.Errorf("installed stock does not match rollback archive")
+	}
+	const candidateArchive = "675904869fa349291eddd348e47fa376b5e07dace2e3f8d86d3bf60390e31be0"
+	invLines := "\n" + inventory + "\n"
+	if !strings.Contains(invLines, "\n"+baselinePackages[stockArchive]+"\n") &&
+		!strings.Contains(invLines, "\n"+baselinePackages[candidateArchive]+"\n") {
 		return nil, fmt.Errorf("installed stock does not match rollback archive")
 	}
 	if err := checkStockFiles(); err != nil {

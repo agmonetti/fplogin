@@ -41,6 +41,8 @@ func applyLab(req v1.Request) (json.RawMessage, error) {
 		receipt, err = applySetServiceEnabled(p, startedAt)
 	case protocol.SetServiceActive:
 		receipt, err = applySetServiceActive(p, startedAt)
+	case protocol.RestoreServiceState:
+		receipt, err = applyRestoreServiceState(p, startedAt)
 	default:
 		return nil, notImplemented(string(p.Operation.Kind))
 	}
@@ -241,6 +243,15 @@ func queryServiceEnabled(service string) (bool, error) {
 	return false, fmt.Errorf("systemctl is-enabled %s: state=%q err=%v stderr=%q", service, state, err, strings.TrimSpace(stderr.String()))
 }
 
+func isAllowedDMService(unit string) bool {
+	for _, known := range dmUnits {
+		if unit == known {
+			return true
+		}
+	}
+	return false
+}
+
 func applySetServiceEnabled(p v1.ApplyOperationPayload, _ string) (v1.OperationReceipt, error) {
 	var params struct {
 		ServiceReference string `json:"service_reference"`
@@ -249,7 +260,7 @@ func applySetServiceEnabled(p v1.ApplyOperationPayload, _ string) (v1.OperationR
 	if err := json.Unmarshal(p.Operation.Parameters, &params); err != nil {
 		return v1.OperationReceipt{}, err
 	}
-	if params.ServiceReference != "sddm.service" || params.Enabled == nil {
+	if !isAllowedDMService(params.ServiceReference) || params.Enabled == nil {
 		return v1.OperationReceipt{}, fmt.Errorf("unsupported service_reference %q", params.ServiceReference)
 	}
 	beforeEnabled, err := queryServiceEnabled(params.ServiceReference)
@@ -304,7 +315,7 @@ func applySetServiceActive(p v1.ApplyOperationPayload, _ string) (v1.OperationRe
 	if err := json.Unmarshal(p.Operation.Parameters, &params); err != nil {
 		return v1.OperationReceipt{}, err
 	}
-	if params.ServiceReference != "sddm.service" || params.Active == nil {
+	if !isAllowedDMService(params.ServiceReference) || params.Active == nil {
 		return v1.OperationReceipt{}, fmt.Errorf("unsupported service_reference %q", params.ServiceReference)
 	}
 	beforeActive, err := queryServiceActive(params.ServiceReference)
@@ -331,5 +342,90 @@ func applySetServiceActive(p v1.ApplyOperationPayload, _ string) (v1.OperationRe
 		BeforeState: protocol.Object{"active": json.RawMessage(fmt.Sprintf("%t", beforeActive))},
 		AfterState:  protocol.Object{"active": json.RawMessage(fmt.Sprintf("%t", afterActive))},
 		Evidence:    []protocol.Evidence{evidence("service", params.ServiceReference, fmt.Sprintf("active=%t", afterActive))},
+	}, nil
+}
+
+func triStateBool(v bool) string {
+	if v {
+		return "yes"
+	}
+	return "no"
+}
+
+func applyRestoreServiceState(p v1.ApplyOperationPayload, _ string) (v1.OperationReceipt, error) {
+	var params struct {
+		ServiceReference string `json:"service_reference"`
+		Enabled          string `json:"enabled"`
+		Active           string `json:"active"`
+	}
+	if err := json.Unmarshal(p.Operation.Parameters, &params); err != nil {
+		return v1.OperationReceipt{}, err
+	}
+	if !isAllowedDMService(params.ServiceReference) {
+		return v1.OperationReceipt{}, fmt.Errorf("unsupported service_reference %q", params.ServiceReference)
+	}
+
+	beforeObj := protocol.Object{}
+	afterObj := protocol.Object{}
+	var ev []protocol.Evidence
+
+	if params.Enabled == "yes" || params.Enabled == "no" {
+		wantEnabled := params.Enabled == "yes"
+		beforeEnabled, err := queryServiceEnabled(params.ServiceReference)
+		if err != nil {
+			return v1.OperationReceipt{}, err
+		}
+		beforeObj["enabled"] = json.RawMessage(fmt.Sprintf("%q", triStateBool(beforeEnabled)))
+		if beforeEnabled != wantEnabled {
+			action := "disable"
+			if wantEnabled {
+				action = "enable"
+			}
+			if out, err := labCombined("/usr/bin/systemctl", action, "--", params.ServiceReference); err != nil {
+				return v1.OperationReceipt{}, fmt.Errorf("systemctl %s %s failed: %v: %s", action, params.ServiceReference, err, out)
+			}
+		}
+		afterEnabled, err := queryServiceEnabled(params.ServiceReference)
+		if err != nil {
+			return v1.OperationReceipt{}, err
+		}
+		if afterEnabled != wantEnabled {
+			return v1.OperationReceipt{}, fmt.Errorf("service %s enabled=%t, want %t", params.ServiceReference, afterEnabled, wantEnabled)
+		}
+		afterObj["enabled"] = json.RawMessage(fmt.Sprintf("%q", triStateBool(afterEnabled)))
+		ev = append(ev, evidence("service", params.ServiceReference, fmt.Sprintf("enabled=%s", params.Enabled)))
+	}
+
+	if params.Active == "yes" || params.Active == "no" {
+		wantActive := params.Active == "yes"
+		beforeActive, err := queryServiceActive(params.ServiceReference)
+		if err != nil {
+			return v1.OperationReceipt{}, err
+		}
+		beforeObj["active"] = json.RawMessage(fmt.Sprintf("%q", triStateBool(beforeActive)))
+		if beforeActive != wantActive {
+			action := "stop"
+			if wantActive {
+				action = "start"
+			}
+			if out, err := labCombined("/usr/bin/systemctl", action, "--", params.ServiceReference); err != nil {
+				return v1.OperationReceipt{}, fmt.Errorf("systemctl %s %s failed: %v: %s", action, params.ServiceReference, err, out)
+			}
+		}
+		afterActive, err := queryServiceActive(params.ServiceReference)
+		if err != nil {
+			return v1.OperationReceipt{}, err
+		}
+		if afterActive != wantActive {
+			return v1.OperationReceipt{}, fmt.Errorf("service %s active=%t, want %t", params.ServiceReference, afterActive, wantActive)
+		}
+		afterObj["active"] = json.RawMessage(fmt.Sprintf("%q", triStateBool(afterActive)))
+		ev = append(ev, evidence("service", params.ServiceReference, fmt.Sprintf("active=%s", params.Active)))
+	}
+
+	return v1.OperationReceipt{
+		BeforeState: beforeObj,
+		AfterState:  afterObj,
+		Evidence:    ev,
 	}, nil
 }

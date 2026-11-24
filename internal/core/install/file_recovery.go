@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"fplogin/internal/core/manifest"
 	"fplogin/internal/core/transaction"
 	"fplogin/internal/descriptortrust"
 	"fplogin/internal/protocol"
@@ -125,7 +126,14 @@ func beginTransaction(root string, paths []string, init manifestv1.TransactionJo
 	if err != nil {
 		return nil, err
 	}
-	e := &Executor{Platform: platform, BackupDir: backups, allowFile: allow, systemFiles: root == systemStateRoot}
+	e := &Executor{
+		Platform:             platform,
+		BackupDir:            backups,
+		allowFile:            allow,
+		systemFiles:          root == systemStateRoot,
+		allowUninstallFiles:  init.AcceptedPlan.Mode == "uninstall",
+		allowAlreadyAtTarget: init.AcceptedPlan.Mode != "fresh_install",
+	}
 	init.FileRecovery = true
 	init.OperationOrder = make([]string, len(ops))
 	var preparedFiles []manifestv1.OperationReceipt
@@ -185,6 +193,46 @@ func recoverFiles(ctx context.Context, root, id string, allow func(string) bool)
 	return recoverTransaction(ctx, root, id, allow, nil)
 }
 
+// RecoverPending scans root/transactions under the shared lock and reconciles
+// any unresolved recoverable transaction (rolling back uncommitted work or
+// finishing journal completion when the manifest commit point was already crossed).
+func RecoverPending(ctx context.Context, root string, paths []string, platform PlatformApplier) error {
+	allow := filePolicy(root, paths)
+	if allow == nil {
+		return ErrPrivilegesRequired
+	}
+	lock, err := transaction.AcquireLock(root)
+	if err != nil {
+		return err
+	}
+	defer lock.Close()
+
+	cleanManifestTemps(root)
+	txDir := filepath.Join(root, "transactions")
+	entries, err := os.ReadDir(txDir)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if filepath.Ext(entry.Name()) != ".json" {
+			continue
+		}
+		id := strings.TrimSuffix(entry.Name(), ".json")
+		j, err := transaction.OpenLocked(root, id)
+		if err != nil {
+			return errors.Join(ErrRecoveryRequired, err)
+		}
+		state := j.State()
+		if state == "completed" || state == "rolled_back" || (state == "aborted" && j.Data().FileRecovery && len(j.Data().AppliedOperations) == 0) {
+			continue
+		}
+		if err := reconcileLockedTransaction(ctx, root, j, allow, platform); err != nil {
+			return err
+		}
+	}
+	return syncDir(root)
+}
+
 func recoverTransaction(ctx context.Context, root, id string, allow func(string) bool, platform PlatformApplier) error {
 	lock, err := transaction.AcquireLock(root)
 	if err != nil {
@@ -195,6 +243,10 @@ func recoverTransaction(ctx context.Context, root, id string, allow func(string)
 	if err != nil {
 		return err
 	}
+	return reconcileLockedTransaction(ctx, root, j, allow, platform)
+}
+
+func reconcileLockedTransaction(ctx context.Context, root string, j *transaction.Journal, allow func(string) bool, platform PlatformApplier) error {
 	data := j.Data()
 	if !data.FileRecovery || (root == systemStateRoot && data.PreparedFiles == nil && hasAppliedFileOp(data)) || data.State == "completed" || data.State == "aborted" || data.State == "planned" {
 		return transaction.ErrInvalidState
@@ -202,20 +254,98 @@ func recoverTransaction(ctx context.Context, root, id string, allow func(string)
 	if data.State == "rolled_back" {
 		return nil
 	}
-	// Manifest publication is not yet part of the transaction.
-	if _, err := os.Lstat(filepath.Join(root, "manifest.json")); !errors.Is(err, os.ErrNotExist) {
-		return ErrRecoveryRequired
+	cleanManifestTemps(root)
+
+	manifestPath := filepath.Join(root, "manifest.json")
+	if data.AcceptedPlan.Mode == "uninstall" {
+		_, statErr := os.Lstat(manifestPath)
+		switch {
+		case errors.Is(statErr, os.ErrNotExist):
+			if !allOperationsSucceeded(data) {
+				return fmt.Errorf("%w: manifest absent before uninstall operations finished", ErrRecoveryRequired)
+			}
+			if err := syncDir(root); err != nil {
+				return errors.Join(ErrRecoveryRequired, err)
+			}
+			if err := j.Checkpoint(); err != nil {
+				return errors.Join(ErrRecoveryRequired, err)
+			}
+			return nil
+		case statErr != nil:
+			return errors.Join(ErrRecoveryRequired, statErr)
+		default:
+			// Manifest still exists: commit point was not crossed, roll back partial uninstall.
+			e, err := newFileExecutor(j, root, allow)
+			if err != nil {
+				return err
+			}
+			e.Platform = platform
+			if _, err := e.Rollback(ctx); err != nil {
+				return errors.Join(ErrRecoveryRequired, err)
+			}
+			return nil
+		}
 	}
-	e, err := newFileExecutor(j, root, allow)
+
+	m, loadErr := manifest.Load(manifestPath)
+	switch {
+	case loadErr == nil && m.TransactionID == data.TransactionID:
+		// Manifest for this exact transaction was already atomically published.
+		if !allOperationsSucceeded(data) || len(data.VerificationResults) == 0 {
+			return fmt.Errorf("%w: manifest claims transaction %q without completed verified operations", ErrRecoveryRequired, data.TransactionID)
+		}
+		if err := syncDir(root); err != nil {
+			return errors.Join(ErrRecoveryRequired, err)
+		}
+		if err := j.Checkpoint(); err != nil {
+			return errors.Join(ErrRecoveryRequired, err)
+		}
+		return nil
+	case errors.Is(loadErr, manifest.ErrManifestNotFound) || (loadErr == nil && m.TransactionID != data.TransactionID):
+		// Manifest was not published for this transaction (absent or belongs to an earlier completed tx): roll back.
+		e, err := newFileExecutor(j, root, allow)
+		if err != nil {
+			return err
+		}
+		e.Platform = platform
+		if _, err := e.Rollback(ctx); err != nil {
+			return errors.Join(ErrRecoveryRequired, err)
+		}
+		return nil
+	default:
+		return errors.Join(ErrRecoveryRequired, loadErr)
+	}
+}
+
+func allOperationsSucceeded(data manifestv1.TransactionJournal) bool {
+	if (data.State != "applying" && data.State != "prepared") || len(data.AppliedOperations) != len(data.OperationOrder) {
+		return false
+	}
+	for i, receipt := range data.AppliedOperations {
+		if data.OperationOrder[i] != receipt.OperationID || receipt.Status != "success" {
+			return false
+		}
+	}
+	return true
+}
+
+func cleanManifestTemps(root string) {
+	matches, err := filepath.Glob(filepath.Join(root, "manifest.json.tmp.*"))
+	if err != nil {
+		return
+	}
+	for _, p := range matches {
+		_ = os.Remove(p)
+	}
+}
+
+func syncDir(dir string) error {
+	d, err := os.Open(dir)
 	if err != nil {
 		return err
 	}
-	e.Platform = platform
-	_, err = e.Rollback(ctx)
-	if err != nil {
-		return errors.Join(ErrRecoveryRequired, err)
-	}
-	return nil
+	defer d.Close()
+	return d.Sync()
 }
 
 func hasAppliedFileOp(data manifestv1.TransactionJournal) bool {
@@ -236,7 +366,14 @@ func newFileExecutor(j *transaction.Journal, root string, allow func(string) boo
 	if err != nil {
 		return nil, err
 	}
-	return &Executor{Journal: j, BackupDir: backups, allowFile: allow, systemFiles: root == systemStateRoot}, nil
+	return &Executor{
+		Journal:              j,
+		BackupDir:            backups,
+		allowFile:            allow,
+		systemFiles:          root == systemStateRoot,
+		allowUninstallFiles:  j.Data().AcceptedPlan.Mode == "uninstall",
+		allowAlreadyAtTarget: j.Data().AcceptedPlan.Mode != "fresh_install",
+	}, nil
 }
 
 type fileState = manifestv1.FileState
@@ -357,12 +494,12 @@ func (e *Executor) prepareFile(op protocol.Operation, createBackup bool) (receip
 		if err != nil {
 			return
 		}
-		if e.systemFiles && (string(content) != systemThemeData || mode != 0o644 || params.Owner != "root" || params.Group != "root") {
+		if e.systemFiles && !e.allowUninstallFiles && (string(content) != systemThemeData || mode != 0o644 || params.Owner != "root" || params.Group != "root") {
 			err = ErrPrecondition
 			return
 		}
 		after = fileState{Path: path, Exists: true, SHA256: params.SHA256, Mode: fmt.Sprintf("%04o", mode)}
-	} else if e.systemFiles {
+	} else if e.systemFiles && !e.allowUninstallFiles {
 		err = ErrUnsupportedKind
 		return
 	} else if !before.Exists || before.SHA256 != params.Expected {
@@ -403,6 +540,8 @@ func (e *Executor) executeRecoverableFile(op protocol.Operation) (manifestv1.Ope
 	}
 	if observed, _, checkErr := e.inspectFile(path); checkErr != nil || observed != before {
 		err = errors.Join(ErrPrecondition, checkErr)
+	} else if before == after {
+		err = syncFileParent(path)
 	} else if after.Exists {
 		mode, _ := strconv.ParseUint(after.Mode, 8, 9)
 		err = replaceFile(path, content, os.FileMode(mode))
