@@ -1,132 +1,162 @@
 # fplogin
 
-Biometric login for Linux, under active development. The v1 target is fingerprint login from SDDM with no Enter key, no in-place edits to existing system configuration, and no password storage.
+**Native concurrent fingerprint and password login for Linux Display Managers.**
+
+`fplogin` v1.0 brings zero-friction biometric login to SDDM on Arch Linux: the fingerprint reader activates automatically as soon as the greeter appears, runs in parallel with the password input (no Enter-first gate), keeps your existing Qt5 or Qt6 SDDM theme visually intact by default, never edits stock system PAM or `/etc/sddm.conf` in place, and never stores or synthesizes passwords.
 
 [![fplogin Project Telemetry & Milestone Matrix](docs/assets/dashboard.png)](dashboard.html)
 
-The dashboard reflects the [Sprint 7 local/private verification](docs/reviews/sprint-7.md) completed on 2026-11-25 (`sddm-fplogin 0.21.0-4` dual Qt6 10/10 + Qt5 9/9 with `0006-legacy-theme-auto-fingerprint.patch` preserving the user's existing theme intact, `fplogin-git` transactional installer/analyzer/config CLI, 5/5 clean Arch KVM E2E lifecycle, real Arch hardware cold-boot + `where_is_my_sddm_theme` + `hyprlock` handoff on Synaptics `06cb:00bd`, 5-commit local upstream SDDM PR series, and local checksummed v1.0.0 release artifacts).
+---
 
-## The problem
+## The Problem
 
-SDDM does not natively support fingerprint authentication. Users must type their password or, with manual PAM tweaks, press Enter and then place their finger. There is no built-in experience where the reader activates automatically and works in parallel with the password field.
+Stock SDDM runs a single PAM conversation per login attempt. With manual `pam_fprintd` tweaks, users must either wait for biometric verification to time out before typing a password or press Enter before scanning their finger. There is no native experience where the sensor activates automatically alongside the password field while cleanly releasing the reader on login or cancellation.
 
-## Approach
+## How It Works
 
-`fplogin` delivers:
+1. **Daemon-coordinated concurrent PAM (`sddm-fplogin`):** The SDDM daemon—never the QML theme—runs the existing `sddm` password helper and a dedicated `sddm-fingerprint` PAM helper concurrently under a single request identity (`requestId`, `AuthMethod`, `generation`).
+2. **Single-winner arbitration & sensor handoff:** Whichever method succeeds first wins. The daemon cancels and reaps the losing helper *before* authorizing the winning helper to open the session, ensuring screen lockers such as `hyprlock` can immediately claim the reader afterwards.
+3. **Untouched user themes (Qt5 & Qt6) + optional status overlay:**
+   - By default, `fplogin` preserves your existing SDDM theme 100% visually intact (`AutoFingerprintForLegacyThemes=true`, `FingerprintStatusOverlay=false`) across both Qt6 and Qt5 greeters.
+   - Optionally enable a minimal, non-intrusive status pill over your existing theme (`sudo fplogin config set --overlay true`) with a configurable retry shortcut (`--retry-key F4|F8|Ctrl+R|none`), or opt into the bundled `/usr/share/sddm/themes/fplogin` theme.
+   - Emergency embedded fallback (`qrc:/theme`) remains strictly password-only.
+4. **Transactional CLI, recovery & system analyzer (`fplogin`):**
+   - `fplogin install` uses a pre-mutation WAL transaction journal (`/var/lib/fplogin/`), SHA-256-bound interactive approval, atomic file drops, automatic LIFO rollback, and `fplogin recover` for mid-transaction interruptions.
+   - `fplogin uninstall` restores your recorded baseline state cleanly while preserving user-modified files.
+   - `fplogin analyze` performs a read-only audit of password-derived facilities (KWallet, GNOME Keyring, `systemd-homed`, `/etc/crypttab`, `fprintd` readiness) and clearly reports operational differences and scope limits.
 
-- A minimal, upstream-quality SDDM patch series coordinating concurrent PAM authentication methods (`password` + `fingerprint`) with single-winner arbitration and full hardening.
-- A dedicated PAM service for biometric authentication (`sddm-fingerprint`) leaving `/etc/pam.d/sddm` untouched.
-- Non-intrusive auto-fingerprint support for existing Qt5 and Qt6 SDDM themes (`[General] AutoFingerprintForLegacyThemes=true`), plus an optional built-in `fplogin` theme.
-- A transactional Go installer, uninstaller, recovery engine, persistent post-install configurator (`fplogin config`), and read-only system difference analyzer (`fplogin analyze`).
+---
 
-**Theme compatibility:** `sddm-fplogin` (`0006-legacy-theme-auto-fingerprint.patch`, shared by Qt6 and Qt5 greeters) automatically starts one bounded concurrent fingerprint attempt for existing Qt5/Qt6 themes that do not call the fingerprint API (`[General] AutoFingerprintForLegacyThemes=true`), leaving the user's configured theme 100% visually intact (verified on real hardware with untouched `where_is_my_sddm_theme`), while themes that explicitly use the [theme-context contract](docs/architecture/SDDM_THEME_CONTEXT_CONTRACT.md) (such as the optional `/usr/share/sddm/themes/fplogin` theme) retain full API control and the emergency embedded fallback stays strictly password-only.
+## v1.0 Scope
 
-The SDDM daemon—not the greeter theme or fplogin adapter—coordinates login-time authentication. For one daemon-bound user/session request, it runs separate password and fingerprint helpers. The first successful method wins; the daemon cancels and observes the losing helper before authorizing exactly one PAM transaction to establish credentials, open the session, and start it. The fplogin adapter is an install-time component only.
-
-## Planned v1 scope
-
-| Will | Will not |
+| Supported in v1.0 | Intentionally Out of Scope (v1.0) |
 |---|---|
-| Fingerprint login from SDDM | Store, inject, or recover the user's password |
-| Activate the reader automatically when the greeter appears | Unlock wallets (KWallet, GNOME Keyring) via fingerprint |
-| Keep password as a simultaneous fallback | Modify existing system PAM files in place |
-| Cancel the unused method upon authentication | Replace subsequent authentications (sudo, polkit, su) |
-| Install and configure SDDM if not present | Enroll fingerprints (uses those already registered in fprintd) |
-| Detect and migrate from another display manager | Integrate with TPM or other cryptographic hardware |
-| Uninstall cleanly restoring previous state | Work without fprintd or without an enrolled fingerprint |
-| Analyze the system and report operational differences | Support distros outside Arch Linux (v1) |
+| Concurrent fingerprint + password login in SDDM without pressing Enter | Storing, caching, injecting, or recovering user passwords |
+| Automatic reader activation on greeter startup (Qt5 & Qt6 themes) | Unlocking KWallet or GNOME Keyring via fingerprint |
+| Simultaneous password fallback surviving every biometric failure/timeout | Modifying stock `/etc/pam.d/sddm` or `/etc/sddm.conf` in place |
+| Clean cancellation & reader release (verified with `hyprlock` handoff) | Replacing subsequent authentications (`sudo`, `su`, `polkit`, `ssh`) |
+| Preserving existing SDDM themes intact, optional overlay & configurable retry key | Enrolling fingerprints inside the greeter (uses `fprintd` enrollments) |
+| Fresh install (with or without existing SDDM), DM conflict guard & clean uninstall | TPM / FIDO2 / smart-card hardware integration |
+| Read-only system difference analyzer (`fplogin analyze`) | Non-Arch Linux distributions or non-SDDM display managers |
 
-## Architecture
+---
 
-```text
-fplogin/
-├── cmd/                         # Core, adapter, and platform executables
-├── internal/
-│   ├── core/                    # DM-independent selection/install/analyzer logic
-│   ├── protocol/                # Versioned Go wire and manifest types
-│   ├── adapterclient/           # Bounded adapter process client
-│   └── platformclient/          # Bounded platform process client
-├── contracts/                   # Versioned JSON schemas and examples
-├── platforms/
-│   └── arch/                    # Arch package/service provider
-├── adapters/
-│   └── sddm/
-│       ├── patches/             # Pinned SDDM patch series
-│       ├── assets/
-│       │   ├── pam/             # Dedicated fingerprint PAM service
-│       │   └── theme/           # SDDM greeter theme
-│       └── packaging/
-│           └── arch/            # Arch package recipe
-├── tests/                       # Contract, integration, fixture, and VM checks
-└── docs/                        # Architecture, plans, hardware, and sprint reviews
-```
+## Requirements
 
-### Core-adapter contract
+- **OS:** Arch Linux (`x86_64`), `systemd`
+- **Biometrics:** `fprintd` + `libfprint`, compatible fingerprint reader, at least one enrolled finger (`fprintd-enroll`)
+- **Display Manager:** `sddm-fplogin` (replaces stock `sddm`, ships dual Qt6 + Qt5 greeters, `/etc/pam.d/sddm-fingerprint`, and optional `fplogin` theme)
+- **Verified reference hardware:** Synaptics `06cb:00bd` (USB match-on-sensor), Hyprland (`uwsm`), `hyprlock`
 
-`internal/core/` must remain completely agnostic to any display manager. It defines interfaces, state machines, manifest generation, and analysis logic, but never imports, references, or branches on specific display managers:
-
-- **Core defines interfaces:** DM detection and versioning, prerequisite validation, asset install/uninstall, DM state inspection, and authentication capability negotiation.
-- **Adapters implement those interfaces:** the planned `adapters/sddm/` executable will implement the contract for SDDM v1. Future adapters (for example LightDM or greetd) implement the same interfaces without changing core logic.
-- **Discovery over hardcoding:** The core resolves adapters through capability/support declarations, never through conditional logic like `if dm == "sddm"`.
-
-### Planned installation paths
-
-| Repository path | System destination |
-|---|---|
-| `adapters/sddm/assets/pam/sddm-fingerprint` | `/etc/pam.d/sddm-fingerprint` |
-| `adapters/sddm/assets/theme/*` | `/usr/share/sddm/themes/fplogin/` |
-| `adapters/sddm/assets/config/sddm.conf.d/fplogin.conf` | `/etc/sddm.conf.d/fplogin.conf` |
-
-No existing system files will be modified in place. The installer will generate a manifest at `/var/lib/fplogin/manifest.json` containing installed assets, checksums, and previous system state for clean rollback during uninstallation.
-
-## Planned v1 requirements
-
-| Requirement | Required | Notes |
-|---|---|---|
-| Arch Linux | Yes | Only supported distro in v1 |
-| systemd | Yes | DM service management |
-| fprintd | Yes | Installer will add it when missing |
-| libfprint | Yes | fprintd dependency |
-| Compatible fingerprint reader | Yes | Verified during installation |
-| Enrolled fingerprint | Yes | Required before login verification; enrollment is outside the greeter |
-| SDDM | Yes | Patched package will be installed and configured through the selected adapter/platform provider |
-| qt6-declarative | Yes | Required for SDDM QML themes |
+---
 
 ## CLI Usage
 
-The pinned Arch tools package (`fplogin-git`) exposes read-only unprivileged inspection (`components`, `install --dry-run`, `status`, `analyze`, `config show`), persistent post-install configuration (`sudo fplogin config set`), and transactional offline installation/removal/recovery verified on Arch x86_64 with real systemd PID 1. Live `install`, `uninstall`, and `recover` require root privileges, a root-owned offline trust root (`/etc/fplogin/trust`), and explicit approval bound to the core-computed `ChangePlan` SHA-256 (plus separate `--approve-replace-dm` confirmation before replacing a conflicting display manager), followed by non-fatal read-only postflight analysis. See the [Sprint 7 release validation review](docs/reviews/sprint-7.md).
-
 ```bash
-# Unprivileged read-only commands
+# Read-only commands (unprivileged)
 fplogin components                                              # list packaged providers and adapters
-fplogin install --dry-run [--target ADAPTER_ID/TARGET_ID]       # read-only preflight and preview
-fplogin status                                                  # read manifest and verify file checksums
-fplogin analyze [--json] [--root DIR] [--service NAME]          # read-only password-derived facility analyzer
-fplogin config show                                             # inspect persistent SDDM fingerprint drop-in settings
+fplogin install --dry-run [--target ADAPTER_ID/TARGET_ID]       # read-only preflight and ChangePlan preview
+fplogin analyze [--json] [--root DIR] [--service NAME]          # inspect password-derived facilities impacted by biometric login
+fplogin config [show]                                           # inspect persistent SDDM fingerprint settings
 
-# Root transactional & persistent configuration commands
+# Root transactional & configuration commands
 sudo fplogin install --artifacts-dir DIR [--activate] [--approve-plan SHA256] [--approve-replace-dm]
-sudo fplogin config set [--auto-legacy true|false] [--timeout 5..120] [--theme preserve|fplogin|<name>]
+sudo fplogin status                                             # verify manifest integrity and file checksums
+sudo fplogin config set [--auto-legacy true|false] [--overlay true|false] [--retry-key KEY|none] [--timeout 5..120] [--theme preserve|fplogin|<name>]
 sudo fplogin uninstall [--modified-files preserve|refuse|restore] [--remove-shared-deps] [--yes]
 sudo fplogin recover                                            # reconcile any interrupted transaction
 ```
 
-To build the Arch tools package, run `make package` as an ordinary user in an isolated Arch environment with `base-devel`, Go, Git, and the recipe's runtime dependencies installed. It stages a pinned source archive and prints the package paths. Verify the main archive with `bash tests/integration/arch-tools-package.sh <package>` and the real-systemd KVM guest lifecycle with `bash tests/integration/s4-cli-e2e-run.sh <package>`. The SDDM theme and PAM service are shipped separately in `sddm-fplogin`.
+### Persistent Post-Install Configuration
+
+All runtime settings live in `/etc/sddm.conf.d/90-fplogin.conf` and survive reboots and `sddm-fplogin` upgrades:
+
+```bash
+# Keep your current theme visually untouched (default)
+sudo fplogin config set --theme preserve --overlay false
+
+# Enable subtle status pill (scanning / retry / timeout) + custom retry shortcut over your current theme
+sudo fplogin config set --overlay true --retry-key F8
+
+# Disable the retry shortcut entirely or adjust the scan deadline (5..120 s)
+sudo fplogin config set --retry-key none --timeout 45
+```
+
+> **Note on SDDM precedence:** `/etc/sddm.conf` overrides `/etc/sddm.conf.d/*.conf`. Because `fplogin` keeps `[Theme]` untouched by default, your configured theme stays active automatically; if you explicitly switch `--theme fplogin`, `fplogin config` warns when `/etc/sddm.conf` sets a different `Current=` theme.
+
+---
+
+## System Paths Managed
+
+| Component | System Path | Ownership / Notes |
+|---|---|---|
+| CLI & out-of-process workers | `/usr/bin/fplogin`, `/usr/lib/fplogin/` | Installed by `fplogin-git` |
+| Dedicated biometric PAM service | `/etc/pam.d/sddm-fingerprint` | Installed by `sddm-fplogin`; stock `/etc/pam.d/sddm` untouched |
+| Optional bundled greeter theme | `/usr/share/sddm/themes/fplogin/` | Installed by `sddm-fplogin` |
+| Persistent drop-in config | `/etc/sddm.conf.d/90-fplogin.conf` | Managed by `fplogin install` and `fplogin config` |
+| Transaction journal & manifest | `/var/lib/fplogin/` (`0700`) | WAL journals, verified backups, checksummed `manifest.json` |
+| Offline package trust root | `/etc/fplogin/trust/` | Root-owned keyring & `pacman.conf` for verified offline installs |
+
+---
+
+## Repository Architecture
+
+```text
+fplogin/
+├── cmd/                         # Core CLI (fplogin), Arch platform worker, SDDM adapter worker
+├── internal/
+│   ├── core/                    # DM-agnostic discovery, selection, WAL transactions, install, uninstall, analyzer
+│   ├── protocol/                # Versioned Go wire and manifest types
+│   ├── adapterclient/           # Bounded out-of-process adapter client
+│   ├── platformclient/          # Bounded out-of-process platform client
+│   ├── descriptortrust/         # Root-owned descriptor and path trust validation
+│   └── processrunner/           # Timeout- and output-bounded subprocess execution
+├── contracts/                   # Versioned JSON Schemas (adapter, platform, manifest, analyzer) and examples
+├── platforms/
+│   └── arch/                    # Arch platform descriptor, fplogin PKGBUILD, sddm-fplogin dual Qt6/Qt5 recipe & patches 0000..0006
+├── adapters/
+│   └── sddm/                    # SDDM adapter descriptor, accepted patches 0001..0002, theme assets, local upstream PR draft
+├── scripts/                     # Local reproducible release builder (build_release.sh) & package verification
+├── tests/                       # Contract, AST boundary, security, analyzer, and Arch KVM E2E suites
+└── docs/                        # Architecture, security threat model, recovery, upstream tracking, and v1.0 validation review
+```
+
+`internal/core/` never imports, references, or branches on any display manager or Linux distribution (enforced by AST boundary tests in `tests/contract/architecture_test.go`).
+
+---
+
+## Building & Testing
+
+```bash
+# Build binaries and run full Go test suite (with race detector)
+make build
+go test -race -count=1 ./...
+go vet -tags f05lab ./...
+
+# Build offline Arch tools package (fplogin-git)
+make package
+
+# Build reproducible local release artifacts + SHA256SUMS (optional --gpg-key <id>)
+scripts/build_release.sh --sddm-pkg <path-to-sddm-fplogin.pkg.tar.zst>
+```
+
+---
 
 ## Documentation
 
-- [Implementation Plan](docs/IMPLEMENTATION_PLAN.md): Roadmap, verification matrix, security model, and Definition of Done.
-- [Emergency Recovery Guide](docs/EMERGENCY_RECOVERY.md): Step-by-step procedures for interrupted transactions, journal recovery, and PAM restore.
-- [Supported Versions & Policy](docs/SUPPORTED_VERSIONS.md): Supported Linux distributions, desktop environments, PAM, and toolchain dependencies.
-- [Upstream SDDM Tracking](docs/UPSTREAM_TRACKING.md): Patch rebase policy, conflict handling, and upstream PR tracking.
-- [Core Language and Adapter Contract](docs/architecture/CORE_ADAPTER_ANALYSIS.md): Language evaluation, adapter protocol, repository foundation, and architectural risks.
-- [SDDM Concurrent Authentication Design](docs/architecture/SDDM_AUTHENTICATION_DESIGN.md): Pinned baseline, stock message flow, winner gate, cancellation boundary, and proposed SDDM IPC.
-- [SDDM Greeter and Theme Design](docs/architecture/SDDM_GREETER_DESIGN.md): Context correlation, typed reader states, controlling-view lifecycle, and password fallback.
-- [Threat Model & Security Boundaries](docs/security/THREAT_MODEL.md): Consolidated five-boundary threat model mapped to §3.2 security invariants.
-- [Synaptics Test Hardware](docs/hardware/SYNAPTICS_06CB_00BD.md): Primary physical-reader record and scenario matrix.
-- [Sprint 7 Validation Review](docs/reviews/sprint-7.md): End-to-end KVM, dual Qt6/Qt5, upstream PR series, and real-hardware verification record.
+- [Sprint 7 & v1.0.0 Validation Review](docs/reviews/sprint-7.md): End-to-end KVM lifecycle, dual Qt6/Qt5 builds, real Synaptics hardware matrix, `hyprlock` handoff, and v1.0.0 acceptance record.
+- [Emergency Recovery Guide](docs/EMERGENCY_RECOVERY.md): TTY recovery, `fplogin recover`, clean uninstall, and offline rollback to stock SDDM.
+- [Supported Versions & Policy](docs/SUPPORTED_VERSIONS.md): Supported Arch Linux, systemd, SDDM, Qt6/Qt5, PAM, and libfprint versions.
+- [Upstream SDDM Tracking](docs/UPSTREAM_TRACKING.md): Patch rebase policy, conflict handling, and upstream PR workflow.
+- [Threat Model & Security Boundaries](docs/security/THREAT_MODEL.md): Five-boundary threat model mapped to security invariants.
+- [Implementation Plan](docs/IMPLEMENTATION_PLAN.md): Full v1.0 architecture specification, verification matrix, and Definition of Done.
+- [Core-Adapter Architecture](docs/architecture/CORE_ADAPTER_ANALYSIS.md) & [ADRs](docs/architecture/decisions/): Language selection, out-of-process adapter IPC, and WAL transaction journaling.
+- [SDDM Authentication & Greeter Design](docs/architecture/SDDM_AUTHENTICATION_DESIGN.md), [Greeter Design](docs/architecture/SDDM_GREETER_DESIGN.md), and [Theme Context Contract](docs/architecture/SDDM_THEME_CONTEXT_CONTRACT.md).
+- [Reference Hardware Record (Synaptics 06cb:00bd)](docs/hardware/SYNAPTICS_06CB_00BD.md).
+
+---
 
 ## License
 
-MIT
-
+- **`fplogin` CLI, core engine, platform/adapter workers, and contracts:** [MIT License](LICENSE).
+- **SDDM patch series (`adapters/sddm/patches/`, `platforms/arch/sddm-fplogin/*.patch`) and `sddm-fplogin` package:** `GPL-2.0-or-later` (derived from upstream SDDM; bundled theme assets include `CC-BY-3.0` where noted).

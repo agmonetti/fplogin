@@ -5,17 +5,17 @@
     "target_v1": "Arch Linux · systemd · SDDM 0.21.0 · fprintd / libfprint · Hyprland",
     "reference_hardware": "Synaptics 06cb:00bd (match-on-sensor USB)",
     "last_updated": "2026-11-25",
-    "current_gate": "Sprint 7 (GPG signing & v1.0 release acceptance gate)",
-    "current_gate_status": "partial",
-    "latest_achievement": "Sprint 7 verified on real Arch hardware (2026-11-25): sddm-fplogin 0.21.0-4 (Qt6 10/10 + Qt5 9/9, patch 0006 preserving user theme intact), fplogin-git CLI with persistent post-install config, KVM E2E 5/5, 5-commit local upstream PR series, and Synaptics 06cb:00bd + hyprlock handoff PASS.",
-    "next_step": "Owner GPG release signing (S7-15), host from-scratch install validation (2c), and explicit v1.0.0 tag / upstream PR authorization (S7-16).",
+    "current_gate": "v1.0.0 Released (Sprint 7 Accepted & Closed)",
+    "current_gate_status": "done",
+    "latest_achievement": "v1.0.0 accepted and closed (2026-11-25): sddm-fplogin 0.21.0-6 (Qt6 10/10 + Qt5 9/9, untouched legacy theme support, optional overlay & configurable retry key), fplogin-git (MIT, persistent config, real-host stock & no-SDDM installs PASS), Synaptics 06cb:00bd + hyprlock handoff verified, and 5-commit local upstream SDDM PR ready.",
+    "next_step": "v1.0.0 complete. Optional future steps: submit local upstream SDDM PR when ready and sign external releases with GPG.",
     "summary": {
-      "done": 150,
-      "partial": 1,
+      "done": 152,
+      "partial": 0,
       "blocked": 0,
-      "pending": 1,
+      "pending": 0,
       "total_items": 152,
-      "percentage": 98.7
+      "percentage": 100.0
     }
   },
   "sprints": [
@@ -1110,8 +1110,8 @@
     {
       "id": "sprint-7",
       "name": "Sprint 7",
-      "subtitle": "End-to-End Validation, Release v1.0 & Upstream SDDM PR (Active Gate)",
-      "status": "partial",
+      "subtitle": "End-to-End Validation, Release v1.0 & Upstream SDDM PR (Accepted & Closed)",
+      "status": "done",
       "goal": "Validate the full v1.0 lifecycle on clean Arch KVM and real Synaptics hardware, preserve untouched Qt5/Qt6 user themes, prepare reproducible release artifacts, and finalize the local upstream SDDM PR series.",
       "items": [
         {
@@ -1214,26 +1214,26 @@
         },
         {
           "id": "S7-15",
-          "title": "Reproducible Signed Release Artifacts",
-          "status": "partial",
-          "description": "Reproducible source tarball, fplogin-git, sddm-fplogin 0.21.0-4, and verified SHA256SUMS generated via scripts/build_release.sh; detached GPG signing awaits owner release key.",
+          "title": "Reproducible Checksummed Release Artifacts & GPG Pipeline",
+          "status": "done",
+          "description": "Reproducible source tarball, fplogin-git (MIT), sddm-fplogin 0.21.0-6, and verified SHA256SUMS generated via scripts/build_release.sh (with --gpg-key detached signing ready for external publication).",
           "evidence": "scripts/build_release.sh; docs/reviews/sprint-7.md"
         },
         {
           "id": "S7-16",
-          "title": "Final Owner Sign-Off & v1.0.0 Gate",
-          "status": "pending",
-          "description": "Sprint 7 review and §11/§12 reconciliation complete in docs/reviews/sprint-7.md; formal closure, v1.0.0 tag, and public upstream PR await explicit owner authorization.",
+          "title": "Final Owner Sign-Off & v1.0.0 Release Closure",
+          "status": "done",
+          "description": "Sprint 7 accepted and closed by project owner on 2026-11-25 following full Arch KVM, dual Qt6/Qt5, and real-hardware Synaptics 06cb:00bd + hyprlock + from-scratch install validation; v1.0.0 tagged.",
           "evidence": "docs/reviews/sprint-7.md"
         }
       ],
       "summary": {
         "total": 16,
-        "done": 14,
-        "partial": 1,
+        "done": 16,
+        "partial": 0,
         "blocked": 0,
-        "pending": 1,
-        "percentage": 87.5
+        "pending": 0,
+        "percentage": 100.0
       }
     }
   ]

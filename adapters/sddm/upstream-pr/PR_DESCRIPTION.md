@@ -2,7 +2,7 @@
 
 > **Status:** Local / private draft prepared for `github.com/sddm/sddm`. Do not submit publicly until local Arch hardware sign-off and explicit owner authorization.
 >
-> **Branch:** `upstream-pr/concurrent-fingerprint-auth` (rebased cleanly on SDDM `v0.21.0`, commit `63780fcd79f1dbf81a30eef48c28c699ab15aded`; HEAD `a53646d`; self-contained bundle `.work/checkpoints/sddm-sprint7-upstream-pr.bundle`; exported `git format-patch` series in `.work/release/upstream-pr/0001..0005`).
+> **Branch:** `upstream-pr/concurrent-fingerprint-auth` (rebased cleanly on SDDM `v0.21.0`, commit `63780fcd79f1dbf81a30eef48c28c699ab15aded`; HEAD `7bbb43f`; self-contained bundle `.work/checkpoints/sddm-sprint7-upstream-pr.bundle`; exported `git format-patch` series in `.work/release/upstream-pr/0001..0005`).
 
 ---
 
@@ -33,9 +33,11 @@ This PR adds **native concurrent authentication methods** (password + fingerprin
    - Subscribes to `org.freedesktop.login1.Manager::PrepareForSleep(bool)` to cancel active scans on external suspend and never auto-trigger hidden scans on resume.
    - Immediately degrades fingerprint state on `fprintd` D-Bus owner loss (`serviceOwnerChanged`) while preserving in-flight password logins.
    - Zero-wipes transient password `QString` buffers via `explicit_bzero` before clearing/reassignment.
-5. **Non-intrusive auto-start for existing Qt5/Qt6 themes (`0005`):**
-   - Adds `[General] AutoFingerprintForLegacyThemes` (default `true`): if a loaded theme does not call `setAuthenticationContext`/`startFingerprint`, `GreeterApp` starts one bounded concurrent fingerprint attempt for the default `UserModel`/`SessionModel` selection without modifying the theme or injecting visual overlays.
-   - Emergency embedded fallback (`qrc:/theme`) remains strictly password-only, and disabling the key suppresses auto-start cleanly.
+5. **Non-intrusive auto-start, optional status overlay & configurable retry shortcut for existing Qt5/Qt6 themes (`0005`):**
+   - Adds `[General] AutoFingerprintForLegacyThemes` (default `true`): if a loaded theme does not call `setAuthenticationContext`/`startFingerprint`, `GreeterApp` starts one bounded concurrent fingerprint attempt for the default `UserModel`/`SessionModel` selection without modifying the theme.
+   - Adds `[General] FingerprintStatusOverlay` (default `false`): optionally renders a minimal, non-focus-stealing bottom status pill over legacy Qt5/Qt6 themes displaying scanning, retry, failed, timed-out, and matched states.
+   - Adds `[General] FingerprintRetryKey` (default `F4`, accepts any single portable `QKeySequence` such as `F8` or `Ctrl+R`, or `none` to disable) so users can explicitly trigger a bounded retry after failure/timeout without colliding with theme keybindings.
+   - Emergency embedded fallback (`qrc:/theme`) remains strictly password-only.
 
 ## Commit Series (5 atomic commits)
 
@@ -45,7 +47,7 @@ This PR adds **native concurrent authentication methods** (password + fingerprin
 | 2 | `greeter: expose concurrent authentication method API and controller-isolated theme lifecycle` | `src/daemon/{Display,SocketServer}.*`, `src/greeter/{GreeterApp,GreeterProxy}.*`, fallback QML, Qt5 metatype, greeter/daemon tests |
 | 3 | `daemon: enforce fprintd availability gating, bounded scan deadline, and fixture cleanup` | `src/daemon/Display.cpp`, `test/DaemonContextTest.cpp`, `test/FingerprintAvailabilityService.cpp` |
 | 4 | `security: harden auth/greeter sockets, PrepareForSleep, fprintd crash handling, and secret wiping` | `src/auth/Auth.cpp`, `src/daemon/{Display,SocketServer}.*`, `test/{AuthTransport,DaemonContext,FploginTheme}Test.cpp` |
-| 5 | `greeter: auto-start concurrent fingerprint for legacy themes without API opt-in` | `src/common/Configuration.h`, `src/greeter/{GreeterApp,GreeterProxy}.{h,cpp}`, `test/GreeterAppTest.cpp` |
+| 5 | `greeter: auto-start fingerprint with optional status overlay and configurable retry key for legacy themes` | `src/common/Configuration.h`, `src/greeter/{GreeterApp,GreeterProxy}.{h,cpp}`, `test/GreeterAppTest.cpp` |
 
 > **Note for upstream reviewers:** This series contains **zero** distribution packaging, installer, or analyzer code. When rebasing onto upstream `develop` (post-`v0.21.0`), `CMakeLists.txt` already includes upstream commit `228778c` (CMake 3.5 minimum); no CMake shim is included in this PR.
 
