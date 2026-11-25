@@ -179,7 +179,8 @@ out=$(/usr/bin/fplogin install --artifacts-dir /opt/artifacts 2>&1) || rc=$?
 test "$rc" -eq 1
 reinstall_digest=$(printf '%s\n' "$out" | extract_digest)
 test "${#reinstall_digest}" -eq 64
-/usr/bin/fplogin install --artifacts-dir /opt/artifacts --approve-plan "$reinstall_digest" | grep -Fq 'Mode:           reinstall'
+reinstall_out=$(/usr/bin/fplogin install --artifacts-dir /opt/artifacts --approve-plan "$reinstall_digest")
+printf '%s\n' "$reinstall_out" | grep -Fq 'Mode:           reinstall'
 
 # 2e. Delete theme drop-in -> repair restores it cleanly.
 rm -f /etc/sddm.conf.d/90-fplogin.conf
@@ -188,7 +189,8 @@ rc=0
 out=$(/usr/bin/fplogin install --artifacts-dir /opt/artifacts 2>&1) || rc=$?
 test "$rc" -eq 1
 repair_digest=$(printf '%s\n' "$out" | extract_digest)
-/usr/bin/fplogin install --artifacts-dir /opt/artifacts --approve-plan "$repair_digest" | grep -Fq 'Mode:           repair'
+repair_out=$(/usr/bin/fplogin install --artifacts-dir /opt/artifacts --approve-plan "$repair_digest")
+printf '%s\n' "$repair_out" | grep -Fq 'Mode:           repair'
 /usr/bin/fplogin status | grep -Fq 'Intact (all file checksums match)'
 
 # 2f. Transactional uninstall restores exact stock SDDM baseline.
