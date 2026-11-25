@@ -46,6 +46,8 @@ func main() {
 		runUninstall(args)
 	case "recover":
 		runRecover(args)
+	case "update":
+		runUpdate(args)
 	case "help", "--help", "-h":
 		printUsage()
 	default:
@@ -65,6 +67,7 @@ Subcommands:
   install     Install fplogin (--dry-run unprivileged preview; live requires root + --artifacts-dir)
   uninstall   Transactionally restore the pre-fplogin baseline from manifest (root required)
   recover     Reconcile any interrupted install or uninstall transaction from disk (root required)
+  update      Check or apply GitHub Release updates verified by SHA-256 (--check unprivileged; apply requires root)
   status      Display current installation state from manifest (read-only)
   analyze     Inspect password-derived facilities impacted by biometric login (read-only)
   config      Show or persistently update SDDM fingerprint drop-in settings

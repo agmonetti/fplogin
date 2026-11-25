@@ -1,0 +1,165 @@
+package main
+
+import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func sha256Hex(b []byte) string {
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:])
+}
+
+func TestUpdate_CheckApplyAndUpToDate(t *testing.T) {
+	fploginBytes := []byte("fake-fplogin-pkg-v1.1.0")
+	sddmBytes := []byte("fake-sddm-pkg-0.21.0-7")
+	fploginSHA := sha256Hex(fploginBytes)
+	sddmSHA := sha256Hex(sddmBytes)
+
+	var srv *httptest.Server
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/repos/agmonetti/fplogin/releases/latest":
+			_ = json.NewEncoder(w).Encode(githubRelease{
+				TagName: "v1.1.0",
+				Assets: []githubReleaseAsset{
+					{Name: "SHA256SUMS", BrowserDownloadURL: srv.URL + "/assets/SHA256SUMS"},
+					{Name: "fplogin-git-1.1.0-1-x86_64.pkg.tar.zst", BrowserDownloadURL: srv.URL + "/assets/fplogin.pkg.tar.zst"},
+					{Name: "sddm-fplogin-0.21.0-7-x86_64.pkg.tar.zst", BrowserDownloadURL: srv.URL + "/assets/sddm.pkg.tar.zst"},
+				},
+			})
+		case "/assets/SHA256SUMS":
+			fmt.Fprintf(w, "%s  fplogin-git-1.1.0-1-x86_64.pkg.tar.zst\n%s  sddm-fplogin-0.21.0-7-x86_64.pkg.tar.zst\n", fploginSHA, sddmSHA)
+		case "/assets/fplogin.pkg.tar.zst":
+			_, _ = w.Write(fploginBytes)
+		case "/assets/sddm.pkg.tar.zst":
+			_, _ = w.Write(sddmBytes)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	statePath := filepath.Join(t.TempDir(), "release-state.json")
+	var installedPaths []string
+	makeDeps := func(euid int, in string, out, errBuf *bytes.Buffer) updateDeps {
+		return updateDeps{
+			httpClient: srv.Client(),
+			getEuid:    func() int { return euid },
+			queryPacman: func(pkg string) (string, bool) {
+				if pkg == "fplogin-git" {
+					return "fplogin-git 1.0.0-1", true
+				}
+				if pkg == "sddm-fplogin" {
+					return "sddm-fplogin 0.21.0-6", true
+				}
+				return "", false
+			},
+			installPkgs: func(paths []string) error {
+				installedPaths = append([]string(nil), paths...)
+				return nil
+			},
+			stdin:  strings.NewReader(in),
+			stdout: out,
+			stderr: errBuf,
+		}
+	}
+
+	// 1. Unprivileged --check reports update available and does not install.
+	var out, errBuf bytes.Buffer
+	err := executeUpdate([]string{"--check", "--api-base", srv.URL, "--state", statePath}, makeDeps(1000, "", &out, &errBuf))
+	if err != nil {
+		t.Fatalf("--check failed: %v", err)
+	}
+	if !strings.Contains(out.String(), "update available") || len(installedPaths) != 0 {
+		t.Fatalf("unexpected --check output=%q installed=%v", out.String(), installedPaths)
+	}
+
+	// 2. Root apply verifies both packages, confirms, installs, and records SHAs.
+	out.Reset()
+	err = executeUpdate([]string{"--api-base", srv.URL, "--state", statePath}, makeDeps(0, "y\n", &out, &errBuf))
+	if err != nil {
+		t.Fatalf("apply failed: %v", err)
+	}
+	if len(installedPaths) != 2 {
+		t.Fatalf("expected 2 installed packages, got %v", installedPaths)
+	}
+	if !strings.Contains(out.String(), "Updated successfully to v1.1.0") {
+		t.Fatalf("unexpected apply output: %q", out.String())
+	}
+
+	// 3. Re-running reports Already up to date and installs nothing.
+	installedPaths = nil
+	out.Reset()
+	err = executeUpdate([]string{"--api-base", srv.URL, "--state", statePath}, makeDeps(0, "", &out, &errBuf))
+	if err != nil {
+		t.Fatalf("second run failed: %v", err)
+	}
+	if !strings.Contains(out.String(), "Already up to date (v1.1.0)") || len(installedPaths) != 0 {
+		t.Fatalf("expected up-to-date, got output=%q installed=%v", out.String(), installedPaths)
+	}
+}
+
+func TestUpdate_RejectsSHA256MismatchBeforeInstall(t *testing.T) {
+	var srv *httptest.Server
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/repos/agmonetti/fplogin/releases/latest":
+			_ = json.NewEncoder(w).Encode(githubRelease{
+				TagName: "v1.1.0",
+				Assets: []githubReleaseAsset{
+					{Name: "SHA256SUMS", BrowserDownloadURL: srv.URL + "/assets/SHA256SUMS"},
+					{Name: "fplogin-git-1.1.0-1-x86_64.pkg.tar.zst", BrowserDownloadURL: srv.URL + "/assets/fplogin.pkg.tar.zst"},
+				},
+			})
+		case "/assets/SHA256SUMS":
+			fmt.Fprintf(w, "%s  fplogin-git-1.1.0-1-x86_64.pkg.tar.zst\n", sha256Hex([]byte("expected-content")))
+		case "/assets/fplogin.pkg.tar.zst":
+			_, _ = w.Write([]byte("tampered-content"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	calledInstall := false
+	statePath := filepath.Join(t.TempDir(), "release-state.json")
+	var out, errBuf bytes.Buffer
+	err := executeUpdate([]string{"--yes", "--api-base", srv.URL, "--state", statePath}, updateDeps{
+		httpClient:  srv.Client(),
+		getEuid:     func() int { return 0 },
+		queryPacman: func(string) (string, bool) { return "", false },
+		installPkgs: func([]string) error { calledInstall = true; return nil },
+		stdin:       strings.NewReader(""),
+		stdout:      &out,
+		stderr:      &errBuf,
+	})
+	if err == nil || !strings.Contains(err.Error(), "SHA-256 mismatch") {
+		t.Fatalf("expected SHA-256 mismatch error, got %v", err)
+	}
+	if calledInstall {
+		t.Fatal("pacman -U must never run on SHA-256 mismatch")
+	}
+	if _, statErr := os.Stat(statePath); !os.IsNotExist(statErr) {
+		t.Fatalf("state file must not be written on failure: %v", statErr)
+	}
+}
+
+func TestParseSHA256Sums_RejectsUnsafeEntries(t *testing.T) {
+	validSum := sha256Hex([]byte("ok"))
+	if _, err := parseSHA256Sums(validSum + "  ../evil.pkg.tar.zst\n"); err == nil {
+		t.Fatal("expected traversal filename rejection")
+	}
+	if _, err := parseSHA256Sums("not-a-sha  fplogin-git-1.0.0.pkg.tar.zst\n"); err == nil {
+		t.Fatal("expected invalid digest rejection")
+	}
+}

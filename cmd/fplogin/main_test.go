@@ -37,6 +37,8 @@ func TestCLISafeguardsAndHelp(t *testing.T) {
 		{[]string{"uninstall", "--yes"}, 1, "Error: uninstall requires root privileges"},
 		{[]string{"uninstall", "--force", "--manifest", "/nonexistent"}, 2, "flag provided but not defined"},
 		{[]string{"recover"}, 1, "Error: recover requires root privileges"},
+		{[]string{"update"}, 1, "Error: update: requires root privileges"},
+		{[]string{"update", "--help"}, 0, "Compares SHA-256 checksums"},
 		{[]string{"install", "--dry-run", "--yes"}, 2, "flag provided but not defined"},
 		{[]string{"install", "--dry-run", "--adapter-dir=/nonexistent"}, 2, "flag provided but not defined"},
 		{[]string{"help"}, 0, "recover"},
