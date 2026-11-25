@@ -20,6 +20,7 @@ const (
 
 type persistentConfig struct {
 	AutoLegacy bool
+	Overlay    bool
 	Timeout    int
 	Theme      string // "preserve" means no [Theme] override
 }
@@ -27,6 +28,7 @@ type persistentConfig struct {
 func defaultPersistentConfig() persistentConfig {
 	return persistentConfig{
 		AutoLegacy: true,
+		Overlay:    false,
 		Timeout:    30,
 		Theme:      "preserve",
 	}
@@ -56,7 +58,7 @@ func runConfig(args []string) {
 func printConfigUsage() {
 	fmt.Fprintf(os.Stderr, `Usage:
   fplogin config [show] [--path FILE]
-  sudo fplogin config set [--auto-legacy true|false] [--timeout 5..120] [--theme preserve|fplogin|<name>]
+  sudo fplogin config set [--auto-legacy true|false] [--overlay true|false] [--timeout 5..120] [--theme preserve|fplogin|<name>]
 
 Persistent settings are stored in %s and survive reboots and package upgrades.
 `, defaultConfigDropIn)
@@ -97,10 +99,11 @@ func runConfigSet(args []string) {
 	fs := flag.NewFlagSet("config set", flag.ExitOnError)
 	path := fs.String("path", defaultConfigDropIn, "path to SDDM fplogin drop-in")
 	autoLegacy := fs.String("auto-legacy", "", "auto-start fingerprint on untouched Qt5/Qt6 themes (true|false)")
+	overlay := fs.String("overlay", "", "show subtle scanning/retry/timeout status pill over legacy themes (true|false)")
 	timeout := fs.Int("timeout", 0, "fingerprint scan deadline in seconds (5..120)")
 	theme := fs.String("theme", "", "theme mode: preserve (keep existing theme), fplogin, or installed theme name")
 	_ = fs.Parse(args)
-	if fs.NArg() != 0 || (*autoLegacy == "" && *timeout == 0 && *theme == "") {
+	if fs.NArg() != 0 || (*autoLegacy == "" && *overlay == "" && *timeout == 0 && *theme == "") {
 		printConfigUsage()
 		os.Exit(2)
 	}
@@ -123,6 +126,14 @@ func runConfigSet(args []string) {
 		}
 		cfg.AutoLegacy = v
 	}
+	if *overlay != "" {
+		v, err := strconv.ParseBool(*overlay)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: invalid --overlay value %q (want true or false)\n", *overlay)
+			os.Exit(2)
+		}
+		cfg.Overlay = v
+	}
 	if *timeout != 0 {
 		if *timeout < 5 || *timeout > 120 {
 			fmt.Fprintf(os.Stderr, "Error: --timeout must be between 5 and 120 seconds (got %d)\n", *timeout)
@@ -144,6 +155,7 @@ func runConfigSet(args []string) {
 	}
 	fmt.Printf("Saved persistent configuration to %s\n", *path)
 	fmt.Printf("  auto_fingerprint_legacy_themes: %t\n", cfg.AutoLegacy)
+	fmt.Printf("  fingerprint_status_overlay:     %t\n", cfg.Overlay)
 	fmt.Printf("  fingerprint_timeout_seconds:    %d\n", cfg.Timeout)
 	fmt.Printf("  theme:                          %s\n", cfg.Theme)
 	if cfg.Theme != "preserve" {
@@ -213,6 +225,10 @@ func loadPersistentConfig(path string) (persistentConfig, bool, error) {
 				if b, err := strconv.ParseBool(v); err == nil {
 					cfg.AutoLegacy = b
 				}
+			} else if k == "FingerprintStatusOverlay" {
+				if b, err := strconv.ParseBool(v); err == nil {
+					cfg.Overlay = b
+				}
 			} else if k == "FingerprintAuthTimeout" {
 				if n, err := strconv.Atoi(v); err == nil && n >= 5 && n <= 120 {
 					cfg.Timeout = n
@@ -231,6 +247,9 @@ func formatPersistentConfig(cfg persistentConfig) string {
 	var b strings.Builder
 	b.WriteString("[General]\n")
 	fmt.Fprintf(&b, "AutoFingerprintForLegacyThemes=%t\n", cfg.AutoLegacy)
+	if cfg.Overlay {
+		b.WriteString("FingerprintStatusOverlay=true\n")
+	}
 	if cfg.Timeout != 30 {
 		fmt.Fprintf(&b, "FingerprintAuthTimeout=%d\n", cfg.Timeout)
 	}

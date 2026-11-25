@@ -1,20 +1,49 @@
 diff --git a/src/common/Configuration.h b/src/common/Configuration.h
-index 20c76fc..71da371 100644
+index 20c76fc..c4f0020 100644
 --- a/src/common/Configuration.h
 +++ b/src/common/Configuration.h
-@@ -47,6 +47,7 @@ namespace SDDM {
+@@ -47,6 +47,8 @@ namespace SDDM {
                                                                                                     "NOTE: Currently ignored if autologin is enabled."));
          Entry(InputMethod,         QString,     QStringLiteral("qtvirtualkeyboard"),                   _S("Input method module"));
          Entry(FingerprintAuthTimeout, int, 30, _S("Fingerprint authentication phase deadline in seconds"));
 +        Entry(AutoFingerprintForLegacyThemes, bool, true, _S("Automatically start concurrent fingerprint authentication for themes that do not call the fingerprint API"));
++        Entry(FingerprintStatusOverlay, bool, false, _S("Show a minimal non-intrusive fingerprint status pill over legacy themes"));
          Entry(Namespaces,          QStringList, QStringList(),                                  _S("Comma-separated list of Linux namespaces for user session to enter"));
          Entry(GreeterEnvironment,  QStringList, QStringList(),                                  _S("Comma-separated list of environment variables to be set"));
          //  Name   Entries (but it's a regular class again)
 diff --git a/src/greeter/GreeterApp.cpp b/src/greeter/GreeterApp.cpp
-index 9dc6845..054d5c8 100644
+index 9dc6845..bb85931 100644
 --- a/src/greeter/GreeterApp.cpp
 +++ b/src/greeter/GreeterApp.cpp
-@@ -219,7 +219,10 @@ namespace SDDM {
+@@ -34,6 +34,8 @@
+ 
+ #include <QCommandLineParser>
+ #include <QGuiApplication>
++#include <QKeyEvent>
++#include <QQmlComponent>
+ #include <QQuickItem>
+ #include <QQuickView>
+ #include <QQmlContext>
+@@ -152,6 +154,18 @@ namespace SDDM {
+             startup();
+     }
+ 
++    bool GreeterApp::eventFilter(QObject *watched, QEvent *event)
++    {
++        if (watched == m_controllerView && event->type() == QEvent::KeyPress) {
++            const auto *key = static_cast<QKeyEvent *>(event);
++            if (key->key() == Qt::Key_F4 && !key->isAutoRepeat() && key->modifiers() == Qt::NoModifier) {
++                if (retryLegacyFingerprint())
++                    return true;
++            }
++        }
++        return QObject::eventFilter(watched, event);
++    }
++
+     void GreeterApp::addViewForScreen(QScreen *screen) {
+         if (!screen || m_replacingRoots) return;
+         QQuickView *view = new QQuickView();
+@@ -219,7 +233,10 @@ namespace SDDM {
          }
          if (view->status() != QQuickView::Ready) return;
          view->showFullScreen();
@@ -26,7 +55,23 @@ index 9dc6845..054d5c8 100644
          if (screen == QGuiApplication::primaryScreen() && m_controllerView != view)
              activatePrimary();
      }
-@@ -292,6 +295,9 @@ namespace SDDM {
+@@ -229,6 +246,7 @@ namespace SDDM {
+         const bool wasController = m_controllerView == view;
+         if (m_pendingController == view) m_pendingController.clear();
+         if (wasController) {
++            destroyLegacyOverlay();
+             m_controllerView.clear();
+             m_proxy->setAuthenticationController(false);
+             m_clearPending = true;
+@@ -242,6 +260,7 @@ namespace SDDM {
+ 
+     void GreeterApp::beginFallback(const QString &errors) {
+         qWarning() << "Fallback to embedded theme";
++        destroyLegacyOverlay();
+         m_fallbackStarted = true;
+         m_fallbackErrors = errors;
+         m_clearPending = true;
+@@ -292,6 +311,9 @@ namespace SDDM {
          }
          m_proxy->setSessionModel(m_sessionModel);
          connect(m_proxy, &GreeterProxy::socketDisconnected, qGuiApp, &QCoreApplication::quit);
@@ -36,7 +81,15 @@ index 9dc6845..054d5c8 100644
          connect(m_proxy, &GreeterProxy::authenticationContextCleared, this, [this](quint64) {
              m_clearPending = false;
              m_committedPromotion = false;
-@@ -346,6 +352,53 @@ namespace SDDM {
+@@ -329,6 +351,7 @@ namespace SDDM {
+             return;
+         }
+         m_clearPending = true;
++        destroyLegacyOverlay();
+         m_controllerView.clear();
+         m_proxy->setAuthenticationController(false);
+         for (QQuickView *view : qAsConst(m_views))
+@@ -346,6 +369,158 @@ namespace SDDM {
              view->rootContext()->setContextProperty(QStringLiteral("authenticationController"), controller);
              if (controller) view->requestActivate();
          }
@@ -86,20 +139,141 @@ index 9dc6845..054d5c8 100644
 +            return;
 +
 +        m_legacyAutoStarted = true;
++        m_legacyUser = user;
++        m_legacySessionIndex = sessionIndex;
++        m_controllerView->installEventFilter(this);
++        if (mainConfig.FingerprintStatusOverlay.get())
++            attachLegacyOverlay();
 +        m_proxy->startFingerprint(user, sessionIndex);
++    }
++
++    bool GreeterApp::retryLegacyFingerprint() {
++        if (!m_legacyAutoStarted || m_embeddedFallback || m_fallbackStarted || m_clearPending)
++            return false;
++        if (!m_controllerView || !m_proxy || !m_proxy->authenticationController()
++            || !m_proxy->authenticationMethodsAvailable() || m_proxy->authenticationBusy())
++            return false;
++        if (m_legacyUser.isEmpty() || m_legacySessionIndex < 0)
++            return false;
++        const QString st = m_proxy->fingerprintState();
++        if (st != QLatin1String("failed") && st != QLatin1String("timed_out")
++            && st != QLatin1String("cancelled") && st != QLatin1String("ready"))
++            return false;
++        m_proxy->startFingerprint(m_legacyUser, m_legacySessionIndex);
++        return true;
++    }
++
++    void GreeterApp::attachLegacyOverlay() {
++        if (m_legacyOverlay || !m_controllerView || m_embeddedFallback || m_fallbackStarted)
++            return;
++        QQuickItem *root = m_controllerView->rootObject();
++        if (!root)
++            return;
++        static const QByteArray overlayQml = QByteArrayLiteral(R"QML(
++import QtQuick 2.15
++Rectangle {
++    id: fpOverlay
++    objectName: "fploginLegacyStatusOverlay"
++    readonly property string st: sddm ? sddm.fingerprintState : ""
++    readonly property string labelText: {
++        if (st === "scanning") return "Fingerprint ready — touch sensor"
++        if (st === "retry") return "Fingerprint not recognized — try again"
++        if (st === "failed") return "Fingerprint failed — press F4 to retry or use password"
++        if (st === "timed_out") return "Fingerprint timed out — press F4 to retry or use password"
++        if (st === "matched") return "Fingerprint verified"
++        return ""
++    }
++    readonly property color dotColor: {
++        if (st === "scanning") return "#38bdf8"
++        if (st === "retry") return "#f59e0b"
++        if (st === "failed" || st === "timed_out") return "#ef4444"
++        if (st === "matched") return "#22c55e"
++        return "#94a3b8"
++    }
++    visible: authenticationController && labelText.length > 0
++    focus: false
++    activeFocusOnTab: false
++    z: 999999
++    radius: 16
++    color: "#cc111318"
++    border.color: "#33ffffff"
++    border.width: 1
++    implicitWidth: row.implicitWidth + 28
++    implicitHeight: row.implicitHeight + 14
++    anchors.horizontalCenter: parent ? parent.horizontalCenter : undefined
++    anchors.bottom: parent ? parent.bottom : undefined
++    anchors.bottomMargin: 28
++    Row {
++        id: row
++        anchors.centerIn: parent
++        spacing: 8
++        Rectangle {
++            width: 8
++            height: 8
++            radius: 4
++            color: fpOverlay.dotColor
++            anchors.verticalCenter: parent.verticalCenter
++        }
++        Text {
++            objectName: "fploginLegacyStatusText"
++            text: fpOverlay.labelText
++            color: "#f1f5f9"
++            font.pixelSize: 13
++            anchors.verticalCenter: parent.verticalCenter
++        }
++    }
++}
++)QML");
++        QQmlComponent component(m_controllerView->engine());
++        component.setData(overlayQml, QUrl(QStringLiteral("qrc:/fplogin-legacy-overlay.qml")));
++        if (component.status() != QQmlComponent::Ready) {
++            qWarning() << "Failed to create legacy fingerprint overlay:" << component.errorString();
++            return;
++        }
++        QObject *obj = component.create(m_controllerView->rootContext());
++        if (auto *item = qobject_cast<QQuickItem *>(obj)) {
++            item->setParentItem(root);
++            item->setParent(root);
++            m_legacyOverlay = item;
++        } else {
++            delete obj;
++        }
++    }
++
++    void GreeterApp::destroyLegacyOverlay() {
++        if (m_legacyOverlay) {
++            m_legacyOverlay->deleteLater();
++            m_legacyOverlay.clear();
++        }
      }
  
      StartupEvent::StartupEvent()
 diff --git a/src/greeter/GreeterApp.h b/src/greeter/GreeterApp.h
-index 5dce2bb..3972384 100644
+index 5dce2bb..f4725ff 100644
 --- a/src/greeter/GreeterApp.h
 +++ b/src/greeter/GreeterApp.h
-@@ -86,12 +86,16 @@ namespace SDDM {
+@@ -58,6 +58,7 @@ namespace SDDM {
+ 
+     protected:
+         void customEvent(QEvent *event) override;
++        bool eventFilter(QObject *watched, QEvent *event) override;
+ 
+     private slots:
+         void addViewForScreen(QScreen *screen);
+@@ -81,17 +82,27 @@ namespace SDDM {
+         KeyboardModel *m_keyboard { nullptr };
+         QPointer<QQuickView> m_controllerView;
+         QPointer<QQuickView> m_pendingController;
++        QPointer<QQuickItem> m_legacyOverlay;
+         bool m_clearPending { false };
+         bool m_committedPromotion { false };
          bool m_replacingRoots { false };
          bool m_fallbackStarted { false };
          bool m_embeddedFallback { false };
 +        bool m_legacyAutoScheduled { false };
 +        bool m_legacyAutoStarted { false };
++        QString m_legacyUser;
++        int m_legacySessionIndex { -1 };
          QString m_fallbackErrors;
  
          void startup();
@@ -108,6 +282,9 @@ index 5dce2bb..3972384 100644
          void beginFallback(const QString &errors);
 +        void scheduleLegacyFingerprint();
 +        void maybeStartLegacyFingerprint();
++        bool retryLegacyFingerprint();
++        void attachLegacyOverlay();
++        void destroyLegacyOverlay();
      };
  
      class StartupEvent : public QEvent
@@ -138,10 +315,10 @@ index c2ec23e..4ca20b5 100644
          void setAuthenticationController(bool controller);
          void disableAuthenticationMethods();
 diff --git a/test/GreeterAppTest.cpp b/test/GreeterAppTest.cpp
-index 684cf23..c949e5a 100644
+index 684cf23..4a2c3db 100644
 --- a/test/GreeterAppTest.cpp
 +++ b/test/GreeterAppTest.cpp
-@@ -293,6 +293,69 @@ Rectangle {
+@@ -293,6 +293,123 @@ Rectangle {
          QVERIFY(m_app->m_proxy->authenticationBusy());
          QCOMPARE(m_startCount, 1);
      }
@@ -171,12 +348,66 @@ index 684cf23..c949e5a 100644
 +        QTRY_COMPARE(m_startCount, 1);
 +        QCOMPARE(count(GreeterMessages::SetAuthenticationContext), 1);
 +        QCOMPARE(m_binding.user, QStringLiteral("alice"));
++        // Overlay is disabled by default so user themes remain 100% visually untouched.
++        QVERIFY(m_app->m_legacyOverlay.isNull());
 +        // Concurrent password submission from the legacy theme remains allowed.
 +        m_app->m_proxy->login(QStringLiteral("alice"), QStringLiteral("pw"), 0);
 +        QTRY_COMPARE(count(GreeterMessages::Login), 1);
 +        QCOMPARE(m_startCount, 1);
 +        stateConfig.Last.User.set(prevLastUser);
 +        mainConfig.AutoFingerprintForLegacyThemes.set(prevAuto);
++    }
++
++    void legacyThemeOverlayAndF4Retry() {
++        const QString prevLastUser = stateConfig.Last.User.get();
++        const bool prevAuto = mainConfig.AutoFingerprintForLegacyThemes.get();
++        const bool prevOverlay = mainConfig.FingerprintStatusOverlay.get();
++        m_app.reset();
++        delete m_peer;
++        m_peer = nullptr;
++        m_startCount = 0;
++        m_requests.clear();
++        m_decodeError = false;
++        QVERIFY(writeFile(QStringLiteral("Main.qml"), R"QML(
++import QtQuick 2.15
++Rectangle {
++    width: 640; height: 480
++}
++)QML"));
++        stateConfig.Last.User.set(QStringLiteral("alice"));
++        mainConfig.AutoFingerprintForLegacyThemes.set(true);
++        mainConfig.FingerprintStatusOverlay.set(true);
++        m_app = std::make_unique<GreeterApp>();
++        m_app->setTestModeEnabled(true);
++        m_app->setSocketName(m_server.fullServerName());
++        m_app->setThemePath(m_dir->path());
++        m_app->startup();
++        QTRY_COMPARE(m_startCount, 1);
++        QVERIFY(!m_app->m_legacyOverlay.isNull());
++        QVERIFY(!m_app->m_legacyOverlay->hasActiveFocus());
++
++        // Publish scanning -> timed_out states and verify overlay text + F4 retry.
++        send(packet([&](QDataStream &s) {
++            s << quint32(DaemonMessages::AuthenticationMethodState) << m_binding.serial << requestId
++              << quint32(AuthenticationMethod::Fingerprint) << m_binding.user << m_binding.type << m_binding.file
++              << quint32(FingerprintState::Scanning) << quint32(AuthenticationPhase::Active) << QStringLiteral("scanning");
++        }));
++        QTRY_VERIFY(m_app->m_legacyOverlay->isVisible());
++        QVERIFY(m_app->m_legacyOverlay->property("labelText").toString().contains(QStringLiteral("touch sensor")));
++
++        send(packet([&](QDataStream &s) {
++            s << quint32(DaemonMessages::AuthenticationMethodState) << m_binding.serial << requestId
++              << quint32(AuthenticationMethod::Fingerprint) << m_binding.user << m_binding.type << m_binding.file
++              << quint32(FingerprintState::TimedOut) << quint32(AuthenticationPhase::Idle) << QStringLiteral("timed_out");
++        }));
++        QTRY_VERIFY(m_app->m_legacyOverlay->property("labelText").toString().contains(QStringLiteral("F4")));
++
++        QTest::keyClick(m_app->m_controllerView, Qt::Key_F4);
++        QTRY_COMPARE(m_startCount, 2);
++
++        stateConfig.Last.User.set(prevLastUser);
++        mainConfig.AutoFingerprintForLegacyThemes.set(prevAuto);
++        mainConfig.FingerprintStatusOverlay.set(prevOverlay);
 +    }
 +
 +    void legacyThemeRespectsDisableConfig() {

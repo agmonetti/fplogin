@@ -12,12 +12,12 @@ func TestPersistentConfigRoundTripAndSymlinkRejection(t *testing.T) {
 
 	// Default when absent
 	cfg, exists, err := loadPersistentConfig(path)
-	if err != nil || exists || !cfg.AutoLegacy || cfg.Timeout != 30 || cfg.Theme != "preserve" {
+	if err != nil || exists || !cfg.AutoLegacy || cfg.Overlay || cfg.Timeout != 30 || cfg.Theme != "preserve" {
 		t.Fatalf("unexpected default config: %+v exists=%v err=%v", cfg, exists, err)
 	}
 
 	// Save custom persistent settings
-	want := persistentConfig{AutoLegacy: false, Timeout: 45, Theme: "fplogin"}
+	want := persistentConfig{AutoLegacy: false, Overlay: true, Timeout: 45, Theme: "fplogin"}
 	if err := savePersistentConfig(path, want); err != nil {
 		t.Fatalf("save failed: %v", err)
 	}
@@ -27,7 +27,7 @@ func TestPersistentConfigRoundTripAndSymlinkRejection(t *testing.T) {
 	}
 
 	// Switch back to preserve theme
-	want2 := persistentConfig{AutoLegacy: true, Timeout: 30, Theme: "preserve"}
+	want2 := persistentConfig{AutoLegacy: true, Overlay: false, Timeout: 30, Theme: "preserve"}
 	if err := savePersistentConfig(path, want2); err != nil {
 		t.Fatalf("save preserve failed: %v", err)
 	}
