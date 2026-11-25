@@ -56,11 +56,13 @@ fplogin components                                              # list packaged 
 fplogin install --dry-run [--target ADAPTER_ID/TARGET_ID]       # read-only preflight and ChangePlan preview
 fplogin analyze [--json] [--root DIR] [--service NAME]          # inspect password-derived facilities impacted by biometric login
 fplogin config [show]                                           # inspect persistent SDDM fingerprint settings
+fplogin update --check [--repo OWNER/REPO] [--tag TAG]          # check GitHub Releases and compare SHA-256 checksums
 
 # Root transactional & configuration commands
 sudo fplogin install --artifacts-dir DIR [--activate] [--approve-plan SHA256] [--approve-replace-dm]
 sudo fplogin status                                             # verify manifest integrity and file checksums
 sudo fplogin config set [--auto-legacy true|false] [--overlay true|false] [--retry-key KEY|none] [--timeout 5..120] [--theme preserve|fplogin|<name>]
+sudo fplogin update [--yes] [--repo OWNER/REPO] [--tag TAG]     # download, verify SHA256SUMS, and update changed packages
 sudo fplogin uninstall [--modified-files preserve|refuse|restore] [--remove-shared-deps] [--yes]
 sudo fplogin recover                                            # reconcile any interrupted transaction
 ```
