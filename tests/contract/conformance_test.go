@@ -157,7 +157,7 @@ func TestShippedDescriptorsMatchV1(t *testing.T) {
 }
 
 func TestAdapterDiscoveryAndFailures(t *testing.T) {
-	t.Parallel()
+	// Not parallel: writing executable fixtures concurrently with fork/exec triggers Linux ETXTBSY (Go #22315).
 	if descriptortrust.Elevated() {
 		t.Skip("development descriptors require an ordinary user")
 	}
@@ -231,7 +231,6 @@ func TestAdapterDiscoveryAndFailures(t *testing.T) {
 }
 
 func TestPlatformDiscoveryAndCapabilities(t *testing.T) {
-	t.Parallel()
 	if descriptortrust.Elevated() {
 		t.Skip("development descriptors require an ordinary user")
 	}
@@ -283,7 +282,6 @@ func TestPlatformDiscoveryAndCapabilities(t *testing.T) {
 }
 
 func TestBoundedRunnerTimeoutAndOutput(t *testing.T) {
-	t.Parallel()
 	root, _ := makeAdapterInstallation(t, "org.example.adapter.runner", 1)
 	executable := filepath.Join(root, "bin", "fake")
 	t.Run("timeout", func(t *testing.T) {
