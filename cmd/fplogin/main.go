@@ -27,6 +27,8 @@ func main() {
 		runStatus(args)
 	case "analyze":
 		runAnalyze(args)
+	case "config":
+		runConfig(args)
 	case "components":
 		fs := flag.NewFlagSet("components", flag.ExitOnError)
 		_ = fs.Parse(args)
@@ -65,6 +67,7 @@ Subcommands:
   recover     Reconcile any interrupted install or uninstall transaction from disk (root required)
   status      Display current installation state from manifest (read-only)
   analyze     Inspect password-derived facilities impacted by biometric login (read-only)
+  config      Show or persistently update SDDM fingerprint drop-in settings
   components  List packaged providers and adapters (read-only, unprivileged)
   version     Show version information
   help        Show this help message
