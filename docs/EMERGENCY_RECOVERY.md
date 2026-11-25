@@ -1,97 +1,106 @@
-# Emergency Recovery Guide
+# Emergency Recovery & Troubleshooting Guide
 
-This guide describes how to diagnose and recover the host system if an `fplogin` installation, upgrade, or uninstallation transaction is interrupted, aborted, or fails unexpectedly.
-
----
-
-## 1. Planned safety contract — not an available recovery guarantee
-
-The architecture requires an atomic, durable transaction journal (`manifestv1.TransactionJournal`) adhering to **ADR 0003**, but end-to-end installation and automatic recovery are not implemented. **Do not rely on journaling or automatic rollback to recover a system.** Use the package-level procedure (§2.1) or applicable manual steps (§3).
-
-The following are planned requirements, not guarantees of the current CLI:
-1. **Never in-place edit**: Existing system configuration files (such as `/etc/pam.d/system-login` or `/etc/sddm.conf`) are **never** overwritten in-place. All `fplogin` configurations reside in drop-in directories (e.g. `/etc/sddm.conf.d/fplogin.conf`) or dedicated PAM files (`/etc/pam.d/sddm-fingerprint`).
-2. **Pre-mutation durability**: Every mutation intent is written and `fsync`'d to the transaction journal (`/var/lib/fplogin/transaction.json`) *before* any file or service mutation occurs on the system.
-3. **Automatic rollback**: If an operation fails during `fplogin install`, the installer automatically runs compensation logic in reverse execution order, restoring any backed up files and deleting temporary files.
-4. **Isolated backups**: When a file owned by `fplogin` is updated or replaced, its previous state is backed up to `/var/lib/fplogin/backups/<filename>-<op_id>.bak`.
+This guide explains how to diagnose and recover a host system if an `fplogin` installation, repair, or uninstallation transaction is interrupted, or if the graphical login screen fails to start.
 
 ---
 
-## 2. Automated Recovery via CLI — not available yet
+## 1. Transactional Safety Guarantees
 
-> **Do not rely on `fplogin install`/`uninstall` for recovery.** The [2026-11-12 audit](reviews/cli-provider-audit-2026-11-12.md) found that they cannot complete end to end (discovery fails before any change; adapter and platform operations refuse). `fplogin status` only reports whether a manifest exists. Use the package-level procedure below (§2.1) or the manual steps (§3).
+`fplogin` enforces the following invariants (verified in real-systemd Arch KVM guests, including mid-transaction `SIGKILL` interruption tests):
 
-### 2.1 Package-level rollback to stock SDDM (sddm-fplogin)
+1. **Never edits stock PAM or `/etc/sddm.conf` in place:** All `fplogin` configuration lives in isolated drop-ins (`/etc/sddm.conf.d/90-fplogin.conf`), a dedicated PAM service (`/etc/pam.d/sddm-fingerprint`), and theme assets (`/usr/share/sddm/themes/fplogin/`).
+2. **Pre-mutation WAL journal:** Every mutation intent is written and `fsync`'d under `/var/lib/fplogin/transactions/tx-*.json` (protected by `/var/lib/fplogin/transaction.lock`) *before* any file, package, or service change occurs.
+3. **Automatic rollback & recovery:** If an operation fails during `fplogin install` or `fplogin uninstall`, the core executes LIFO compensation. If the process is killed mid-transaction (`SIGKILL` / power loss), the journal remains in `applying` state and blocks new transactions until `sudo fplogin recover` reconciles it.
+4. **Password fallback independence:** Console TTY login (`/bin/login`), `sudo`, `su`, `polkit`, and SSH never use `/etc/pam.d/sddm-fingerprint`. Password login on TTY (`Ctrl+Alt+F3`) remains available even if SDDM or `fprintd` is completely broken.
 
-This applies when the patched SDDM package `sddm-fplogin` is installed. The [2026-11-12 rehearsal](SPRINT_3_EXECUTION_PLAN.md#vm-install-and-rollback-rehearsal-2026-11-12-no-reader) is the historical Qt6-only baseline. The [2026-11-17 E6 retest](SPRINT_3_EXECUTION_PLAN.md#e6-retest--2026-11-17-pass-bounded-real-guest-scope) verified actual ttyS0 recovery from a deliberately broken greeter, signed-stock rollback and stock password login with the unchanged dual-Qt candidate and pinned Qt5/OpenSSL3 laboratory runtime. Both were reader-free VM tests, not general host compatibility or Sprint 3 acceptance.
+---
 
-1. Switch to a text console (`Ctrl`+`Alt`+`F3`, or the rescue shell) and log in as root or a sudo user with your **password** (the fingerprint path is not involved).
-2. Stop the greeter: `systemctl stop sddm.service`.
-3. Reinstall stock SDDM; the package conflict removes `sddm-fplogin`:
-   - offline, explicitly select a stock archive compatible with the recovery system and require its detached signature. The path below is the tested laboratory version, not a universal downgrade recommendation. If any check fails, stop; do not run the install separately:
+## 2. Automated Recovery via CLI (Recommended First Step)
+
+Switch to a virtual console (`Ctrl+Alt+F3`) and log in with your username and **password**.
+
+### 2.1 Reconcile an interrupted transaction (`fplogin recover`)
+
+If `fplogin install` or `fplogin uninstall` was killed mid-run (or reports `transaction needs recovery`):
+
+```bash
+sudo fplogin recover
+sudo fplogin status
+```
+
+`fplogin recover` replays pending compensations from `/var/lib/fplogin/transactions/`, restores backed-up files and packages, and leaves the system in a clean baseline state.
+
+### 2.2 Clean transactional uninstall (`fplogin uninstall`)
+
+To revert a completed installation back to the exact pre-install display manager state recorded in `/var/lib/fplogin/manifest.json`:
+
+```bash
+sudo fplogin uninstall --yes
+# Optional: also remove shared Qt5 runtime deps installed solely for sddm-fplogin:
+# sudo fplogin uninstall --yes --remove-shared-deps
+```
+
+If you manually edited a manifest-owned file after installation, `fplogin uninstall` refuses to overwrite your edit silently; pass `--preserve-modified` (keep your file) or `--force` (remove anyway) after inspecting `fplogin status`.
+
+---
+
+## 3. Package-Level Rollback to Stock SDDM (If CLI Is Unavailable)
+
+If `fplogin` itself cannot run or the greeter fails to display:
+
+1. Switch to a text console (`Ctrl+Alt+F3`) and log in with your **password**.
+2. Stop SDDM:
+   ```bash
+   sudo systemctl stop sddm.service
+   ```
+3. Reinstall stock `sddm` (its package conflict automatically removes `sddm-fplogin`, `/etc/pam.d/sddm-fingerprint`, and `/usr/share/sddm/themes/fplogin`):
+   - **Online:**
+     ```bash
+     sudo pacman -S sddm
+     ```
+   - **Offline** (using a verified cached stock archive and its `.sig`):
      ```bash
      pkg=/var/cache/pacman/pkg/sddm-0.21.0-7-x86_64.pkg.tar.zst
-     test -f "$pkg" &&
-       test -f "$pkg.sig" &&
-       pacman-key --verify "$pkg.sig" "$pkg" &&
-       pacman -U "$pkg"
+     test -f "$pkg" && test -f "$pkg.sig" &&
+       sudo pacman-key --verify "$pkg.sig" "$pkg" &&
+       sudo pacman -U "$pkg"
      ```
-   - or online: `pacman -S sddm`.
-4. Check: `pacman -Q sddm` shows `sddm`, not `sddm-fplogin`; `/etc/pam.d/sddm-fingerprint` and `/usr/share/sddm/themes/fplogin` are gone. A modified PAM file is kept as `.pacsave`.
-5. Optional: remove any drop-in that selects the fplogin theme (for example `/etc/sddm.conf.d/*fplogin*.conf`). If it is left in place, stock SDDM logs "The configured theme "fplogin" doesn't exist, using the embedded theme instead" and still offers password login.
-6. `systemctl start sddm.service` and log in with your password.
+4. Remove the `fplogin` theme drop-in (optional — stock SDDM falls back to its embedded theme if left in place):
+   ```bash
+   sudo rm -f /etc/sddm.conf.d/90-fplogin.conf
+   ```
+5. Verify and restart SDDM:
+   ```bash
+   pacman -Q sddm
+   sudo systemctl start sddm.service
+   ```
 
 ---
 
-## 3. Manual Recovery Procedures
+## 4. Manual Diagnostics & Troubleshooting
 
-If the system cannot boot into a graphical display manager or you are operating from a TTY / rescue shell:
+### Inspect journal, manifest, and backups
 
-### Step 3.1: Switch to a Virtual Console (TTY)
-Press `Ctrl + Alt + F3` (or `F2` through `F6`) to open a text console. Log in with your standard username and password.
-
-### Step 3.2: Inspect Journal and Manifest Files
-Check if a transaction or manifest is present:
 ```bash
-ls -la /var/lib/fplogin/
-cat /var/lib/fplogin/transaction.json
-cat /var/lib/fplogin/manifest.json
+sudo ls -la /var/lib/fplogin/ /var/lib/fplogin/transactions/ /var/lib/fplogin/backups/
+sudo fplogin status
 ```
 
-### Step 3.3: Remove fplogin Drop-in Configuration
-If SDDM fails to start or displays an error, remove the `fplogin` configuration drop-ins:
-```bash
-# Remove SDDM drop-in override (restores default SDDM theme/configuration)
-sudo rm -f /etc/sddm.conf.d/fplogin.conf
+### Common symptoms & checks
 
-# Remove dedicated PAM service
-sudo rm -f /etc/pam.d/sddm-fingerprint
-
-# Remove installed theme assets if present
-sudo rm -rf /usr/share/sddm/themes/fplogin
-```
-
-### Step 3.4: Restart the Display Manager
-Restart the display manager service to return to stock configuration:
-```bash
-sudo systemctl restart sddm.service
-```
+| Symptom | Diagnostic Command | Expected Fix / Cause |
+|---|---|---|
+| Fingerprint UI says `Unavailable` | `fprintd-list "$USER"` and `systemctl status fprintd` | No reader attached, no enrolled prints (`fprintd-enroll`), or `fprintd` D-Bus service failed. Password login works immediately without waiting. |
+| Fingerprint timed out after 30 s | `journalctl -u sddm -b --no-pager \| tail -n 50` | Bounded 30 s scan deadline expired; type password or click Retry. |
+| `hyprlock` cannot claim fingerprint sensor after login | `journalctl -u fprintd -u sddm -b --no-pager \| tail -n 50` | Verify no lingering `sddm-helper` holds the sensor (`pgrep -a sddm-helper`). |
+| Wallet (KWallet / GNOME Keyring) prompts for password after fingerprint login | `fplogin analyze` | Expected by design: fingerprint login does not synthesize or cache your password. See `fplogin analyze` output for exact impact. |
+| `fplogin install` refuses conflicting DM (e.g., `greetd`) | Inspect printed plan | Pass `--approve-replace-dm` only if you intentionally want to disable the existing DM and switch to SDDM. |
+| Greeter shows `daemon_upgrade_required` | `pacman -Q sddm-fplogin` | Daemon and greeter binaries are out of sync; reboot after upgrading `sddm-fplogin` so the running `sddm` daemon matches the installed greeter. |
 
 ---
 
-## 4. Recovering Backups
+## 5. What `fplogin` NEVER Modifies
 
-If any existing configuration was backed up during a prior operation:
-1. Backups are stored in: `/var/lib/fplogin/backups/`.
-2. Check the SHA-256 hash against the journal or manifest before restoring:
-```bash
-sha256sum /var/lib/fplogin/backups/*
-```
-3. Copy the desired backup back to its target destination with original permissions (`0644` for config files, owned by `root:root`).
-
----
-
-## 5. What fplogin NEVER Modifies
-To assist manual verification:
-- `/etc/pam.d/system-login`, `/etc/pam.d/login`, `/etc/pam.d/other` are **never** modified by `fplogin`.
-- `/etc/shadow`, `/etc/passwd`, `/etc/group` are **never** modified.
-- User home directories and wallet files are strictly read-only and never modified.
+- `/etc/pam.d/system-auth`, `/etc/pam.d/system-login`, `/etc/pam.d/login`, `/etc/pam.d/sudo`, `/etc/pam.d/su`, `/etc/pam.d/polkit-1`, `/etc/pam.d/other`
+- `/etc/shadow`, `/etc/passwd`, `/etc/group`
+- User home directories, keyrings, or wallet databases (strictly read-only during `fplogin analyze`)
