@@ -1,0 +1,21 @@
+pkgbase = fplogin-git
+	pkgdesc = Native concurrent fingerprint and password login orchestrator for Linux Display Managers
+	pkgver = 1.0.1.r0.g0000000
+	pkgrel = 1
+	url = https://github.com/agmonetti/fplogin
+	arch = x86_64
+	arch = aarch64
+	license = MIT
+	makedepends = go
+	makedepends = git
+	depends = glibc
+	depends = systemd
+	depends = fprintd
+	optdepends = sddm-fplogin: patched SDDM with concurrent fingerprint PAM helper and dual Qt6+Qt5 greeters
+	provides = fplogin
+	conflicts = fplogin
+	options = emptydirs
+	source = fplogin::git+https://github.com/agmonetti/fplogin.git
+	sha256sums = SKIP
+
+pkgname = fplogin-git

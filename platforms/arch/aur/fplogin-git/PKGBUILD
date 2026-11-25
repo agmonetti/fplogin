@@ -1,0 +1,64 @@
+# Maintainer: Agustin Monetti <agmonetti@github>
+pkgname=fplogin-git
+pkgver=1.0.1.r0.g0000000
+pkgrel=1
+pkgdesc="Native concurrent fingerprint and password login orchestrator for Linux Display Managers"
+arch=('x86_64' 'aarch64')
+url="https://github.com/agmonetti/fplogin"
+license=('MIT')
+depends=('glibc' 'systemd' 'fprintd')
+makedepends=('go' 'git')
+options=('emptydirs')
+optdepends=(
+    'sddm-fplogin: patched SDDM with concurrent fingerprint PAM helper and dual Qt6+Qt5 greeters'
+)
+provides=('fplogin')
+conflicts=('fplogin')
+source=("fplogin::git+https://github.com/agmonetti/fplogin.git")
+sha256sums=('SKIP')
+
+pkgver() {
+    cd "${srcdir}/fplogin"
+    git describe --long --tags --abbrev=7 | sed 's/^v//;s/\([^-]*-g\)/r\1/;s/-/./g'
+}
+
+build() {
+    cd "${srcdir}/fplogin"
+    export CGO_CPPFLAGS="${CPPFLAGS}"
+    export CGO_CFLAGS="${CFLAGS}"
+    export CGO_CXXFLAGS="${CXXFLAGS}"
+    export CGO_LDFLAGS="${LDFLAGS}"
+    export GOFLAGS="-buildmode=pie -trimpath -ldflags=-linkmode=external"
+
+    make build
+}
+
+check() {
+    cd "${srcdir}/fplogin"
+    make test
+}
+
+package() {
+    cd "${srcdir}/fplogin"
+
+    # Core CLI and unprivileged adapter sysusers account
+    install -Dm755 bin/fplogin "${pkgdir}/usr/bin/fplogin"
+    install -Dm644 platforms/arch/fplogin.sysusers "${pkgdir}/usr/lib/sysusers.d/fplogin.conf"
+
+    # Platform provider (Arch) and SDDM adapter
+    local components="${pkgdir}/usr/lib/fplogin"
+    install -Dm755 bin/fplogin-platform-arch "${components}/platforms/bin/fplogin-platform-arch"
+    install -Dm755 bin/fplogin-adapter-sddm "${components}/adapters/bin/fplogin-adapter-sddm"
+    install -Dm644 platforms/arch/platform.json "${components}/platforms/arch.json"
+    install -Dm644 adapters/sddm/adapter.json "${components}/adapters/sddm.json"
+
+    install -dm755 "${components}/platforms/assets" "${components}/adapters/assets"
+    install -dm700 "${pkgdir}/var/lib/fplogin"
+    install -dm755 "${pkgdir}/etc/sddm.conf.d"
+
+    # License and documentation
+    install -Dm644 LICENSE "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
+    install -Dm644 docs/EMERGENCY_RECOVERY.md "${pkgdir}/usr/share/doc/fplogin/EMERGENCY_RECOVERY.md"
+    install -Dm644 docs/SUPPORTED_VERSIONS.md "${pkgdir}/usr/share/doc/fplogin/SUPPORTED_VERSIONS.md"
+    install -Dm644 README.md "${pkgdir}/usr/share/doc/fplogin/README.md"
+}
