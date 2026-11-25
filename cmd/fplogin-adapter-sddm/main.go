@@ -104,7 +104,8 @@ const staticAdapterDescriptor = `{
     }
   ],
   "supported_platforms": [
-    "arch"
+    "arch",
+    "linux"
   ],
   "packaging_backends": [
     "arch"

@@ -14,10 +14,17 @@ import (
 const themeDropIn = "/etc/sddm.conf.d/90-fplogin.conf"
 const sddmUnit = "sddm.service"
 
+func isGenericLinux(req adapterv1.Request) bool {
+	return string(req.Context.Platform["distribution"]) == `"linux"`
+}
+
 func loadFacts(req adapterv1.Request) (adapterv1.PreflightFacts, error) {
 	var facts adapterv1.PreflightFacts
-	if os.Getuid() == 0 || os.Geteuid() == 0 || req.Context.Elevated || req.Context.Root != "/" || string(req.Context.Platform["distribution"]) != `"arch"` || req.Context.Architecture != "x86_64" {
-		return facts, fmt.Errorf("SDDM adapter requires read-only Arch x86_64 host context")
+	dist := string(req.Context.Platform["distribution"])
+	archOK := (dist == `"arch"` && req.Context.Architecture == "x86_64") ||
+		(dist == `"linux"` && (req.Context.Architecture == "x86_64" || req.Context.Architecture == "aarch64"))
+	if os.Getuid() == 0 || os.Geteuid() == 0 || req.Context.Elevated || req.Context.Root != "/" || !archOK {
+		return facts, fmt.Errorf("SDDM adapter requires read-only Arch x86_64 or generic Linux (x86_64/aarch64) host context")
 	}
 	err := protocol.DecodeStrict(req.Context.Platform["inventory"], &facts, "packages", "services")
 	if err != nil || facts.Packages == nil || facts.Services == nil {
@@ -52,7 +59,11 @@ func detectSDDM(facts adapterv1.PreflightFacts) adapterv1.DetectedTarget {
 	if stock || patched || unit {
 		t.DisplayName = "SDDM"
 	}
-	if unit != (stock || patched) || stock && patched {
+	if patched && !stock && t.UpstreamVersion == "compatible" {
+		t.DisplayName = "SDDM (fingerprint-capable)"
+		t.Compatibility = "compatible"
+		t.Confidence = "confirmed"
+	} else if unit != (stock || patched) || stock && patched {
 		t.Compatibility, t.Confidence = "unknown", "unknown"
 	} else if patched || stock && !strings.HasPrefix(t.UpstreamVersion, "0.21.0-") {
 		t.Compatibility = "incompatible"

@@ -5,6 +5,7 @@ BIN_DIR := bin
 GO_SOURCES := $(shell find cmd internal -name '*.go') go.mod
 BIN_CORE := $(BIN_DIR)/fplogin
 BIN_PLATFORM := $(BIN_DIR)/fplogin-platform-arch
+BIN_PLATFORM_LINUX := $(BIN_DIR)/fplogin-platform-linux
 BIN_ADAPTER := $(BIN_DIR)/fplogin-adapter-sddm
 
 all: build
@@ -13,8 +14,8 @@ all: build
 ci: lint test fuzz build
 
 
-# Build all three executables (Core CLI, Arch Platform Provider, SDDM Adapter)
-build: $(BIN_CORE) $(BIN_PLATFORM) $(BIN_ADAPTER)
+# Build all four executables (Core CLI, Arch & Generic Linux Platform Providers, SDDM Adapter)
+build: $(BIN_CORE) $(BIN_PLATFORM) $(BIN_PLATFORM_LINUX) $(BIN_ADAPTER)
 
 $(BIN_CORE): $(GO_SOURCES)
 	@mkdir -p $(BIN_DIR)
@@ -23,6 +24,10 @@ $(BIN_CORE): $(GO_SOURCES)
 $(BIN_PLATFORM): $(GO_SOURCES)
 	@mkdir -p $(BIN_DIR)
 	go build -o $(BIN_PLATFORM) ./cmd/fplogin-platform-arch
+
+$(BIN_PLATFORM_LINUX): $(GO_SOURCES)
+	@mkdir -p $(BIN_DIR)
+	go build -o $(BIN_PLATFORM_LINUX) ./cmd/fplogin-platform-linux
 
 $(BIN_ADAPTER): $(GO_SOURCES)
 	@mkdir -p $(BIN_DIR)

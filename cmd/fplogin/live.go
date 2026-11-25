@@ -275,9 +275,13 @@ func (b *cliLiveBridge) ensureAdapterContext(ctx context.Context, adapter discov
 			PackageName: pkg,
 		})
 	}
-	installedPkgs, err := queryLocalInstalledPackages()
-	if err != nil {
-		return protocol.HostContext{}, err
+	installedPkgs := map[string]string{}
+	if string(hostReport.Platform["distribution"]) == `"arch"` {
+		var qErr error
+		installedPkgs, qErr = queryLocalInstalledPackages()
+		if qErr != nil {
+			return protocol.HostContext{}, qErr
+		}
 	}
 
 	aHost := pHost
@@ -491,19 +495,20 @@ Flags for live installation (root required):
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
-	if *artifactsDir == "" {
-		fmt.Fprintf(os.Stderr, "Error: install: --artifacts-dir is required for offline verified installation\n")
-		os.Exit(1)
-	}
-	absArtifacts, err := filepath.Abs(*artifactsDir)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: install: %v\n", err)
-		os.Exit(1)
-	}
-	artifacts, err := scanOfflineArtifacts(absArtifacts)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: install: %v\n", err)
-		os.Exit(1)
+	var absArtifacts string
+	var artifacts []cliArtifactMeta
+	if *artifactsDir != "" {
+		var err error
+		absArtifacts, err = filepath.Abs(*artifactsDir)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: install: %v\n", err)
+			os.Exit(1)
+		}
+		artifacts, err = scanOfflineArtifacts(absArtifacts)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: install: %v\n", err)
+			os.Exit(1)
+		}
 	}
 	pc, ac, err := newLiveClients()
 	if err != nil {

@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -61,19 +62,25 @@ type updateCandidate struct {
 }
 
 type updateDeps struct {
-	httpClient   *http.Client
-	getEuid      func() int
-	queryPacman  func(pkg string) (string, bool)
-	installPkgs  func(paths []string) error
-	stdin        io.Reader
-	stdout       io.Writer
-	stderr       io.Writer
+	httpClient     *http.Client
+	getEuid        func() int
+	hasPacman      func() bool
+	queryPacman    func(pkg string) (string, bool)
+	installPkgs    func(paths []string) error
+	installTarball func(tarPath string) error
+	stdin          io.Reader
+	stdout         io.Writer
+	stderr         io.Writer
 }
 
 func defaultUpdateDeps() updateDeps {
 	return updateDeps{
 		httpClient: &http.Client{Timeout: 30 * time.Second},
 		getEuid:    os.Geteuid,
+		hasPacman: func() bool {
+			_, err := exec.LookPath("pacman")
+			return err == nil
+		},
 		queryPacman: func(pkg string) (string, bool) {
 			out, err := exec.Command("pacman", "-Q", pkg).Output()
 			if err != nil {
@@ -89,10 +96,34 @@ func defaultUpdateDeps() updateDeps {
 			cmd.Stderr = os.Stderr
 			return cmd.Run()
 		},
-		stdin:  os.Stdin,
-		stdout: os.Stdout,
-		stderr: os.Stderr,
+		installTarball: installLinuxTarball,
+		stdin:          os.Stdin,
+		stdout:         os.Stdout,
+		stderr:         os.Stderr,
 	}
+}
+
+func installLinuxTarball(tarPath string) error {
+	stage, err := os.MkdirTemp("", "fplogin-extract-*")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(stage)
+	if err := os.Chmod(stage, 0o700); err != nil {
+		return err
+	}
+	extract := exec.Command("tar", "-xzf", tarPath, "-C", stage)
+	if out, err := extract.CombinedOutput(); err != nil {
+		return fmt.Errorf("tar extract: %w (%s)", err, strings.TrimSpace(string(out)))
+	}
+	installer := filepath.Join(stage, "scripts", "install_linux.sh")
+	if _, err := os.Stat(installer); err != nil {
+		return fmt.Errorf("release tarball missing scripts/install_linux.sh: %w", err)
+	}
+	cmd := exec.Command("/bin/bash", installer)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
 }
 
 func runUpdate(args []string) {
@@ -168,9 +199,15 @@ Flags:
 		}
 	}
 
-	candidates := selectUpdateCandidates(rel.Assets, sums, state, deps.queryPacman)
+	usePacman := deps.hasPacman == nil || deps.hasPacman()
+	var candidates []updateCandidate
+	if usePacman {
+		candidates = selectUpdateCandidates(rel.Assets, sums, state, deps.queryPacman)
+	} else {
+		candidates = selectLinuxTarballCandidate(rel.Assets, sums, state)
+	}
 	if len(candidates) == 0 {
-		return fmt.Errorf("release %s contains no matching Arch packages in SHA256SUMS", rel.TagName)
+		return fmt.Errorf("release %s contains no matching packages in SHA256SUMS", rel.TagName)
 	}
 
 	var toUpdate []updateCandidate
@@ -225,7 +262,11 @@ Flags:
 	}
 
 	if !*yes {
-		fmt.Fprintf(deps.stdout, "Install %d verified package(s) via pacman -U? [y/N]: ", len(downloaded))
+		action := "pacman -U"
+		if !usePacman {
+			action = "install_linux.sh"
+		}
+		fmt.Fprintf(deps.stdout, "Install %d verified artifact(s) via %s? [y/N]: ", len(downloaded), action)
 		line, err := bufio.NewReader(deps.stdin).ReadString('\n')
 		if err != nil && !errors.Is(err, io.EOF) {
 			return fmt.Errorf("read confirmation: %w", err)
@@ -236,8 +277,14 @@ Flags:
 		}
 	}
 
-	if err := deps.installPkgs(downloaded); err != nil {
-		return fmt.Errorf("pacman -U failed: %w", err)
+	if usePacman {
+		if err := deps.installPkgs(downloaded); err != nil {
+			return fmt.Errorf("pacman -U failed: %w", err)
+		}
+	} else {
+		if err := deps.installTarball(downloaded[0]); err != nil {
+			return fmt.Errorf("install_linux.sh failed: %w", err)
+		}
 	}
 
 	newState := releaseState{
@@ -378,9 +425,9 @@ func selectUpdateCandidates(
 	queryPacman func(pkg string) (string, bool),
 ) []updateCandidate {
 	type pkgRule struct {
-		name           string
-		prefix         string
-		onlyIfPresent  bool
+		name          string
+		prefix        string
+		onlyIfPresent bool
 	}
 	rules := []pkgRule{
 		{name: "fplogin-git", prefix: "fplogin-git-", onlyIfPresent: false},
@@ -418,6 +465,36 @@ func selectUpdateCandidates(
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].PkgName < out[j].PkgName })
 	return out
+}
+
+func selectLinuxTarballCandidate(assets []githubReleaseAsset, sums map[string]string, state releaseState) []updateCandidate {
+	arch := runtime.GOARCH
+	switch arch {
+	case "amd64":
+		arch = "x86_64"
+	case "arm64":
+		arch = "aarch64"
+	}
+	wantName := fmt.Sprintf("fplogin-linux-%s.tar.gz", arch)
+	localSHA := strings.ToLower(state.Packages["fplogin-linux"])
+	for _, a := range assets {
+		if a.Name != wantName {
+			continue
+		}
+		remoteSHA, ok := sums[a.Name]
+		if !ok {
+			continue
+		}
+		return []updateCandidate{{
+			PkgName:     "fplogin-linux",
+			AssetName:   a.Name,
+			DownloadURL: a.BrowserDownloadURL,
+			RemoteSHA:   remoteSHA,
+			LocalSHA:    localSHA,
+			Changed:     localSHA == "" || !strings.EqualFold(localSHA, remoteSHA),
+		}}
+	}
+	return nil
 }
 
 func downloadAndHash(client *http.Client, rawURL, dest string, maxBytes int64) (string, error) {

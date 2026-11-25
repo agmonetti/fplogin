@@ -20,8 +20,30 @@ import (
 
 const (
 	themeDropInContent = "[General]\nAutoFingerprintForLegacyThemes=true\n"
+	pamFingerprintPath = "/etc/pam.d/sddm-fingerprint"
 	canonicalPlanTime  = "2026-01-01T00:00:00Z"
 )
+
+func genericPAMFingerprintContent() []byte {
+	// Reuse the host's /etc/pam.d/sddm non-auth stacks when readable so the
+	// generated sddm-fingerprint PAM service matches Debian, Ubuntu, Fedora,
+	// openSUSE, or Arch conventions without distro-specific hardcoding.
+	if data, err := os.ReadFile("/etc/pam.d/sddm"); err == nil {
+		var lines []string
+		lines = append(lines, "#%PAM-1.0", "auth       required   pam_fprintd.so")
+		for _, raw := range strings.Split(string(data), "\n") {
+			trimmed := strings.TrimSpace(raw)
+			if trimmed == "" || strings.HasPrefix(trimmed, "#") || strings.HasPrefix(trimmed, "auth") {
+				continue
+			}
+			lines = append(lines, raw)
+		}
+		if len(lines) > 2 {
+			return []byte(strings.Join(lines, "\n") + "\n")
+		}
+	}
+	return []byte("#%PAM-1.0\nauth       required   pam_fprintd.so\naccount    include    system-login\npassword   include    system-login\nsession    include    system-login\n")
+}
 
 type artifactMeta struct {
 	Package   string `json:"package"`
@@ -43,7 +65,8 @@ func detectSDDMLive(facts adapterv1.PreflightFacts) adapterv1.DetectedTarget {
 			hasStock = true
 		}
 	}
-	if hasPatched && !hasStock && t.Confidence == "confirmed" && strings.HasPrefix(t.UpstreamVersion, "0.21.0-") {
+	if hasPatched && !hasStock && t.Confidence == "confirmed" &&
+		(strings.HasPrefix(t.UpstreamVersion, "0.21.0-") || t.UpstreamVersion == "compatible") {
 		t.DisplayName = "SDDM (fplogin)"
 		t.Compatibility = "compatible"
 	}
@@ -81,6 +104,17 @@ func planExecutableInstall(req adapterv1.Request, facts adapterv1.PreflightFacts
 		return zero, fmt.Errorf("SDDM unit cannot be configured safely")
 	}
 
+	activate := false
+	if raw := req.Context.Platform["activate"]; len(raw) > 0 {
+		if err := json.Unmarshal(raw, &activate); err != nil {
+			return zero, fmt.Errorf("invalid activate context: %w", err)
+		}
+	}
+
+	if isGenericLinux(req) {
+		return planGenericLinuxInstall(req, facts, target, state, payload, activate)
+	}
+
 	var artifacts []artifactMeta
 	if err := json.Unmarshal(req.Context.Platform["artifacts"], &artifacts); err != nil || len(artifacts) == 0 {
 		return zero, fmt.Errorf("executable install requires offline signed artifacts metadata")
@@ -89,12 +123,6 @@ func planExecutableInstall(req adapterv1.Request, facts adapterv1.PreflightFacts
 	if raw := req.Context.Platform["installed_packages"]; len(raw) > 0 {
 		if err := json.Unmarshal(raw, &installedPkgs); err != nil {
 			return zero, fmt.Errorf("invalid installed_packages context: %w", err)
-		}
-	}
-	activate := false
-	if raw := req.Context.Platform["activate"]; len(raw) > 0 {
-		if err := json.Unmarshal(raw, &activate); err != nil {
-			return zero, fmt.Errorf("invalid activate context: %w", err)
 		}
 	}
 
@@ -382,6 +410,178 @@ func planExecutableInstall(req adapterv1.Request, facts adapterv1.PreflightFacts
 	return plan, nil
 }
 
+func planGenericLinuxInstall(
+	req adapterv1.Request,
+	facts adapterv1.PreflightFacts,
+	target adapterv1.DetectedTarget,
+	state adapterv1.DisplayManagerState,
+	payload adapterv1.PlanInstallPayload,
+	activate bool,
+) (adapterv1.ChangePlan, error) {
+	var zero adapterv1.ChangePlan
+	hasCompatible := false
+	for _, p := range facts.Packages {
+		if p.PackageReference == "sddm-fplogin" && p.Installed == "yes" {
+			hasCompatible = true
+		}
+	}
+	if !hasCompatible {
+		return zero, fmt.Errorf("no fingerprint-capable SDDM binary detected; install a patched/upstream SDDM build first")
+	}
+
+	var ops []protocol.Operation
+	ops = append(ops, protocol.Operation{
+		OperationID:    "ensure-sddm-conf-dir",
+		Kind:           protocol.CreateDirectory,
+		Dependencies:   []string{},
+		Preconditions:  []json.RawMessage{},
+		ExpectedBefore: protocol.Object{},
+		ExpectedAfter:  protocol.Object{},
+		Parameters:     json.RawMessage(fmt.Sprintf(`{"path":%q,"mode":"0755","owner":"root","group":"root"}`, filepath.Dir(themeDropIn))),
+		Compensation:   json.RawMessage(fmt.Sprintf(`{"kind":"remove_directory","path":%q}`, filepath.Dir(themeDropIn))),
+	})
+
+	themeBytes := []byte(themeDropInContent)
+	ops = append(ops, protocol.Operation{
+		OperationID:    "write-theme",
+		Kind:           protocol.WriteFileAtomic,
+		Dependencies:   []string{"ensure-sddm-conf-dir"},
+		Preconditions:  []json.RawMessage{},
+		ExpectedBefore: protocol.Object{},
+		ExpectedAfter:  protocol.Object{},
+		Parameters: json.RawMessage(fmt.Sprintf(
+			`{"destination_path":%q,"content_base64":%q,"sha256":%q,"mode":"0644","owner":"root","group":"root"}`,
+			themeDropIn, base64.StdEncoding.EncodeToString(themeBytes), calcSHA256(themeBytes),
+		)),
+		Compensation: json.RawMessage(fmt.Sprintf(`{"kind":"remove_file","path":%q}`, themeDropIn)),
+	})
+
+	pamBytes := genericPAMFingerprintContent()
+	ops = append(ops, protocol.Operation{
+		OperationID:    "write-pam-sddm-fingerprint",
+		Kind:           protocol.WriteFileAtomic,
+		Dependencies:   []string{},
+		Preconditions:  []json.RawMessage{},
+		ExpectedBefore: protocol.Object{},
+		ExpectedAfter:  protocol.Object{},
+		Parameters: json.RawMessage(fmt.Sprintf(
+			`{"destination_path":%q,"content_base64":%q,"sha256":%q,"mode":"0644","owner":"root","group":"root"}`,
+			pamFingerprintPath, base64.StdEncoding.EncodeToString(pamBytes), calcSHA256(pamBytes),
+		)),
+		Compensation: json.RawMessage(fmt.Sprintf(`{"kind":"remove_file","path":%q}`, pamFingerprintPath)),
+	})
+
+	var conflicting []platformv1.ServiceCandidate
+	for _, svc := range facts.Services {
+		if svc.ServiceReference == sddmUnit {
+			continue
+		}
+		if svc.Enabled == "yes" || svc.Active == "yes" {
+			conflicting = append(conflicting, svc)
+		}
+	}
+	sort.Slice(conflicting, func(i, j int) bool {
+		return conflicting[i].ServiceReference < conflicting[j].ServiceReference
+	})
+	approvals := []adapterv1.Approval{}
+	for _, svc := range conflicting {
+		approvals = append(approvals, adapterv1.Approval{
+			ID:        "replace-dm-" + svc.ServiceReference,
+			Statement: fmt.Sprintf("Disable conflicting display manager %s before enabling %s", svc.ServiceReference, sddmUnit),
+			RiskLevel: "high",
+		})
+		if activate && svc.Active == "yes" {
+			ops = append(ops, protocol.Operation{
+				OperationID:    "stop-" + svc.ServiceReference,
+				Kind:           protocol.SetServiceActive,
+				Dependencies:   []string{},
+				Preconditions:  []json.RawMessage{},
+				ExpectedBefore: protocol.Object{"active": json.RawMessage(`true`)},
+				ExpectedAfter:  protocol.Object{"active": json.RawMessage(`false`)},
+				Parameters:     json.RawMessage(fmt.Sprintf(`{"service_reference":%q,"active":false}`, svc.ServiceReference)),
+				Compensation:   json.RawMessage(fmt.Sprintf(`{"kind":"set_service_active","service_reference":%q,"active":true}`, svc.ServiceReference)),
+			})
+		}
+		if svc.Enabled == "yes" {
+			ops = append(ops, protocol.Operation{
+				OperationID:    "disable-" + svc.ServiceReference,
+				Kind:           protocol.SetServiceEnabled,
+				Dependencies:   []string{},
+				Preconditions:  []json.RawMessage{},
+				ExpectedBefore: protocol.Object{"enabled": json.RawMessage(`true`)},
+				ExpectedAfter:  protocol.Object{"enabled": json.RawMessage(`false`)},
+				Parameters:     json.RawMessage(fmt.Sprintf(`{"service_reference":%q,"enabled":false}`, svc.ServiceReference)),
+				Compensation:   json.RawMessage(fmt.Sprintf(`{"kind":"set_service_enabled","service_reference":%q,"enabled":true}`, svc.ServiceReference)),
+			})
+		}
+	}
+
+	sddmEnabled := state.Enabled == "yes"
+	ops = append(ops, protocol.Operation{
+		OperationID:    "enable-sddm",
+		Kind:           protocol.SetServiceEnabled,
+		Dependencies:   []string{},
+		Preconditions:  []json.RawMessage{},
+		ExpectedBefore: protocol.Object{"enabled": json.RawMessage(fmt.Sprintf("%t", sddmEnabled))},
+		ExpectedAfter:  protocol.Object{"enabled": json.RawMessage(`true`)},
+		Parameters:     json.RawMessage(`{"service_reference":"sddm.service","enabled":true}`),
+		Compensation:   json.RawMessage(fmt.Sprintf(`{"kind":"set_service_enabled","service_reference":"sddm.service","enabled":%t}`, sddmEnabled)),
+	})
+	if activate {
+		sddmActive := state.Active == "yes"
+		ops = append(ops, protocol.Operation{
+			OperationID:    "start-sddm",
+			Kind:           protocol.SetServiceActive,
+			Dependencies:   []string{},
+			Preconditions:  []json.RawMessage{},
+			ExpectedBefore: protocol.Object{"active": json.RawMessage(fmt.Sprintf("%t", sddmActive))},
+			ExpectedAfter:  protocol.Object{"active": json.RawMessage(`true`)},
+			Parameters:     json.RawMessage(`{"service_reference":"sddm.service","active":true}`),
+			Compensation:   json.RawMessage(fmt.Sprintf(`{"kind":"set_service_active","service_reference":"sddm.service","active":%t}`, sddmActive)),
+		})
+	}
+
+	mode := payload.Mode
+	if mode == "" {
+		mode = "fresh_install"
+	}
+	refs := []adapterv1.ArtifactReference{}
+	inputRaw, _ := json.Marshal(struct {
+		Target   string `json:"target"`
+		Mode     string `json:"mode"`
+		Activate bool   `json:"activate"`
+		Dist     string `json:"dist"`
+	}{target.InstanceID, mode, activate, "linux"})
+	canonicalRaw, _ := json.Marshal(struct {
+		Refs []adapterv1.ArtifactReference `json:"refs"`
+		Ops  []protocol.Operation          `json:"ops"`
+		Mode string                        `json:"mode"`
+	}{refs, ops, mode})
+	canonicalDigest := calcSHA256(canonicalRaw)
+
+	plan := adapterv1.ChangePlan{
+		PlanID:               "sddm-linux-" + canonicalDigest[:16],
+		AdapterID:            "org.fplogin.adapter.sddm",
+		AdapterVersion:       "0.1.0",
+		ProtocolVersion:      req.ProtocolVersion,
+		TargetInstanceID:     target.InstanceID,
+		Mode:                 mode,
+		CreatedAt:            canonicalPlanTime,
+		InputHash:            calcSHA256(inputRaw),
+		CanonicalPlanDigest:  canonicalDigest,
+		Approvals:            approvals,
+		Preconditions:        []adapterv1.Condition{},
+		Postconditions:       []adapterv1.Condition{},
+		ArtifactReferences:   refs,
+		Operations:           ops,
+		ExpectedCapabilities: []string{"biometric_auth"},
+	}
+	if err := plan.Validate(); err != nil {
+		return zero, fmt.Errorf("invalid generated change plan: %w", err)
+	}
+	return plan, nil
+}
+
 func verifyInstall(req adapterv1.Request) (json.RawMessage, error) {
 	if os.Getuid() == 0 || os.Geteuid() == 0 || req.Context.Elevated || req.Context.Root != "/" {
 		return nil, fmt.Errorf("SDDM Verify requires unprivileged context on canonical root /")
@@ -389,31 +589,44 @@ func verifyInstall(req adapterv1.Request) (json.RawMessage, error) {
 	now := time.Now().UTC().Format(time.RFC3339)
 	checks := []adapterv1.VerificationCheck{}
 
-	// 1. Verify sddm-fplogin package is installed and stock sddm is absent.
+	// 1. Verify patched SDDM is installed (via pacman on Arch, or binary check on generic Linux).
 	pkgCheck := adapterv1.VerificationCheck{
 		CheckID:  "pkg.sddm_fplogin",
 		Severity: "required",
 		Status:   "failed",
 		Evidence: []protocol.Evidence{},
 	}
-	c := exec.Command("/usr/bin/pacman", "--config", "/dev/null", "-Q")
-	c.Env = []string{"LC_ALL=C", "PATH=/usr/bin"}
-	out, err := c.Output()
-	if err == nil {
-		lines := "\n" + strings.TrimSpace(string(out)) + "\n"
-		hasCand := strings.Contains(lines, "\nsddm-fplogin ")
-		hasStock := strings.Contains(lines, "\nsddm ")
-		if hasCand && !hasStock {
-			pkgCheck.Status = "passed"
-			pkgCheck.Evidence = append(pkgCheck.Evidence, protocol.Evidence{
-				Source: "adapter", Kind: "package", Subject: "sddm-fplogin",
-				Timestamp: now, ObservedValue: "installed",
-			})
-		} else {
-			pkgCheck.Evidence = append(pkgCheck.Evidence, protocol.Evidence{
-				Source: "adapter", Kind: "package", Subject: "sddm-fplogin",
-				Timestamp: now, ObservedValue: fmt.Sprintf("sddm-fplogin=%t sddm=%t", hasCand, hasStock),
-			})
+	if isGenericLinux(req) {
+		for _, p := range []string{"/usr/bin/sddm", "/usr/sbin/sddm", "/usr/local/bin/sddm"} {
+			if data, err := os.ReadFile(p); err == nil && bytes.Contains(data, []byte("AutoFingerprintForLegacyThemes")) {
+				pkgCheck.Status = "passed"
+				pkgCheck.Evidence = append(pkgCheck.Evidence, protocol.Evidence{
+					Source: "adapter", Kind: "binary", Subject: p,
+					Timestamp: now, ObservedValue: "AutoFingerprintForLegacyThemes",
+				})
+				break
+			}
+		}
+	} else {
+		c := exec.Command("/usr/bin/pacman", "--config", "/dev/null", "-Q")
+		c.Env = []string{"LC_ALL=C", "PATH=/usr/bin"}
+		out, err := c.Output()
+		if err == nil {
+			lines := "\n" + strings.TrimSpace(string(out)) + "\n"
+			hasCand := strings.Contains(lines, "\nsddm-fplogin ")
+			hasStock := strings.Contains(lines, "\nsddm ")
+			if hasCand && !hasStock {
+				pkgCheck.Status = "passed"
+				pkgCheck.Evidence = append(pkgCheck.Evidence, protocol.Evidence{
+					Source: "adapter", Kind: "package", Subject: "sddm-fplogin",
+					Timestamp: now, ObservedValue: "installed",
+				})
+			} else {
+				pkgCheck.Evidence = append(pkgCheck.Evidence, protocol.Evidence{
+					Source: "adapter", Kind: "package", Subject: "sddm-fplogin",
+					Timestamp: now, ObservedValue: fmt.Sprintf("sddm-fplogin=%t sddm=%t", hasCand, hasStock),
+				})
+			}
 		}
 	}
 	checks = append(checks, pkgCheck)
@@ -442,12 +655,15 @@ func verifyInstall(req adapterv1.Request) (json.RawMessage, error) {
 	}
 	checks = append(checks, themeCheck)
 
-	// 3. Verify required SDDM patched binaries, PAM service, and base theme exist.
+	// 3. Verify required SDDM artifacts exist.
 	requiredPaths := []string{
 		"/usr/bin/sddm",
 		"/usr/lib/sddm/sddm-helper",
 		"/etc/pam.d/sddm-fingerprint",
 		"/usr/share/sddm/themes/fplogin/metadata.desktop",
+	}
+	if isGenericLinux(req) {
+		requiredPaths = []string{pamFingerprintPath, themeDropIn}
 	}
 	artCheck := adapterv1.VerificationCheck{
 		CheckID:  "file.sddm_artifacts",

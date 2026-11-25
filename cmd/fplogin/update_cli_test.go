@@ -163,3 +163,49 @@ func TestParseSHA256Sums_RejectsUnsafeEntries(t *testing.T) {
 		t.Fatal("expected invalid digest rejection")
 	}
 }
+
+func TestUpdate_GenericLinuxTarballFlow(t *testing.T) {
+	tarBytes := []byte("fake-linux-tarball-v1.0.1")
+	tarSHA := sha256Hex(tarBytes)
+
+	var srv *httptest.Server
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/repos/agmonetti/fplogin/releases/latest":
+			_ = json.NewEncoder(w).Encode(githubRelease{
+				TagName: "v1.0.1",
+				Assets: []githubReleaseAsset{
+					{Name: "SHA256SUMS", BrowserDownloadURL: srv.URL + "/assets/SHA256SUMS"},
+					{Name: "fplogin-linux-x86_64.tar.gz", BrowserDownloadURL: srv.URL + "/assets/fplogin-linux-x86_64.tar.gz"},
+				},
+			})
+		case "/assets/SHA256SUMS":
+			fmt.Fprintf(w, "%s  fplogin-linux-x86_64.tar.gz\n", tarSHA)
+		case "/assets/fplogin-linux-x86_64.tar.gz":
+			_, _ = w.Write(tarBytes)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	statePath := filepath.Join(t.TempDir(), "release-state.json")
+	var installedTar string
+	var out, errBuf bytes.Buffer
+	err := executeUpdate([]string{"--yes", "--api-base", srv.URL, "--state", statePath}, updateDeps{
+		httpClient:     srv.Client(),
+		getEuid:        func() int { return 0 },
+		hasPacman:      func() bool { return false },
+		queryPacman:    func(string) (string, bool) { return "", false },
+		installTarball: func(p string) error { installedTar = p; return nil },
+		stdin:          strings.NewReader(""),
+		stdout:         &out,
+		stderr:         &errBuf,
+	})
+	if err != nil {
+		t.Fatalf("generic linux update failed: %v", err)
+	}
+	if installedTar == "" || !strings.Contains(out.String(), "Updated successfully to v1.0.1") {
+		t.Fatalf("expected tarball install, got tar=%q out=%q", installedTar, out.String())
+	}
+}

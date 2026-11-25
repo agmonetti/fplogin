@@ -1,0 +1,78 @@
+{
+  "descriptor_schema_version": "1.0",
+  "platform_id": "org.fplogin.platform.linux",
+  "platform_version": "0.1.0",
+  "protocol_versions": [
+    {
+      "major": 1,
+      "minor": 0
+    }
+  ],
+  "minimum_core_version": "0.1.0",
+  "name": "Generic Linux (systemd) Platform Provider",
+  "vendor": "fplogin",
+  "executable": "bin/fplogin-platform-linux",
+  "supported_platforms": [
+    {
+      "distribution": "linux",
+      "architecture": "x86_64"
+    },
+    {
+      "distribution": "linux",
+      "architecture": "aarch64"
+    }
+  ],
+  "capabilities": [
+    {
+      "id": "host.inspect",
+      "status": "provided",
+      "level": 1,
+      "constraints": {},
+      "evidence_requirements": [
+        "os_release"
+      ]
+    },
+    {
+      "id": "package.query",
+      "status": "provided",
+      "level": 1,
+      "constraints": {},
+      "evidence_requirements": [
+        "binary_probe"
+      ]
+    },
+    {
+      "id": "service.query",
+      "status": "provided",
+      "level": 1,
+      "constraints": {},
+      "evidence_requirements": [
+        "systemd"
+      ]
+    },
+    {
+      "id": "analyzer.facts",
+      "status": "provided",
+      "level": 1,
+      "constraints": {},
+      "evidence_requirements": [
+        "binary_probe",
+        "systemd"
+      ]
+    }
+  ],
+  "operation_kinds": [
+    "set_service_enabled",
+    "set_service_active",
+    "restore_service_state"
+  ],
+  "package_formats": [],
+  "service_manager": {
+    "kind": "systemd",
+    "capabilities": [
+      "status",
+      "alias"
+    ]
+  },
+  "asset_root": "assets"
+}

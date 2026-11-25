@@ -170,4 +170,38 @@ func TestPlanExecutableInstall_Scenarios(t *testing.T) {
 			t.Fatal("expected refusal when stock sddm rollback archive is missing")
 		}
 	})
+
+	t.Run("generic linux configuration-only plan without pacman artifacts", func(t *testing.T) {
+		facts := adapterv1.PreflightFacts{
+			Packages: []platformv1.PackageCandidate{
+				{PackageReference: "sddm-fplogin", Installed: "yes", Version: json.RawMessage(`"compatible"`)},
+				{PackageReference: "fprintd", Installed: "yes", Version: json.RawMessage(`null`)},
+			},
+			Services: []platformv1.ServiceCandidate{
+				{ServiceReference: "sddm.service", Enabled: "yes", Active: "no", Configurable: "yes"},
+			},
+		}
+		target := detectSDDMLive(facts)
+		if target.Compatibility != "compatible" {
+			t.Fatalf("expected compatible target on generic linux, got %+v", target)
+		}
+		req := makeLiveReq(t, facts, nil, nil, false)
+		req.Context.Platform["distribution"] = json.RawMessage(`"linux"`)
+		plan, err := planExecutableInstall(req, facts, target, adapterv1.PlanInstallPayload{Mode: "fresh_install"})
+		if err != nil {
+			t.Fatalf("planExecutableInstall(linux): %v", err)
+		}
+		if len(plan.ArtifactReferences) != 0 {
+			t.Fatalf("expected zero package artifact refs on generic linux, got %+v", plan.ArtifactReferences)
+		}
+		wantOps := []string{"ensure-sddm-conf-dir", "write-theme", "write-pam-sddm-fingerprint", "enable-sddm"}
+		if len(plan.Operations) != len(wantOps) {
+			t.Fatalf("got %d ops, want %d", len(plan.Operations), len(wantOps))
+		}
+		for i, want := range wantOps {
+			if plan.Operations[i].OperationID != want {
+				t.Fatalf("op[%d] = %q, want %q", i, plan.Operations[i].OperationID, want)
+			}
+		}
+	})
 }
