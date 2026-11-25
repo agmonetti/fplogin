@@ -4,18 +4,18 @@
     "tagline": "Biometric Fingerprint Authentication for Linux Display Managers",
     "target_v1": "Arch Linux · systemd · SDDM 0.21.0 · fprintd / libfprint · Hyprland",
     "reference_hardware": "Synaptics 06cb:00bd (match-on-sensor USB)",
-    "last_updated": "2026-11-24",
-    "current_gate": "Sprint 7 (validación E2E, release v1.0 y PR upstream SDDM)",
+    "last_updated": "2026-11-25",
+    "current_gate": "Sprint 7 (gate final de firma GPG y aceptación v1.0)",
     "current_gate_status": "partial",
-    "latest_achievement": "Sprint 6 aceptado y cerrado (2026-11-24): modelado de amenazas, fuzzing IPC (250+ tramas), 500 ciclos de helpers (0 FD leak), inyección fprintd/PrepareForSleep, ASan+UBSan 69/69, patch 0005 y fplogin-git r12.0447a0a.",
-    "next_step": "Planificar y ejecutar Sprint 7 (matriz E2E cold-boot en hardware real, handoff hyprlock, artefactos de release firmados y PR upstream SDDM).",
+    "latest_achievement": "Sprint 7 verificado en Arch local con hardware real (2026-11-25): sddm-fplogin 0.21.0-4 (Qt6 10/10 + Qt5 9/9, patch 0006 preservando tema del usuario intacto), fplogin-git r22.f75ef12, KVM E2E 5/5, PR upstream local en 5 commits y matriz física Synaptics 06cb:00bd + hyprlock PASS.",
+    "next_step": "Firma GPG con clave del propietario (S7-15) y autorización explícita de cierre/publicación v1.0.0 y PR upstream SDDM (S7-16).",
     "summary": {
-      "done": 146,
-      "partial": 0,
+      "done": 150,
+      "partial": 1,
       "blocked": 0,
-      "pending": 6,
+      "pending": 1,
       "total_items": 152,
-      "percentage": 96.1
+      "percentage": 98.7
     }
   },
   "sprints": [
@@ -1181,59 +1181,59 @@
           "id": "S7-10",
           "title": "CLI Unificado de Control de fplogin",
           "status": "done",
-          "description": "CLI empaquetada fplogin-git r12.0447a0a con install, uninstall, recover, status, components, analyze (Fase 13) y hardening TOCTOU/O_NOFOLLOW verificados.",
+          "description": "CLI empaquetada fplogin-git r22.f75ef12 con install (preservando tema del usuario), uninstall, recover, status, components, analyze (Fase 13) y hardening TOCTOU/O_NOFOLLOW verificados.",
           "evidence": "cmd/fplogin/main.go; cmd/fplogin/analyze_cli.go"
         },
         {
           "id": "S7-11",
           "title": "Matriz de Ciclo de Vida de Arranque en Frío Completo",
-          "status": "pending",
-          "description": "Prueba automatizada de arranque, suspensión/despertar, desconexión de pantallas y reinicio en máquina de test.",
-          "evidence": "Plan de Implementación §10.7"
+          "status": "done",
+          "description": "Verificada en Arch Linux real con Synaptics 06cb:00bd y tema intacto where_is_my_sddm_theme (sddm-fplogin 0.21.0-4, Qt6+Qt5): arranque en frío por huella (1.44s-2.3s), password ganándole a huella, logout/relogin (uwsm stop), fallo acotado PAM_MAXTRIES sin loops y suspend/resume.",
+          "evidence": "docs/reviews/sprint-7.md; .work/evidence/sprint7/hardware/"
         },
         {
           "id": "S7-12",
           "title": "Verificación de Handoff hacia Hyprlock",
-          "status": "pending",
-          "description": "Verificar que la liberación del sensor por el helper de SDDM permite a la pantalla de bloqueo hyprlock adquirir la huella.",
-          "evidence": "Plan de Implementación §10.7"
+          "status": "done",
+          "description": "Verificado en hardware real que SDDM libera Synaptics 06cb:00bd permitiendo a hyprlock 0.9.7 reclamar /net/reactivated/Fprint/Device/0 y desbloquear por huella tanto tras login por huella como tras login por contraseña ganándole a huella.",
+          "evidence": "docs/reviews/sprint-7.md; .work/evidence/sprint7/hardware/c2b-pw-lock-20261125T190722Z.log"
         },
         {
           "id": "S7-13",
           "title": "Ciclo Completo: Instalación Limpia -> Login -> Desinstalación",
-          "status": "pending",
-          "description": "Prueba de ciclo completo en instalación limpia de Arch Linux sin requerir intervención del operador.",
-          "evidence": "Plan de Implementación §10.7"
+          "status": "done",
+          "description": "5/5 casos PASS en Arch KVM con systemd PID 1 real (components/--dry-run, reemplazo stock SDDM -> status -> reinstall -> repair -> uninstall, sin DM --activate, reemplazo greetd, e interrupción SIGKILL + fplogin recover) con verificación /bin/login PAM.",
+          "evidence": "docs/reviews/sprint-7.md; .work/evidence/sprint7/clean-lifecycle/cli-e2e-serial.log"
         },
         {
           "id": "S7-14",
           "title": "Serie de Pull Requests para SDDM Upstream",
-          "status": "pending",
-          "description": "Preparación de la serie de parches limpios y revisables para someter a github.com/sddm/sddm.",
-          "evidence": "Plan de Implementación §1"
+          "status": "done",
+          "description": "Rama local upstream-pr/concurrent-fingerprint-auth (5 commits atómicos sobre SDDM v0.21.0, cero acoplamiento con instalador/analizador), parches format-patch 0001..0005, bundle verificado, borrador PR y guía docs/UPSTREAM_TRACKING.md.",
+          "evidence": "adapters/sddm/upstream-pr/PR_DESCRIPTION.md; docs/UPSTREAM_TRACKING.md"
         },
         {
           "id": "S7-15",
           "title": "Artefactos de Release Firmados Criptográficamente",
-          "status": "pending",
-          "description": "Generación de tarballs firmados con GPG, paquetes pacman y manifiestos de integridad con hashes SHA-256.",
-          "evidence": "Plan de Implementación §10.7"
+          "status": "partial",
+          "description": "Artefactos reproducibles (tarball v1.0.0, fplogin-git r22.f75ef12, sddm-fplogin 0.21.0-4) y SHA256SUMS verificados localmente en .work/release/v1.0.0/ vía scripts/build_release.sh; firma GPG separada pendiente de clave del propietario.",
+          "evidence": "scripts/build_release.sh; docs/reviews/sprint-7.md"
         },
         {
           "id": "S7-16",
           "title": "Revisión y Aceptación Final Independiente (Sol Gate)",
           "status": "pending",
-          "description": "Aprobación formal del cumplimiento de todos los requisitos de la Definición de Terminado (DoD) previo al tag v1.0.",
-          "evidence": "docs/reviews/"
+          "description": "Revisión Sprint 7 y reconciliación §11/§12 redactadas en docs/reviews/sprint-7.md; cierre formal, tag v1.0.0, git push y envío público del PR upstream esperan autorización explícita del propietario.",
+          "evidence": "docs/reviews/sprint-7.md"
         }
       ],
       "summary": {
         "total": 16,
-        "done": 10,
-        "partial": 0,
+        "done": 14,
+        "partial": 1,
         "blocked": 0,
-        "pending": 6,
-        "percentage": 62.5
+        "pending": 1,
+        "percentage": 87.5
       }
     }
   ]
