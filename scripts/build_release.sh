@@ -45,25 +45,30 @@ git archive --format=tar --prefix="fplogin-${version#v}/" "$head_commit" \
     | GZIP=-n gzip -9 > "$out_dir/$tar_name"
 touch -d "@$sde" "$out_dir/$tar_name"
 
-# Build distro-agnostic Linux binary tarball (for Debian/Ubuntu/Fedora/openSUSE/etc.)
-arch="$(uname -m)"
-linux_tar="fplogin-linux-${arch}.tar.gz"
-linux_stage="$(mktemp -d)"
-trap 'rm -rf "$linux_stage"' EXIT
-mkdir -p "$linux_stage/bin" "$linux_stage/platforms/linux" "$linux_stage/platforms/arch" "$linux_stage/adapters/sddm" "$linux_stage/scripts"
-CGO_ENABLED=0 go build -trimpath -o "$linux_stage/bin/fplogin" ./cmd/fplogin
-CGO_ENABLED=0 go build -trimpath -o "$linux_stage/bin/fplogin-platform-linux" ./cmd/fplogin-platform-linux
-CGO_ENABLED=0 go build -trimpath -o "$linux_stage/bin/fplogin-adapter-sddm" ./cmd/fplogin-adapter-sddm
-cp -f platforms/linux/platform.json "$linux_stage/platforms/linux/platform.json"
-cp -f platforms/arch/fplogin.sysusers "$linux_stage/platforms/arch/fplogin.sysusers"
-cp -f adapters/sddm/adapter.json "$linux_stage/adapters/sddm/adapter.json"
-cp -f scripts/install_linux.sh "$linux_stage/scripts/install_linux.sh"
-chmod 755 "$linux_stage/scripts/install_linux.sh"
-cp -f LICENSE README.md "$linux_stage/"
-tar --sort=name --mtime="@$sde" --owner=0 --group=0 --numeric-owner -C "$linux_stage" -cf - . \
-    | GZIP=-n gzip -9 > "$out_dir/$linux_tar"
-touch -d "@$sde" "$out_dir/$linux_tar"
-echo "Created generic Linux bundle: $linux_tar"
+# Build distro-agnostic Linux binary tarballs (x86_64 + aarch64) for any systemd distro
+build_linux_bundle() {
+    local goarch="$1" arch_label="$2"
+    local linux_tar="fplogin-linux-${arch_label}.tar.gz"
+    local linux_stage
+    linux_stage="$(mktemp -d)"
+    mkdir -p "$linux_stage/bin" "$linux_stage/platforms/linux" "$linux_stage/platforms/arch" "$linux_stage/adapters/sddm" "$linux_stage/scripts"
+    GOOS=linux GOARCH="$goarch" CGO_ENABLED=0 go build -trimpath -o "$linux_stage/bin/fplogin" ./cmd/fplogin
+    GOOS=linux GOARCH="$goarch" CGO_ENABLED=0 go build -trimpath -o "$linux_stage/bin/fplogin-platform-linux" ./cmd/fplogin-platform-linux
+    GOOS=linux GOARCH="$goarch" CGO_ENABLED=0 go build -trimpath -o "$linux_stage/bin/fplogin-adapter-sddm" ./cmd/fplogin-adapter-sddm
+    cp -f platforms/linux/platform.json "$linux_stage/platforms/linux/platform.json"
+    cp -f platforms/arch/fplogin.sysusers "$linux_stage/platforms/arch/fplogin.sysusers"
+    cp -f adapters/sddm/adapter.json "$linux_stage/adapters/sddm/adapter.json"
+    cp -f scripts/install_linux.sh "$linux_stage/scripts/install_linux.sh"
+    chmod 755 "$linux_stage/scripts/install_linux.sh"
+    cp -f LICENSE README.md "$linux_stage/"
+    tar --sort=name --mtime="@$sde" --owner=0 --group=0 --numeric-owner -C "$linux_stage" -cf - . \
+        | GZIP=-n gzip -9 > "$out_dir/$linux_tar"
+    touch -d "@$sde" "$out_dir/$linux_tar"
+    rm -rf "$linux_stage"
+    echo "Created generic Linux bundle: $linux_tar"
+}
+build_linux_bundle amd64 x86_64
+build_linux_bundle arm64 aarch64
 
 if [[ -z "$fplogin_pkg" ]]; then
     fplogin_pkg="$(ls -1t target/arch-package.*/fplogin-git-*-x86_64.pkg.tar.zst 2>/dev/null | grep -v -- '-debug-' | head -n1 || true)"
