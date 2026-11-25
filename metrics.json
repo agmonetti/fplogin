@@ -5,17 +5,17 @@
     "target_v1": "Arch Linux · systemd · SDDM 0.21.0 · fprintd / libfprint · Hyprland",
     "reference_hardware": "Synaptics 06cb:00bd (match-on-sensor USB)",
     "last_updated": "2026-11-24",
-    "current_gate": "Sprint 6 (seguridad y endurecimiento)",
+    "current_gate": "Sprint 7 (validación E2E, release v1.0 y PR upstream SDDM)",
     "current_gate_status": "partial",
-    "latest_achievement": "Sprint 5 aceptado y cerrado (2026-11-24): analizador de diferencias solo lectura, CollectAnalyzerFacts en Arch, Fase 13 postflight y paquete fplogin-git r11.79688f7 verificados sin mutación.",
-    "next_step": "Planificar y ejecutar Sprint 6 (seguridad, modelado de amenazas IPC, estrés de helpers e inyección de fallos fprintd).",
+    "latest_achievement": "Sprint 6 aceptado y cerrado (2026-11-24): modelado de amenazas, fuzzing IPC (250+ tramas), 500 ciclos de helpers (0 FD leak), inyección fprintd/PrepareForSleep, ASan+UBSan 69/69, patch 0005 y fplogin-git r12.0447a0a.",
+    "next_step": "Planificar y ejecutar Sprint 7 (matriz E2E cold-boot en hardware real, handoff hyprlock, artefactos de release firmados y PR upstream SDDM).",
     "summary": {
-      "done": 142,
+      "done": 146,
       "partial": 0,
-      "blocked": 4,
+      "blocked": 0,
       "pending": 6,
       "total_items": 152,
-      "percentage": 93.4
+      "percentage": 96.1
     }
   },
   "sprints": [
@@ -995,8 +995,8 @@
     {
       "id": "sprint-6",
       "name": "Sprint 6",
-      "subtitle": "Seguridad — avances registrados, aceptación pendiente de gates previos",
-      "status": "blocked",
+      "subtitle": "Seguridad y Endurecimiento (Aceptado y Cerrado)",
+      "status": "done",
       "goal": "Blindar el núcleo contra ataques de evasión de symlinks, fugas de secretos en registros/reportes, límites de buffers en subprocesos, verificación AST de fronteras core y pruebas de robustez.",
       "items": [
         {
@@ -1067,51 +1067,51 @@
           "title": "Suite de Pruebas de Integración de Seguridad",
           "status": "done",
           "description": "Suite en tests/integration/core/security_test.go validando symlinks maliciosos, fuga de secretos y límites de runner.",
-          "evidence": "tests/integration/core/security_test.go"
+          "evidence": "tests/integration/core/security_test.go; docs/reviews/sprint-6.md"
         },
         {
           "id": "S6-IPC-01",
           "title": "Modelado de Amenazas y Fuzzing de IPC de Greeter",
-          "status": "blocked",
-          "description": "Fuzzing de sockets locales entre greeter y helper en SDDM C++ (bloqueado hasta completar retest de Sprint 2).",
-          "evidence": "docs/reviews/sprint-2.md (Pendiente Hardware)"
+          "status": "done",
+          "description": "Modelado de amenazas (docs/security/THREAT_MODEL.md), socket 0700, cap de 16 conexiones, fuzzing de 250 tramas Greeter y 24 conexiones malformadas Helper verificados bajo ASan+UBSan.",
+          "evidence": "docs/security/THREAT_MODEL.md; platforms/arch/sddm-fplogin/0005-security-hardening.patch; docs/reviews/sprint-6.md"
         },
         {
           "id": "S6-IPC-02",
           "title": "Pruebas de Estrés de Ciclo de Vida de Helpers",
-          "status": "blocked",
-          "description": "Generación de 500 ciclos de login consecutivos en SDDM para descartar fugas de memoria o descriptores de archivo en C++.",
-          "evidence": "docs/reviews/sprint-2.md (Pendiente Hardware)"
+          "status": "done",
+          "description": "Prueba de resistencia de 500 ciclos mixtos (huella, contraseña, cancel, SIGKILL, cambio de usuario): fd_delta=0 (18->18), rss_delta=+1.6 MiB, 0 procesos colgados.",
+          "evidence": "platforms/arch/sddm-fplogin/0005-security-hardening.patch; docs/reviews/sprint-6.md"
         },
         {
           "id": "S6-IPC-03",
           "title": "Inyección de Fallos en Servicio D-Bus de fprintd",
-          "status": "blocked",
-          "description": "Simulación de caídas intempestivas del servicio fprintd durante la captura activa de huella.",
-          "evidence": "docs/reviews/sprint-2.md (Pendiente Hardware)"
+          "status": "done",
+          "description": "Inyección de fallos fprintd mid-scan, remoción de lector y suspensión externa PrepareForSleep(bool) en bus D-Bus privado preservando fallback de contraseña sin bucles ni reactivación oculta.",
+          "evidence": "platforms/arch/sddm-fplogin/0005-security-hardening.patch; docs/reviews/sprint-6.md"
         },
         {
           "id": "S6-IPC-04",
           "title": "Revisión de UI contra CVEs de Intertención / Intención",
-          "status": "blocked",
-          "description": "Verificación en interfaz de usuario para prevenir ataques de bypass biométrico por eventos fantasma.",
-          "evidence": "docs/reviews/sprint-2.md (Pendiente Hardware)"
+          "status": "done",
+          "description": "Auditoría UI de atención/intención (mirror sin control bloqueado en FploginThemeTest), borrado explicit_bzero de contraseñas, /proc y logs sin fugas y verificación real del stack PAM sddm-fingerprint.",
+          "evidence": "platforms/arch/sddm-fplogin/0005-security-hardening.patch; docs/reviews/sprint-6.md"
         }
       ],
       "summary": {
         "total": 14,
-        "done": 10,
+        "done": 14,
         "partial": 0,
-        "blocked": 4,
+        "blocked": 0,
         "pending": 0,
-        "percentage": 71.43
+        "percentage": 100.0
       }
     },
     {
       "id": "sprint-7",
       "name": "Sprint 7",
-      "subtitle": "Release — avances registrados, aceptación pendiente de gates previos",
-      "status": "blocked",
+      "subtitle": "Validación E2E, Release v1.0 y PR Upstream (Gate Activo)",
+      "status": "partial",
       "goal": "Publicar guías de recuperación de emergencia, matriz de soporte, binarios de subprocesos fuera de proceso para Arch y SDDM, pruebas de pipes IPC E2E y telemetría granular de proyecto.",
       "items": [
         {
@@ -1181,7 +1181,7 @@
           "id": "S7-10",
           "title": "CLI Unificado de Control de fplogin",
           "status": "done",
-          "description": "CLI empaquetada fplogin-git r11.79688f7 con install, uninstall, recover, status, components y analyze (con Fase 13 postflight) verificados.",
+          "description": "CLI empaquetada fplogin-git r12.0447a0a con install, uninstall, recover, status, components, analyze (Fase 13) y hardening TOCTOU/O_NOFOLLOW verificados.",
           "evidence": "cmd/fplogin/main.go; cmd/fplogin/analyze_cli.go"
         },
         {

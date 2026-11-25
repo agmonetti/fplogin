@@ -4,7 +4,7 @@ Biometric login for Linux, under active development. The v1 target is fingerprin
 
 [![fplogin Project Telemetry & Milestone Matrix](docs/assets/dashboard.png)](dashboard.html)
 
-The dashboard reflects the accepted closure of [Sprint 5 (system difference analyzer)](docs/reviews/sprint-5.md) on 2026-11-24 (`fplogin-git 0.2.0.r11.79688f7-1`, read-only `fplogin analyze`, Arch `CollectAnalyzerFacts`, Installer Phase 13 postflight, and Audit A8 wording closure). Prior accepted gates: [Sprint 4 (transactional installer and uninstaller)](docs/reviews/sprint-4.md) (closed 2026-11-24), [Sprint 3 physical closeout](docs/reviews/sprint-3-physical-closure.md) (closed 2026-11-18), [Sprint 2 acceptance](docs/reviews/sprint-2-acceptance-2026-11-12.md) (closed 2026-11-12), and [Sprint 1 review](docs/reviews/sprint-1.md) (closed 2026-10-04). Next milestone: Sprint 6 — Security hardening ([Implementation Plan](docs/IMPLEMENTATION_PLAN.md)).
+The dashboard reflects the accepted closure of [Sprint 6 (security and resilience hardening)](docs/reviews/sprint-6.md) on 2026-11-24 (`fplogin-git 0.2.0.r12.0447a0a-1`, [Threat Model](docs/security/THREAT_MODEL.md), additive SDDM patch `0005-security-hardening.patch`, 250-frame IPC fuzzing, 500-cycle helper endurance with `fd_delta=0`, `fprintd`/`PrepareForSleep` fault injection, 69/69 ASan+UBSan, and Go `O_NOFOLLOW`/TOCTOU hardening). Prior accepted gates: [Sprint 5 (system difference analyzer)](docs/reviews/sprint-5.md) (closed 2026-11-24), [Sprint 4 (transactional installer and uninstaller)](docs/reviews/sprint-4.md) (closed 2026-11-24), [Sprint 3 physical closeout](docs/reviews/sprint-3-physical-closure.md) (closed 2026-11-18), [Sprint 2 acceptance](docs/reviews/sprint-2-acceptance-2026-11-12.md) (closed 2026-11-12), and [Sprint 1 review](docs/reviews/sprint-1.md) (closed 2026-10-04). Next milestone: Sprint 7 — End-to-end validation, release v1.0, and upstream SDDM PR ([Implementation Plan](docs/IMPLEMENTATION_PLAN.md)).
 
 ## The problem
 
@@ -101,7 +101,7 @@ No existing system files will be modified in place. The installer will generate 
 
 ## CLI Usage
 
-The pinned Arch tools package (`fplogin-git 0.2.0.r11.79688f7-1`) exposes both read-only unprivileged inspection (`components`, `install --dry-run`, `status`, `analyze`) and transactional offline installation/removal/recovery verified on Arch x86_64 with real systemd PID 1. Live `install`, `uninstall`, and `recover` require root privileges, a root-owned offline trust root (`/etc/fplogin/trust`), and explicit approval bound to the core-computed `ChangePlan` SHA-256 (plus separate `--approve-replace-dm` confirmation before replacing a conflicting display manager), followed by non-fatal Phase 13 read-only postflight analysis. See the [Sprint 4 execution plan](docs/SPRINT_4_EXECUTION_PLAN.md) and [Sprint 5 review](docs/reviews/sprint-5.md).
+The pinned Arch tools package (`fplogin-git 0.2.0.r12.0447a0a-1`) exposes both read-only unprivileged inspection (`components`, `install --dry-run`, `status`, `analyze`) and transactional offline installation/removal/recovery verified on Arch x86_64 with real systemd PID 1. Live `install`, `uninstall`, and `recover` require root privileges, a root-owned offline trust root (`/etc/fplogin/trust`), and explicit approval bound to the core-computed `ChangePlan` SHA-256 (plus separate `--approve-replace-dm` confirmation before replacing a conflicting display manager), followed by non-fatal Phase 13 read-only postflight analysis. See the [Sprint 4 execution plan](docs/SPRINT_4_EXECUTION_PLAN.md), [Sprint 5 review](docs/reviews/sprint-5.md), and [Sprint 6 security review](docs/reviews/sprint-6.md).
 
 ```bash
 # Unprivileged read-only commands
@@ -130,6 +130,9 @@ To build the Arch tools package, run `make package` as an ordinary user in an is
 - [Sprint 4 Acceptance Review](docs/reviews/sprint-4.md): Transactional installer/uninstaller closure, packaged KVM E2E evidence, and known limits.
 - [Sprint 5 Acceptance Review](docs/reviews/sprint-5.md): Read-only system difference analyzer, Arch `CollectAnalyzerFacts`, Audit A8 closure, and Phase 13 postflight.
 - [Sprint 5 Execution Plan](docs/SPRINT_5_EXECUTION_PLAN.md): System difference analyzer corrections, probes, wording accuracy, and postflight integration.
+- [Threat Model & Security Boundaries](docs/security/THREAT_MODEL.md): Consolidated five-boundary threat model mapped to §3.2 security invariants.
+- [Sprint 6 Security Review](docs/reviews/sprint-6.md): Security & resilience hardening acceptance, 10 remediated findings (`F-S6-01`..`F-S6-10`), IPC fuzzing, 500-cycle endurance, ASan+UBSan, and `0005-security-hardening.patch`.
+- [Sprint 6 Execution Plan](docs/SPRINT_6_EXECUTION_PLAN.md): Security hardening slices (`S6-F01`..`S6-F07`) and acceptance criteria.
 - [Synaptics Test Hardware](docs/hardware/SYNAPTICS_06CB_00BD.md): Primary physical-reader record and scenario matrix.
 - [Research Lessons](docs/LESSONS.md): Grounded investigation, reference platforms, failed experiments, and security analysis.
 
