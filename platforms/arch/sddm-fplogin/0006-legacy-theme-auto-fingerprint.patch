@@ -1,0 +1,213 @@
+diff --git a/src/common/Configuration.h b/src/common/Configuration.h
+index 20c76fc..71da371 100644
+--- a/src/common/Configuration.h
++++ b/src/common/Configuration.h
+@@ -47,6 +47,7 @@ namespace SDDM {
+                                                                                                    "NOTE: Currently ignored if autologin is enabled."));
+         Entry(InputMethod,         QString,     QStringLiteral("qtvirtualkeyboard"),                   _S("Input method module"));
+         Entry(FingerprintAuthTimeout, int, 30, _S("Fingerprint authentication phase deadline in seconds"));
++        Entry(AutoFingerprintForLegacyThemes, bool, true, _S("Automatically start concurrent fingerprint authentication for themes that do not call the fingerprint API"));
+         Entry(Namespaces,          QStringList, QStringList(),                                  _S("Comma-separated list of Linux namespaces for user session to enter"));
+         Entry(GreeterEnvironment,  QStringList, QStringList(),                                  _S("Comma-separated list of environment variables to be set"));
+         //  Name   Entries (but it's a regular class again)
+diff --git a/src/greeter/GreeterApp.cpp b/src/greeter/GreeterApp.cpp
+index 9dc6845..054d5c8 100644
+--- a/src/greeter/GreeterApp.cpp
++++ b/src/greeter/GreeterApp.cpp
+@@ -219,7 +219,10 @@ namespace SDDM {
+         }
+         if (view->status() != QQuickView::Ready) return;
+         view->showFullScreen();
+-        if (controller) view->requestActivate();
++        if (controller) {
++            view->requestActivate();
++            scheduleLegacyFingerprint();
++        }
+         if (screen == QGuiApplication::primaryScreen() && m_controllerView != view)
+             activatePrimary();
+     }
+@@ -292,6 +295,9 @@ namespace SDDM {
+         }
+         m_proxy->setSessionModel(m_sessionModel);
+         connect(m_proxy, &GreeterProxy::socketDisconnected, qGuiApp, &QCoreApplication::quit);
++        connect(m_proxy, &GreeterProxy::authenticationMethodsAvailableChanged, this, [this](bool available) {
++            if (available) scheduleLegacyFingerprint();
++        });
+         connect(m_proxy, &GreeterProxy::authenticationContextCleared, this, [this](quint64) {
+             m_clearPending = false;
+             m_committedPromotion = false;
+@@ -346,6 +352,53 @@ namespace SDDM {
+             view->rootContext()->setContextProperty(QStringLiteral("authenticationController"), controller);
+             if (controller) view->requestActivate();
+         }
++        if (m_controllerView && !m_proxy->hasAuthenticationActivity()) {
++            m_legacyAutoStarted = false;
++            scheduleLegacyFingerprint();
++        }
++    }
++
++    void GreeterApp::scheduleLegacyFingerprint() {
++        if (m_legacyAutoScheduled || m_legacyAutoStarted || m_embeddedFallback || m_fallbackStarted)
++            return;
++        if (!mainConfig.AutoFingerprintForLegacyThemes.get())
++            return;
++        m_legacyAutoScheduled = true;
++        // Defer briefly so themes implementing the fingerprint API can opt in first.
++        QTimer::singleShot(100, this, [this] {
++            m_legacyAutoScheduled = false;
++            maybeStartLegacyFingerprint();
++        });
++    }
++
++    void GreeterApp::maybeStartLegacyFingerprint() {
++        if (m_legacyAutoStarted || m_embeddedFallback || m_fallbackStarted || m_clearPending)
++            return;
++        if (!mainConfig.AutoFingerprintForLegacyThemes.get())
++            return;
++        if (!m_controllerView || m_controllerView->status() != QQuickView::Ready)
++            return;
++        if (!m_proxy || !m_proxy->authenticationController()
++            || !m_proxy->authenticationMethodsAvailable()
++            || m_proxy->authenticationBusy()
++            || m_proxy->hasAuthenticationActivity())
++            return;
++
++        QString user = m_userModel ? m_userModel->lastUser() : QString();
++        if (user.isEmpty() && m_userModel && m_userModel->rowCount() > 0) {
++            const int idx = (m_userModel->lastIndex() >= 0 && m_userModel->lastIndex() < m_userModel->rowCount())
++                ? m_userModel->lastIndex() : 0;
++            user = m_userModel->data(m_userModel->index(idx, 0), UserModel::NameRole).toString();
++        }
++        int sessionIndex = m_sessionModel ? m_sessionModel->lastIndex() : -1;
++        if (m_sessionModel && (sessionIndex < 0 || sessionIndex >= m_sessionModel->rowCount())
++            && m_sessionModel->rowCount() > 0)
++            sessionIndex = 0;
++        if (user.isEmpty() || sessionIndex < 0)
++            return;
++
++        m_legacyAutoStarted = true;
++        m_proxy->startFingerprint(user, sessionIndex);
+     }
+ 
+     StartupEvent::StartupEvent()
+diff --git a/src/greeter/GreeterApp.h b/src/greeter/GreeterApp.h
+index 5dce2bb..3972384 100644
+--- a/src/greeter/GreeterApp.h
++++ b/src/greeter/GreeterApp.h
+@@ -86,12 +86,16 @@ namespace SDDM {
+         bool m_replacingRoots { false };
+         bool m_fallbackStarted { false };
+         bool m_embeddedFallback { false };
++        bool m_legacyAutoScheduled { false };
++        bool m_legacyAutoStarted { false };
+         QString m_fallbackErrors;
+ 
+         void startup();
+         void activatePrimary();
+         void promoteController();
+         void beginFallback(const QString &errors);
++        void scheduleLegacyFingerprint();
++        void maybeStartLegacyFingerprint();
+     };
+ 
+     class StartupEvent : public QEvent
+diff --git a/src/greeter/GreeterProxy.cpp b/src/greeter/GreeterProxy.cpp
+index 88994d6..8777b07 100644
+--- a/src/greeter/GreeterProxy.cpp
++++ b/src/greeter/GreeterProxy.cpp
+@@ -157,6 +157,9 @@ namespace SDDM {
+     const QString &GreeterProxy::fingerprintState() const { return d->snapshot.state; }
+     const QString &GreeterProxy::fingerprintRequestId() const { return d->snapshot.requestId; }
+     bool GreeterProxy::isConnected() const { return d->socket->state() == QLocalSocket::ConnectedState; }
++    bool GreeterProxy::hasAuthenticationActivity() const {
++        return d->correlated || d->pending != GreeterProxyPrivate::None || d->passwordPending;
++    }
+ 
+     void GreeterProxy::setSessionModel(SessionModel *model) {
+         if (d->sessionModel) disconnect(d->sessionModel, nullptr, this, nullptr);
+diff --git a/src/greeter/GreeterProxy.h b/src/greeter/GreeterProxy.h
+index c2ec23e..4ca20b5 100644
+--- a/src/greeter/GreeterProxy.h
++++ b/src/greeter/GreeterProxy.h
+@@ -69,6 +69,7 @@ namespace SDDM {
+         const QString &fingerprintState() const;
+         const QString &fingerprintRequestId() const;
+         bool isConnected() const;
++        bool hasAuthenticationActivity() const;
+         void setSessionModel(SessionModel *model);
+         void setAuthenticationController(bool controller);
+         void disableAuthenticationMethods();
+diff --git a/test/GreeterAppTest.cpp b/test/GreeterAppTest.cpp
+index 684cf23..c949e5a 100644
+--- a/test/GreeterAppTest.cpp
++++ b/test/GreeterAppTest.cpp
+@@ -293,6 +293,69 @@ Rectangle {
+         QVERIFY(m_app->m_proxy->authenticationBusy());
+         QCOMPARE(m_startCount, 1);
+     }
++
++    void legacyThemeAutoStartsFingerprint() {
++        const QString prevLastUser = stateConfig.Last.User.get();
++        const bool prevAuto = mainConfig.AutoFingerprintForLegacyThemes.get();
++        m_app.reset();
++        delete m_peer;
++        m_peer = nullptr;
++        m_startCount = 0;
++        m_requests.clear();
++        m_decodeError = false;
++        QVERIFY(writeFile(QStringLiteral("Main.qml"), R"QML(
++import QtQuick 2.15
++Rectangle {
++    width: 640; height: 480
++}
++)QML"));
++        stateConfig.Last.User.set(QStringLiteral("alice"));
++        mainConfig.AutoFingerprintForLegacyThemes.set(true);
++        m_app = std::make_unique<GreeterApp>();
++        m_app->setTestModeEnabled(true);
++        m_app->setSocketName(m_server.fullServerName());
++        m_app->setThemePath(m_dir->path());
++        m_app->startup();
++        QTRY_COMPARE(m_startCount, 1);
++        QCOMPARE(count(GreeterMessages::SetAuthenticationContext), 1);
++        QCOMPARE(m_binding.user, QStringLiteral("alice"));
++        // Concurrent password submission from the legacy theme remains allowed.
++        m_app->m_proxy->login(QStringLiteral("alice"), QStringLiteral("pw"), 0);
++        QTRY_COMPARE(count(GreeterMessages::Login), 1);
++        QCOMPARE(m_startCount, 1);
++        stateConfig.Last.User.set(prevLastUser);
++        mainConfig.AutoFingerprintForLegacyThemes.set(prevAuto);
++    }
++
++    void legacyThemeRespectsDisableConfig() {
++        const QString prevLastUser = stateConfig.Last.User.get();
++        const bool prevAuto = mainConfig.AutoFingerprintForLegacyThemes.get();
++        m_app.reset();
++        delete m_peer;
++        m_peer = nullptr;
++        m_startCount = 0;
++        m_requests.clear();
++        m_decodeError = false;
++        QVERIFY(writeFile(QStringLiteral("Main.qml"), R"QML(
++import QtQuick 2.15
++Rectangle {
++    width: 640; height: 480
++}
++)QML"));
++        stateConfig.Last.User.set(QStringLiteral("alice"));
++        mainConfig.AutoFingerprintForLegacyThemes.set(false);
++        m_app = std::make_unique<GreeterApp>();
++        m_app->setTestModeEnabled(true);
++        m_app->setSocketName(m_server.fullServerName());
++        m_app->setThemePath(m_dir->path());
++        m_app->startup();
++        QTRY_VERIFY(m_app->m_proxy->authenticationMethodsAvailable());
++        QTest::qWait(200);
++        QCOMPARE(count(GreeterMessages::SetAuthenticationContext), 0);
++        QCOMPARE(m_startCount, 0);
++        stateConfig.Last.User.set(prevLastUser);
++        mainConfig.AutoFingerprintForLegacyThemes.set(prevAuto);
++    }
+ };
+ }
+ 

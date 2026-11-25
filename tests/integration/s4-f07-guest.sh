@@ -201,7 +201,7 @@ log_journal_summary "1c-nodm-svc-fail"
 # 1d: Fresh install succeeds -> configured login + text-console recovery -> uninstall restores no-DM
 run_case no-dm-install
 [[ $(pacman -Q sddm-fplogin) == "sddm-fplogin 0.21.0-3.1" ]]
-grep -Fx 'Current=fplogin' /etc/sddm.conf.d/90-fplogin.conf
+grep -Fx 'AutoFingerprintForLegacyThemes=true' /etc/sddm.conf.d/90-fplogin.conf
 sha256sum -c --quiet /run/f07-stock-pins
 verify_console_login "1d-no-dm-fresh-install"
 log_journal_summary "1d-nodm-installed"
@@ -321,13 +321,13 @@ log_journal_summary "4-partial-before"
 
 run_case partial-install
 [[ $(pacman -Q sddm-fplogin) == "sddm-fplogin 0.21.0-3.1" ]]
-grep -Fx 'Current=fplogin' /etc/sddm.conf.d/90-fplogin.conf
+grep -Fx 'AutoFingerprintForLegacyThemes=true' /etc/sddm.conf.d/90-fplogin.conf
 verify_console_login "4-partial-installed"
 
 # Delete theme file and run repair -> restores file and preserves original recovery_baseline
 rm -f /etc/sddm.conf.d/90-fplogin.conf
 run_case partial-repair
-grep -Fx 'Current=fplogin' /etc/sddm.conf.d/90-fplogin.conf
+grep -Fx 'AutoFingerprintForLegacyThemes=true' /etc/sddm.conf.d/90-fplogin.conf
 
 # Uninstall restores exact partial baseline (keeps pre-existing qt5-base/translations and 0640 file!)
 run_case partial-uninstall

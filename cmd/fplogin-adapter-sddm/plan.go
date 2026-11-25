@@ -19,7 +19,7 @@ import (
 )
 
 const (
-	themeDropInContent = "[Theme]\nCurrent=fplogin\n"
+	themeDropInContent = "[General]\nAutoFingerprintForLegacyThemes=true\n"
 	canonicalPlanTime  = "2026-01-01T00:00:00Z"
 )
 

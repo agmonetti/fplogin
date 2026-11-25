@@ -81,7 +81,7 @@ func recoverableFile(op protocol.Operation) (fileParameters, string, error) {
 const (
 	systemStateRoot = "/var/lib/fplogin"
 	systemThemeFile = "/etc/sddm.conf.d/90-fplogin.conf"
-	systemThemeData = "[Theme]\nCurrent=fplogin\n"
+	systemThemeData = "[General]\nAutoFingerprintForLegacyThemes=true\n"
 )
 
 func filePolicy(root string, paths []string) func(string) bool {

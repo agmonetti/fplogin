@@ -122,7 +122,7 @@ func planPreview(facts adapterv1.PreflightFacts, target adapterv1.DetectedTarget
 	if dir == nil {
 		add("create_directory", parent, "root:root 0755")
 	}
-	add("create_file", themeDropIn, "[Theme]\nCurrent=fplogin\n")
+	add("create_file", themeDropIn, "[General]\nAutoFingerprintForLegacyThemes=true\n")
 	for _, service := range facts.Services {
 		if service.ServiceReference == sddmUnit {
 			continue
