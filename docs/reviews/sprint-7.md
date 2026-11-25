@@ -6,7 +6,7 @@
 - **Hardware verified:** Arch Linux x86_64 · systemd · Hyprland (`uwsm`) · `fprintd 1.94.5-2` · `hyprlock 0.9.7-2` · Synaptics `06cb:00bd` (USB match-on-sensor)
 - **Tested packages:**
   - `sddm-fplogin 0.21.0-4` (patches `0000..0006`, dual Qt6 + Qt5)
-  - `fplogin-git 0.2.0.r22.f75ef12-1`
+  - `fplogin-git 0.2.0.r258.c47b515-1` (includes `fplogin config` persistent drop-in configurator and real-desktop `graphical.target` preflight fix)
 
 ---
 
@@ -57,6 +57,8 @@ All hardware runs executed directly on the owner's Arch Linux host with Synaptic
 | `c2-where-fp` | `ade39394…` | `where_is_my_sddm_theme` (untouched!) | Cold-boot auto-fingerprint on untouched user theme (`sddm-fplogin 0.21.0-4`, `sddm-helper[729] --method 1`, `request-id 100113a3…`) opened single Hyprland session in **1.44 s**, 0 lingering helpers; suspend/resume + `hyprlock[1639]` post-fingerprint passed. | `cca9343b…214` |
 | `c2b-pw-lock` | `3f13efe2…` | `where_is_my_sddm_theme` (untouched) | Password-wins-cancels-active-fingerprint: `sddm-helper[727]` scanning since `16:04:20`, password `sddm-helper[1057]` authenticated `16:04:41`, daemon terminated losing fingerprint helper `727` (`16:04:46.543`) **6 ms before** opening session (`16:04:46.550`). Subsequent `hyprlock` runs cleanly claimed `/net/reactivated/Fprint/Device/0` and unlocked via both password and fingerprint (`verify-match`). | `16d4d1c2…b17b` |
 | `c2c-logout-to` | `3f13efe2…` | `where_is_my_sddm_theme` (untouched) | Clean `uwsm stop` logout → fresh greeter (`6409`) → auto-fingerprint (`6423`) → bounded `PAM_MAXTRIES` (`code 11`, `16:09:32`) → **41 s window with zero spurious retry loops** → password fallback (`6443`) opened Hyprland in 45 ms (`16:10:13`). | `03af7dc5…ed2` |
+| `2c-a-stock` | live host | `where_is_my_sddm_theme` (preserved) | Interactive `sudo fplogin install --artifacts-dir ./artifacts-stock` over stock `sddm 0.21.0-7` (`Plan SHA-256 3518a6d35afe`, `tx-1795637165177681192`), `fplogin status` Intact, postflight `analyze` clean, followed by `sudo fplogin uninstall --yes` (`tx-uninstall-1795637846666423877`) cleanly restoring `sddm 0.21.0-7`. Exposed & fixed real-desktop non-DM `graphical.target` service handling (`power-profiles-daemon.service`, commit `c47b515`). | host output |
+| `2c-b-nodm` | live host | `where_is_my_sddm_theme` (preserved) | Interactive `sudo fplogin install --artifacts-dir ./artifacts-nodm` from zero-SDDM baseline (`Target: SDDM (new installation)`, `Plan SHA-256 eb363016dbae`, `tx-1795638550585375752`), `fplogin status` Intact, and persistent post-install `fplogin config set --timeout 45` / `show` / `--timeout 30` / `show` round-trip verified in `/etc/sddm.conf.d/90-fplogin.conf`. | host output |
 
 ### S7-F05 & S7-F06 — Release Documentation & Reproducible Local Artifacts (`S7-15` Partial)
 
