@@ -25,7 +25,7 @@ func TestParsePackages(t *testing.T) {
 func TestServiceInventory(t *testing.T) {
 	for _, tc := range []struct {
 		name, files, loaded, id, loadState, active, enabled, graphical, dropIn, wantedBy, want string
-		dependencyDir, partialReverse                                                          bool
+		dependencyDir, nonDMDepDir, partialReverse                                             bool
 	}{
 		{name: "no display manager", files: "dbus.service static -\n", loaded: "dbus.service loaded active running D-Bus\n", graphical: "Wants=display-manager.service\nRequires=multi-user.target\n"},
 		{name: "no display manager with graphical not-found stub", files: "dbus.service static -\n", loaded: "dbus.service loaded active running D-Bus\ndisplay-manager.service not-found inactive dead display-manager.service\n", id: "display-manager.service", loadState: "not-found", active: "inactive", enabled: "", graphical: "Wants=display-manager.service\nRequires=multi-user.target\n", wantedBy: "graphical.target"},
@@ -36,6 +36,7 @@ func TestServiceInventory(t *testing.T) {
 		{name: "unknown alias", files: "display-manager.service alias -\n", id: "custom.service", active: "active", enabled: "enabled", want: "error"},
 		{name: "runtime enabled", files: "gdm.service enabled-runtime -\n", id: "gdm.service", active: "active", enabled: "enabled-runtime", want: "error"},
 		{name: "canonical stock dependency", files: "sddm.service enabled disabled\ndisplay-manager.service alias -\n", id: "sddm.service", active: "inactive", enabled: "enabled", graphical: "Wants=sddm.service\nRequires=multi-user.target\n", wantedBy: "graphical.target", want: "no/yes"},
+		{name: "real desktop non-DM service wanted by graphical target", files: "sddm.service enabled disabled\npower-profiles-daemon.service enabled disabled\ndisplay-manager.service alias -\n", id: "sddm.service", active: "active", enabled: "enabled", graphical: "Wants=sddm.service power-profiles-daemon.service\nRequires=multi-user.target\n", wantedBy: "graphical.target", nonDMDepDir: true, want: "yes/yes"},
 		{name: "multi-user target also wants enabled alias target", files: "greetd.service enabled disabled\ndisplay-manager.service alias -\n", id: "greetd.service", active: "inactive", enabled: "enabled", graphical: "Wants=greetd.service\nRequires=multi-user.target\n", wantedBy: "graphical.target multi-user.target", want: "error"},
 		{name: "incomplete reverse dependency report", files: "greetd.service disabled disabled\n", id: "greetd.service", active: "inactive", enabled: "disabled", partialReverse: true, want: "error"},
 		{name: "duplicate explicit want of enabled alias target", files: "display-manager.service alias -\n", id: "greetd.service", active: "inactive", enabled: "enabled", graphical: "Wants=greetd.service\nRequires=multi-user.target\n", dropIn: "/etc/systemd/system/graphical.target.d/dm.conf", want: "error"},
@@ -50,6 +51,15 @@ func TestServiceInventory(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			unitPath := t.TempDir()
+			if tc.nonDMDepDir {
+				dir := filepath.Join(unitPath, "graphical.target.wants")
+				if err := os.MkdirAll(dir, 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink("../power-profiles-daemon.service", filepath.Join(dir, "power-profiles-daemon.service")); err != nil {
+					t.Fatal(err)
+				}
+			}
 			if tc.dependencyDir {
 				dir := filepath.Join(unitPath, "graphical.target.wants")
 				if err := os.Mkdir(dir, 0o755); err != nil {

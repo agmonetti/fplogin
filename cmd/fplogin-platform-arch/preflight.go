@@ -134,7 +134,11 @@ var unitName = regexp.MustCompile(`^[a-zA-Z0-9_.@-]+\.service$`)
 
 type systemQuery func(context.Context, string, ...string) (string, error)
 
-func checkGraphicalAlias(ctx context.Context, query systemQuery, props map[string]string) error {
+func isKnownDMUnit(unit string, known map[string]bool) bool {
+	return known[unit] || strings.HasPrefix(unit, "ly@")
+}
+
+func checkGraphicalAlias(ctx context.Context, query systemQuery, props map[string]string, known map[string]bool) error {
 	if props["FragmentPath"] != "/usr/lib/systemd/system/graphical.target" || props["DropInPaths"] != "" {
 		return fmt.Errorf("cannot verify graphical.target display-manager dependency: nonstandard fragment or drop-ins")
 	}
@@ -158,8 +162,10 @@ func checkGraphicalAlias(ctx context.Context, query systemQuery, props map[strin
 			if err != nil && !os.IsNotExist(err) {
 				return fmt.Errorf("cannot inspect graphical.target dependencies in %s: %w", dir, err)
 			}
-			if len(entries) != 0 {
-				return fmt.Errorf("cannot verify graphical.target display-manager dependency: additional dependencies in %s", dir)
+			for _, entry := range entries {
+				if isKnownDMUnit(entry.Name(), known) {
+					return fmt.Errorf("cannot verify graphical.target display-manager dependency: additional DM dependency %s in %s", entry.Name(), dir)
+				}
 			}
 		}
 	}
@@ -218,8 +224,10 @@ func queryServices(ctx context.Context, packages []platformv1.PackageCandidate, 
 			if !strings.HasSuffix(unit, ".service") {
 				continue
 			}
-			if !known[unit] && !strings.HasPrefix(unit, "ly@") {
-				return nil, fmt.Errorf("unclassified graphical.target service %q", unit)
+			if !isKnownDMUnit(unit, known) {
+				// Ordinary non-DM desktop services (e.g. power-profiles-daemon.service)
+				// are routinely wanted by graphical.target on real desktops.
+				continue
 			}
 			if property != "Wants" || bootService != "" {
 				return nil, fmt.Errorf("unexpected graphical.target display-manager dependency: %s=%s", property, unit)
@@ -247,7 +255,7 @@ func queryServices(ctx context.Context, packages []platformv1.PackageCandidate, 
 		if bootService != "display-manager.service" && !present["display-manager.service"] {
 			return nil, fmt.Errorf("graphical.target display-manager dependency %q has no standard alias", bootService)
 		}
-		if err := checkGraphicalAlias(ctx, query, graphicalProps); err != nil {
+		if err := checkGraphicalAlias(ctx, query, graphicalProps, known); err != nil {
 			return nil, err
 		}
 	}

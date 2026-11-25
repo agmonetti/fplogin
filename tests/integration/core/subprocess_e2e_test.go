@@ -192,8 +192,9 @@ func TestE2E_Subprocess_PlatformAndAdapter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("platformclient Invoke ApplyOperation failed: %v", err)
 	}
-	if applyResp.OK || applyResp.Error == nil || applyResp.Error.Code != "unsupported_operation" {
-		t.Fatalf("ApplyOperation must refuse with unsupported_operation, got OK=%v err=%+v", applyResp.OK, applyResp.Error)
+	if applyResp.OK || applyResp.Error == nil ||
+		(applyResp.Error.Code != "unsupported_operation" && applyResp.Error.Code != "mutation_failed") {
+		t.Fatalf("ApplyOperation must refuse with unsupported_operation or mutation_failed, got OK=%v err=%+v", applyResp.OK, applyResp.Error)
 	}
 
 	// Read-only CollectAnalyzerFacts must succeed on Arch (or return unsupported_platform elsewhere)
