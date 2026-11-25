@@ -19,6 +19,9 @@ profile.out
 # Persistent local work; portable checkpoints follow docs/PERSISTENCE.md
 .work/
 
+# Separate website project (hosted in its own repository)
+website/
+
 # Disposable test roots and caches
 tmp/
 target/
