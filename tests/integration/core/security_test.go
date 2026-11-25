@@ -212,12 +212,12 @@ func TestSecurity_CorruptedJournalHandling(t *testing.T) {
 	t.Run("invalid_schema_version", func(t *testing.T) {
 		invalidSchemaPath := filepath.Join(tmpDir, "invalid_schema.json")
 		invalidJournal := map[string]any{
-			"schema_version":  "malicious/v99",
-			"transaction_id":  "tx-bad",
-			"created_at":      time.Now().UTC().Format(time.RFC3339),
-			"updated_at":      time.Now().UTC().Format(time.RFC3339),
-			"state":           "applying",
-			"operation_order": []string{},
+			"schema_version":     "malicious/v99",
+			"transaction_id":     "tx-bad",
+			"created_at":         time.Now().UTC().Format(time.RFC3339),
+			"updated_at":         time.Now().UTC().Format(time.RFC3339),
+			"state":              "applying",
+			"operation_order":    []string{},
 			"applied_operations": []any{},
 		}
 		data, _ := json.Marshal(invalidJournal)
