@@ -35,15 +35,16 @@ Stock SDDM runs a single PAM conversation per login attempt. With manual `pam_fp
 | Clean cancellation & reader release (verified with `hyprlock` handoff) | Replacing subsequent authentications (`sudo`, `su`, `polkit`, `ssh`) |
 | Preserving existing SDDM themes intact, optional overlay & configurable retry key | Enrolling fingerprints inside the greeter (uses `fprintd` enrollments) |
 | Fresh install (with or without existing SDDM), DM conflict guard & clean uninstall | TPM / FIDO2 / smart-card hardware integration |
-| Read-only system difference analyzer (`fplogin analyze`) | Non-Arch Linux distributions or non-SDDM display managers |
+| Read-only system difference analyzer (`fplogin analyze`) | Non-SDDM display managers |
+| Arch Linux (`pacman` + `sddm-fplogin`) & generic Linux (`systemd` + `fplogin-platform-linux`) | Distro-specific `.deb`/`.rpm` packaging of patched SDDM |
 
 ---
 
 ## Requirements
 
-- **OS:** Arch Linux (`x86_64`), `systemd`
+- **OS:** Any `systemd` Linux distribution (`x86_64` / `aarch64`) via `fplogin-platform-linux` (`scripts/install_linux.sh`), or Arch Linux (`x86_64`) via `fplogin-platform-arch` + `sddm-fplogin`
 - **Biometrics:** `fprintd` + `libfprint`, compatible fingerprint reader, at least one enrolled finger (`fprintd-enroll`)
-- **Display Manager:** `sddm-fplogin` (replaces stock `sddm`, ships dual Qt6 + Qt5 greeters, `/etc/pam.d/sddm-fingerprint`, and optional `fplogin` theme)
+- **Display Manager:** A fingerprint-capable SDDM build (`sddm-fplogin` package on Arch, or SDDM built with the concurrent fingerprint patch)
 - **Verified reference hardware:** Synaptics `06cb:00bd` (USB match-on-sensor), Hyprland (`uwsm`), `hyprlock`
 
 ---
@@ -59,7 +60,7 @@ fplogin config [show]                                           # inspect persis
 fplogin update --check [--repo OWNER/REPO] [--tag TAG]          # check GitHub Releases and compare SHA-256 checksums
 
 # Root transactional & configuration commands
-sudo fplogin install --artifacts-dir DIR [--activate] [--approve-plan SHA256] [--approve-replace-dm]
+sudo fplogin install [--artifacts-dir DIR] [--activate] [--approve-plan SHA256] [--approve-replace-dm]
 sudo fplogin status                                             # verify manifest integrity and file checksums
 sudo fplogin config set [--auto-legacy true|false] [--overlay true|false] [--retry-key KEY|none] [--timeout 5..120] [--theme preserve|fplogin|<name>]
 sudo fplogin update [--yes] [--repo OWNER/REPO] [--tag TAG]     # download, verify SHA256SUMS, and update changed packages
