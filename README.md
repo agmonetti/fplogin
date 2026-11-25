@@ -4,8 +4,6 @@
 
 `fplogin` v1.0 brings zero-friction biometric login to SDDM on Arch Linux: the fingerprint reader activates automatically as soon as the greeter appears, runs in parallel with the password input (no Enter-first gate), keeps your existing Qt5 or Qt6 SDDM theme visually intact by default, never edits stock system PAM or `/etc/sddm.conf` in place, and never stores or synthesizes passwords.
 
-[![fplogin Project Telemetry & Milestone Matrix](docs/assets/dashboard.png)](dashboard.html)
-
 ---
 
 ## The Problem
