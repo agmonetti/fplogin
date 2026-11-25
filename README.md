@@ -4,27 +4,20 @@ Biometric login for Linux, under active development. The v1 target is fingerprin
 
 [![fplogin Project Telemetry & Milestone Matrix](docs/assets/dashboard.png)](dashboard.html)
 
-The dashboard reflects the [Sprint 7 local/private verification](docs/reviews/sprint-7.md) completed on 2026-11-25 (`sddm-fplogin 0.21.0-4` dual Qt6 10/10 + Qt5 9/9 with patch `0006-legacy-theme-auto-fingerprint.patch` preserving the user's existing theme intact, `fplogin-git 0.2.0.r22.f75ef12-1`, 5/5 clean Arch KVM E2E lifecycle, real Arch hardware cold-boot + `where_is_my_sddm_theme` + `hyprlock` handoff on Synaptics `06cb:00bd`, 5-commit local upstream SDDM PR series, and local checksummed v1.0.0 release artifacts; GPG signing and public release await owner sign-off). Prior accepted gates: [Sprint 6 (security and resilience hardening)](docs/reviews/sprint-6.md) (closed 2026-11-24), [Sprint 5 (system difference analyzer)](docs/reviews/sprint-5.md) (closed 2026-11-24), [Sprint 4 (transactional installer and uninstaller)](docs/reviews/sprint-4.md) (closed 2026-11-24), [Sprint 3 physical closeout](docs/reviews/sprint-3-physical-closure.md) (closed 2026-11-18), [Sprint 2 acceptance](docs/reviews/sprint-2-acceptance-2026-11-12.md) (closed 2026-11-12), and [Sprint 1 review](docs/reviews/sprint-1.md) (closed 2026-10-04).
+The dashboard reflects the [Sprint 7 local/private verification](docs/reviews/sprint-7.md) completed on 2026-11-25 (`sddm-fplogin 0.21.0-4` dual Qt6 10/10 + Qt5 9/9 with `0006-legacy-theme-auto-fingerprint.patch` preserving the user's existing theme intact, `fplogin-git` transactional installer/analyzer/config CLI, 5/5 clean Arch KVM E2E lifecycle, real Arch hardware cold-boot + `where_is_my_sddm_theme` + `hyprlock` handoff on Synaptics `06cb:00bd`, 5-commit local upstream SDDM PR series, and local checksummed v1.0.0 release artifacts).
 
 ## The problem
 
 SDDM does not natively support fingerprint authentication. Users must type their password or, with manual PAM tweaks, press Enter and then place their finger. There is no built-in experience where the reader activates automatically and works in parallel with the password field.
 
-## Planned approach
+## Approach
 
-The Foundation Gate, Sprint 0, Sprint 1 and Sprint 2 are complete and accepted. Sprint 1 is closed by the [2026-10-04 independent review](docs/reviews/sprint-1.md#2026-10-04-sol-independent-acceptance-review--sprint-1-gate). Sprint 2 is accepted and closed by the [2026-11-12 owner acceptance](docs/reviews/sprint-2.md#13-2026-11-12-sprint-2-final-acceptance-and-closure-by-the-project-owner) and [Sprint 2 acceptance review](docs/reviews/sprint-2-acceptance-2026-11-12.md), covering the G01–G16 hardware verification matrix, theme fix, and complete secret audit. Transition to Sprint 3 is authorized.
+`fplogin` delivers:
 
-The [2026-10-20 activation correction](docs/reviews/sprint-2.md#6-2026-10-20-bounded-fprintd-activation-correction) fixes initial availability and explicit Retry when installed fprintd is inactive, without a keepalive or restart loop. The corrected traced guest's [new G04 physical verification and closure](docs/reviews/sprint-2.md#7-2026-10-21-g04-physical-verification-and-laboratory-closure) corroborates invalid-finger retry guidance, PAM attempt exhaustion, retained-input password recovery and absence of an automatic restart in the observed window. The [2026-11-08 G05-a1 physical case](docs/reviews/sprint-2.md#9-2026-11-08-g05-a1--basic-physical-timeoutretained-input-partial-evidence-and-closed-handoff) additionally records post-timeout password retention reported by the owner, normal fingerprint PAM teardown and one same-request password session. The explicit deadline/state causality remains unproven, so the full basic G05 contract is **partial**; both physical races and G05–G16 acceptance remain pending. The [current G05 offline continuation](docs/reviews/sprint-2.md#10-2026-11-08-g05-focused-offline-continuation--current-partial-verdict) demonstrates one test-bound session after loser exit and bounded rejection of a late mock-PAM result, without replacing physical acceptance. The preserved VM is stopped and the owner restored the reader handoff.
-
-The [2026-11-05 offline pre-ACK slice](docs/reviews/g05-preack-control-2026-11-05.md) added authenticated diagnostic reservation before the greeter context ACK. Subsequent offline mock-PAM tests and focused suites covered edge cases. On 2026-11-12, following the owner's manual hardware execution of all remaining physical test cases and the completion of the G16 secret audit, Sprint 2 was formally accepted and closed. Details are tracked in the [Sprint 2 validation checklist](docs/SPRINT_2_VALIDATION_CHECKLIST.md) and [acceptance review](docs/reviews/sprint-2-acceptance-2026-11-12.md). The dashboard capture above reflects this completed state.
-
-The planned product has:
-
-- A minimal, upstream-quality SDDM patch coordinating concurrent PAM authentication methods.
-- A dedicated PAM service for biometric authentication (`sddm-fingerprint`).
-- An SDDM theme that displays daemon-reported biometric status and requests method start/cancellation.
-- An installer that manages SDDM, PAM, and theme assets without in-place edits to existing configuration.
-- A system analysis tool that reports password-derived facilities affected by biometric login.
+- A minimal, upstream-quality SDDM patch series coordinating concurrent PAM authentication methods (`password` + `fingerprint`) with single-winner arbitration and full hardening.
+- A dedicated PAM service for biometric authentication (`sddm-fingerprint`) leaving `/etc/pam.d/sddm` untouched.
+- Non-intrusive auto-fingerprint support for existing Qt5 and Qt6 SDDM themes (`[General] AutoFingerprintForLegacyThemes=true`), plus an optional built-in `fplogin` theme.
+- A transactional Go installer, uninstaller, recovery engine, persistent post-install configurator (`fplogin config`), and read-only system difference analyzer (`fplogin analyze`).
 
 **Theme compatibility:** `sddm-fplogin` (`0006-legacy-theme-auto-fingerprint.patch`, shared by Qt6 and Qt5 greeters) automatically starts one bounded concurrent fingerprint attempt for existing Qt5/Qt6 themes that do not call the fingerprint API (`[General] AutoFingerprintForLegacyThemes=true`), leaving the user's configured theme 100% visually intact (verified on real hardware with untouched `where_is_my_sddm_theme`), while themes that explicitly use the [theme-context contract](docs/architecture/SDDM_THEME_CONTEXT_CONTRACT.md) (such as the optional `/usr/share/sddm/themes/fplogin` theme) retain full API control and the emergency embedded fallback stays strictly password-only.
 
@@ -101,7 +94,7 @@ No existing system files will be modified in place. The installer will generate 
 
 ## CLI Usage
 
-The pinned Arch tools package (`fplogin-git 0.2.0.r22.f75ef12-1`) exposes both read-only unprivileged inspection (`components`, `install --dry-run`, `status`, `analyze`) and transactional offline installation/removal/recovery verified on Arch x86_64 with real systemd PID 1. Live `install`, `uninstall`, and `recover` require root privileges, a root-owned offline trust root (`/etc/fplogin/trust`), and explicit approval bound to the core-computed `ChangePlan` SHA-256 (plus separate `--approve-replace-dm` confirmation before replacing a conflicting display manager), followed by non-fatal Phase 13 read-only postflight analysis. See the [Sprint 4 execution plan](docs/SPRINT_4_EXECUTION_PLAN.md), [Sprint 5 review](docs/reviews/sprint-5.md), [Sprint 6 security review](docs/reviews/sprint-6.md), and [Sprint 7 review](docs/reviews/sprint-7.md).
+The pinned Arch tools package (`fplogin-git`) exposes read-only unprivileged inspection (`components`, `install --dry-run`, `status`, `analyze`, `config show`), persistent post-install configuration (`sudo fplogin config set`), and transactional offline installation/removal/recovery verified on Arch x86_64 with real systemd PID 1. Live `install`, `uninstall`, and `recover` require root privileges, a root-owned offline trust root (`/etc/fplogin/trust`), and explicit approval bound to the core-computed `ChangePlan` SHA-256 (plus separate `--approve-replace-dm` confirmation before replacing a conflicting display manager), followed by non-fatal read-only postflight analysis. See the [Sprint 7 release validation review](docs/reviews/sprint-7.md).
 
 ```bash
 # Unprivileged read-only commands
@@ -109,9 +102,11 @@ fplogin components                                              # list packaged 
 fplogin install --dry-run [--target ADAPTER_ID/TARGET_ID]       # read-only preflight and preview
 fplogin status                                                  # read manifest and verify file checksums
 fplogin analyze [--json] [--root DIR] [--service NAME]          # read-only password-derived facility analyzer
+fplogin config show                                             # inspect persistent SDDM fingerprint drop-in settings
 
-# Root transactional commands (offline signed archives + /etc/fplogin/trust)
+# Root transactional & persistent configuration commands
 sudo fplogin install --artifacts-dir DIR [--activate] [--approve-plan SHA256] [--approve-replace-dm]
+sudo fplogin config set [--auto-legacy true|false] [--timeout 5..120] [--theme preserve|fplogin|<name>]
 sudo fplogin uninstall [--modified-files preserve|refuse|restore] [--remove-shared-deps] [--yes]
 sudo fplogin recover                                            # reconcile any interrupted transaction
 ```
@@ -120,21 +115,16 @@ To build the Arch tools package, run `make package` as an ordinary user in an is
 
 ## Documentation
 
-- [Implementation Plan](docs/IMPLEMENTATION_PLAN.md): Sprint roadmap, verification matrix, security model, and Definition of Done.
+- [Implementation Plan](docs/IMPLEMENTATION_PLAN.md): Roadmap, verification matrix, security model, and Definition of Done.
 - [Emergency Recovery Guide](docs/EMERGENCY_RECOVERY.md): Step-by-step procedures for interrupted transactions, journal recovery, and PAM restore.
 - [Supported Versions & Policy](docs/SUPPORTED_VERSIONS.md): Supported Linux distributions, desktop environments, PAM, and toolchain dependencies.
+- [Upstream SDDM Tracking](docs/UPSTREAM_TRACKING.md): Patch rebase policy, conflict handling, and upstream PR tracking.
 - [Core Language and Adapter Contract](docs/architecture/CORE_ADAPTER_ANALYSIS.md): Language evaluation, adapter protocol, repository foundation, and architectural risks.
 - [SDDM Concurrent Authentication Design](docs/architecture/SDDM_AUTHENTICATION_DESIGN.md): Pinned baseline, stock message flow, winner gate, cancellation boundary, and proposed SDDM IPC.
-- [SDDM Greeter and Theme Design](docs/architecture/SDDM_GREETER_DESIGN.md): Sprint 2 context correlation, typed reader states, controlling-view lifecycle and password fallback.
-- [Sprint 2 Execution Plan](docs/SPRINT_2_EXECUTION_PLAN.md): Implementation slices, affected source paths and actual-surface acceptance matrix.
-- [Sprint 4 Acceptance Review](docs/reviews/sprint-4.md): Transactional installer/uninstaller closure, packaged KVM E2E evidence, and known limits.
-- [Sprint 5 Acceptance Review](docs/reviews/sprint-5.md): Read-only system difference analyzer, Arch `CollectAnalyzerFacts`, Audit A8 closure, and Phase 13 postflight.
-- [Sprint 5 Execution Plan](docs/SPRINT_5_EXECUTION_PLAN.md): System difference analyzer corrections, probes, wording accuracy, and postflight integration.
+- [SDDM Greeter and Theme Design](docs/architecture/SDDM_GREETER_DESIGN.md): Context correlation, typed reader states, controlling-view lifecycle, and password fallback.
 - [Threat Model & Security Boundaries](docs/security/THREAT_MODEL.md): Consolidated five-boundary threat model mapped to §3.2 security invariants.
-- [Sprint 6 Security Review](docs/reviews/sprint-6.md): Security & resilience hardening acceptance, 10 remediated findings (`F-S6-01`..`F-S6-10`), IPC fuzzing, 500-cycle endurance, ASan+UBSan, and `0005-security-hardening.patch`.
-- [Sprint 6 Execution Plan](docs/SPRINT_6_EXECUTION_PLAN.md): Security hardening slices (`S6-F01`..`S6-F07`) and acceptance criteria.
 - [Synaptics Test Hardware](docs/hardware/SYNAPTICS_06CB_00BD.md): Primary physical-reader record and scenario matrix.
-- [Research Lessons](docs/LESSONS.md): Grounded investigation, reference platforms, failed experiments, and security analysis.
+- [Sprint 7 Validation Review](docs/reviews/sprint-7.md): End-to-end KVM, dual Qt6/Qt5, upstream PR series, and real-hardware verification record.
 
 ## License
 

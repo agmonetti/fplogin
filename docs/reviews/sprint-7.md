@@ -2,7 +2,7 @@
 
 - **Date:** 2026-11-25
 - **Gate status:** **READY FOR OWNER SIGN-OFF** (local/private verification complete; GPG signature `--gpg-key`, `v1.0.0` tag, `git push`, and upstream PR publication intentionally gated on explicit owner authorization)
-- **Plan baseline:** [`docs/SPRINT_7_EXECUTION_PLAN.md`](../SPRINT_7_EXECUTION_PLAN.md), [`docs/IMPLEMENTATION_PLAN.md`](../IMPLEMENTATION_PLAN.md) (§10.7, §11, §12)
+- **Plan baseline:** [`docs/IMPLEMENTATION_PLAN.md`](../IMPLEMENTATION_PLAN.md) (§10.7, §11, §12)
 - **Hardware verified:** Arch Linux x86_64 · systemd · Hyprland (`uwsm`) · `fprintd 1.94.5-2` · `hyprlock 0.9.7-2` · Synaptics `06cb:00bd` (USB match-on-sensor)
 - **Tested packages:**
   - `sddm-fplogin 0.21.0-4` (patches `0000..0006`, dual Qt6 + Qt5)
