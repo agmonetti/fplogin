@@ -22,7 +22,8 @@ func adapterIdentity() (uint32, uint32, error) {
 	}
 	uid, _ := strconv.ParseUint(passwd[2], 10, 32)
 	gid, _ := strconv.ParseUint(group[2], 10, 32)
-	if passwd[3] != group[2] || group[3] != "" || passwd[5] != "/" || passwd[6] != "/usr/bin/nologin" {
+	validShell := passwd[6] == "/usr/bin/nologin" || passwd[6] == "/usr/sbin/nologin" || passwd[6] == "/sbin/nologin"
+	if passwd[3] != group[2] || group[3] != "" || passwd[5] != "/" || !validShell {
 		return 0, 0, ErrElevatedAdapter
 	}
 	return uint32(uid), uint32(gid), nil

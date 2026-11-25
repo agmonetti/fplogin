@@ -430,22 +430,11 @@ func planGenericLinuxInstall(
 	}
 
 	var ops []protocol.Operation
-	ops = append(ops, protocol.Operation{
-		OperationID:    "ensure-sddm-conf-dir",
-		Kind:           protocol.CreateDirectory,
-		Dependencies:   []string{},
-		Preconditions:  []json.RawMessage{},
-		ExpectedBefore: protocol.Object{},
-		ExpectedAfter:  protocol.Object{},
-		Parameters:     json.RawMessage(fmt.Sprintf(`{"path":%q,"mode":"0755","owner":"root","group":"root"}`, filepath.Dir(themeDropIn))),
-		Compensation:   json.RawMessage(fmt.Sprintf(`{"kind":"remove_directory","path":%q}`, filepath.Dir(themeDropIn))),
-	})
-
 	themeBytes := []byte(themeDropInContent)
 	ops = append(ops, protocol.Operation{
 		OperationID:    "write-theme",
 		Kind:           protocol.WriteFileAtomic,
-		Dependencies:   []string{"ensure-sddm-conf-dir"},
+		Dependencies:   []string{},
 		Preconditions:  []json.RawMessage{},
 		ExpectedBefore: protocol.Object{},
 		ExpectedAfter:  protocol.Object{},

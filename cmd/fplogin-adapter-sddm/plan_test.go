@@ -194,7 +194,7 @@ func TestPlanExecutableInstall_Scenarios(t *testing.T) {
 		if len(plan.ArtifactReferences) != 0 {
 			t.Fatalf("expected zero package artifact refs on generic linux, got %+v", plan.ArtifactReferences)
 		}
-		wantOps := []string{"ensure-sddm-conf-dir", "write-theme", "write-pam-sddm-fingerprint", "enable-sddm"}
+		wantOps := []string{"write-theme", "write-pam-sddm-fingerprint", "enable-sddm"}
 		if len(plan.Operations) != len(wantOps) {
 			t.Fatalf("got %d ops, want %d", len(plan.Operations), len(wantOps))
 		}

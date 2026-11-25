@@ -112,7 +112,7 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 	stateRoot := filepath.Dir(cfg.JournalDir)
 	var allowFile func(string) bool
 	elevated := descriptortrust.Elevated()
-	if elevated && (cfg.DryRun || !cfg.Host.Elevated || cfg.IsolatedArchiveCache == "" || stateRoot != systemStateRoot || len(cfg.IsolatedFiles) != 0) {
+	if elevated && (cfg.DryRun || !cfg.Host.Elevated || stateRoot != systemStateRoot || len(cfg.IsolatedFiles) != 0) {
 		return nil, ErrPrivilegesRequired
 	}
 	if !elevated && cfg.Host.Elevated {
@@ -277,7 +277,7 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 	paths := make(map[string]bool, len(plan.Operations))
 	firstService := len(plan.Operations)
 	for i, op := range plan.Operations {
-		if packagePlan && isServiceOp(op.Kind) {
+		if cfg.PlatformInvoker != nil && isServiceOp(op.Kind) {
 			if firstService == len(plan.Operations) {
 				firstService = i
 			}
@@ -356,7 +356,7 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 		return nil, fmt.Errorf("persist approved plan: %w", err)
 	}
 	var platform PlatformApplier
-	if packagePlan {
+	if packagePlan || firstService < len(plan.Operations) {
 		platform = cfg.PlatformInvoker
 	}
 	executor, err := beginTransaction(stateRoot, cfg.IsolatedFiles, initJournal, plan.Operations, platform)

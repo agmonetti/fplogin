@@ -339,8 +339,17 @@ func listBinaryCandidates(root string) (json.RawMessage, error) {
 	return json.Marshal(map[string]any{"packages": pkgs})
 }
 
+func findSystemctl() (string, error) {
+	for _, p := range []string{"/usr/bin/systemctl", "/bin/systemctl"} {
+		if st, err := os.Stat(p); err == nil && !st.IsDir() {
+			return p, nil
+		}
+	}
+	return exec.LookPath("systemctl")
+}
+
 func runSystemctl(ctx context.Context, args ...string) (string, error) {
-	systemctl, err := exec.LookPath("systemctl")
+	systemctl, err := findSystemctl()
 	if err != nil {
 		return "", err
 	}
@@ -491,22 +500,28 @@ func applyServiceOperation(req platformv1.Request) (json.RawMessage, error) {
 			cmdArgs = []string{"stop", unit}
 		}
 	case protocol.RestoreServiceState:
-		if enabled, _ := params["enabled"].(bool); enabled {
-			_, _ = runSystemctl(ctx, "enable", "--force", unit)
-		} else {
-			_, _ = runSystemctl(ctx, "disable", unit)
+		if s, _ := params["enabled"].(string); s == "yes" {
+			if _, err := runSystemctl(ctx, "enable", "--force", unit); err != nil {
+				return nil, &opError{code: "mutation_failed", message: err.Error()}
+			}
+		} else if s == "no" {
+			if _, err := runSystemctl(ctx, "disable", unit); err != nil {
+				return nil, &opError{code: "mutation_failed", message: err.Error()}
+			}
 		}
-		if active, _ := params["active"].(bool); active {
+		if s, _ := params["active"].(string); s == "yes" {
 			cmdArgs = []string{"start", unit}
-		} else {
+		} else if s == "no" {
 			cmdArgs = []string{"stop", unit}
 		}
 	default:
 		return nil, &opError{code: "unsupported_operation", message: fmt.Sprintf("generic linux provider does not support %q", op.Kind)}
 	}
 
-	if _, err := runSystemctl(ctx, cmdArgs...); err != nil {
-		return nil, &opError{code: "mutation_failed", message: err.Error()}
+	if len(cmdArgs) > 0 {
+		if _, err := runSystemctl(ctx, cmdArgs...); err != nil {
+			return nil, &opError{code: "mutation_failed", message: err.Error()}
+		}
 	}
 
 	afterOut, _ := runSystemctl(ctx, "show", "--no-pager", "--property=LoadState,ActiveState,UnitFileState", unit)
@@ -521,19 +536,37 @@ func applyServiceOperation(req platformv1.Request) (json.RawMessage, error) {
 		}
 		return o
 	}
+	beforeEnabled := beforeFile == "enabled" || beforeFile == "enabled-runtime"
+	beforeAct := beforeActive == "active"
+	afterEnabled := afterFile == "enabled" || afterFile == "enabled-runtime"
+	afterAct := afterActive == "active"
+
+	yn := func(b bool) string {
+		if b {
+			return "yes"
+		}
+		return "no"
+	}
+	var beforeState, afterState, compState protocol.Object
+	if op.Kind == protocol.RestoreServiceState {
+		beforeState = toObj(map[string]any{"service_reference": unit, "enabled": yn(beforeEnabled), "active": yn(beforeAct)})
+		afterState = toObj(map[string]any{"service_reference": unit, "enabled": yn(afterEnabled), "active": yn(afterAct)})
+		compState = toObj(map[string]any{"service_reference": unit, "enabled": yn(beforeEnabled), "active": yn(beforeAct)})
+	} else {
+		beforeState = toObj(map[string]any{"service_reference": unit, "enabled": beforeEnabled, "active": beforeAct})
+		afterState = toObj(map[string]any{"service_reference": unit, "enabled": afterEnabled, "active": afterAct})
+		compState = toObj(map[string]any{"service_reference": unit, "enabled": beforeEnabled, "active": beforeAct})
+	}
+
 	receipt := platformv1.OperationReceipt{
-		OperationID: op.OperationID,
-		Kind:        op.Kind,
-		StartedAt:   started,
-		CompletedAt: completed,
-		Status:      "succeeded",
-		BeforeState: toObj(map[string]any{"unit": unit, "active": beforeActive, "unit_file_state": beforeFile}),
-		AfterState:  toObj(map[string]any{"unit": unit, "active": afterActive, "unit_file_state": afterFile}),
-		Compensation: toObj(map[string]any{
-			"unit":    unit,
-			"enabled": beforeFile == "enabled" || beforeFile == "enabled-runtime",
-			"active":  beforeActive == "active",
-		}),
+		OperationID:  op.OperationID,
+		Kind:         op.Kind,
+		StartedAt:    started,
+		CompletedAt:  completed,
+		Status:       "success",
+		BeforeState:  beforeState,
+		AfterState:   afterState,
+		Compensation: compState,
 	}
 	return json.Marshal(receipt)
 }

@@ -52,6 +52,21 @@ install -Dm644 "$root_dir/adapters/sddm/adapter.json"    "${destdir}${prefix}/li
 install -dm755 "${destdir}${prefix}/lib/fplogin/platforms/assets" "${destdir}${prefix}/lib/fplogin/adapters/assets"
 install -dm700 "${destdir}/var/lib/fplogin"
 install -dm755 "${destdir}/etc/sddm.conf.d"
+if [[ -f "$root_dir/platforms/arch/fplogin.sysusers" ]]; then
+    install -Dm644 "$root_dir/platforms/arch/fplogin.sysusers" "${destdir}${prefix}/lib/sysusers.d/fplogin.conf"
+fi
+
+# Ensure unprivileged 'fplogin-adapter' system user exists for isolated adapter execution.
+if [[ -z "$destdir" ]] && ! id -u fplogin-adapter >/dev/null 2>&1; then
+    if command -v systemd-sysusers >/dev/null 2>&1 && [[ -f "${prefix}/lib/sysusers.d/fplogin.conf" ]]; then
+        systemd-sysusers "${prefix}/lib/sysusers.d/fplogin.conf" || true
+    fi
+    if ! id -u fplogin-adapter >/dev/null 2>&1 && command -v useradd >/dev/null 2>&1; then
+        nologin="/usr/sbin/nologin"
+        [[ -x /usr/bin/nologin ]] && nologin="/usr/bin/nologin"
+        useradd --system --user-group --no-create-home --home-dir / --shell "$nologin" --comment "fplogin unprivileged adapter user" fplogin-adapter
+    fi
+fi
 
 echo "Installed fplogin (generic Linux systemd provider + SDDM adapter) under ${destdir}${prefix}."
 echo "Next steps:"

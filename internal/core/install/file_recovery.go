@@ -81,6 +81,7 @@ func recoverableFile(op protocol.Operation) (fileParameters, string, error) {
 const (
 	systemStateRoot = "/var/lib/fplogin"
 	systemThemeFile = "/etc/sddm.conf.d/90-fplogin.conf"
+	systemPAMFile   = "/etc/pam.d/sddm-fingerprint"
 	systemThemeData = "[General]\nAutoFingerprintForLegacyThemes=true\n"
 )
 
@@ -90,7 +91,7 @@ func filePolicy(root string, paths []string) func(string) bool {
 			return nil
 		}
 		return func(path string) bool {
-			if path != systemThemeFile || descriptortrust.ValidatePackagedDir(filepath.Dir(path)) != nil {
+			if (path != systemThemeFile && path != systemPAMFile) || descriptortrust.ValidatePackagedDir(filepath.Dir(path)) != nil {
 				return false
 			}
 			err := descriptortrust.ValidatePackagedFile(path)
@@ -507,9 +508,13 @@ func (e *Executor) prepareFile(op protocol.Operation, createBackup bool) (receip
 		if err != nil {
 			return
 		}
-		if e.systemFiles && !e.allowUninstallFiles && (string(content) != systemThemeData || mode != 0o644 || params.Owner != "root" || params.Group != "root") {
-			err = ErrPrecondition
-			return
+		if e.systemFiles && !e.allowUninstallFiles {
+			contentOK := (path == systemThemeFile && string(content) == systemThemeData) ||
+				(path == systemPAMFile && strings.HasPrefix(string(content), "#%PAM-1.0\n") && strings.Contains(string(content), "pam_fprintd.so"))
+			if !contentOK || mode != 0o644 || params.Owner != "root" || params.Group != "root" {
+				err = ErrPrecondition
+				return
+			}
 		}
 		after = fileState{Path: path, Exists: true, SHA256: params.SHA256, Mode: fmt.Sprintf("%04o", mode)}
 	} else if e.systemFiles && !e.allowUninstallFiles {

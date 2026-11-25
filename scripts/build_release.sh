@@ -50,11 +50,12 @@ arch="$(uname -m)"
 linux_tar="fplogin-linux-${arch}.tar.gz"
 linux_stage="$(mktemp -d)"
 trap 'rm -rf "$linux_stage"' EXIT
-mkdir -p "$linux_stage/bin" "$linux_stage/platforms/linux" "$linux_stage/adapters/sddm" "$linux_stage/scripts"
+mkdir -p "$linux_stage/bin" "$linux_stage/platforms/linux" "$linux_stage/platforms/arch" "$linux_stage/adapters/sddm" "$linux_stage/scripts"
 CGO_ENABLED=0 go build -trimpath -o "$linux_stage/bin/fplogin" ./cmd/fplogin
 CGO_ENABLED=0 go build -trimpath -o "$linux_stage/bin/fplogin-platform-linux" ./cmd/fplogin-platform-linux
 CGO_ENABLED=0 go build -trimpath -o "$linux_stage/bin/fplogin-adapter-sddm" ./cmd/fplogin-adapter-sddm
 cp -f platforms/linux/platform.json "$linux_stage/platforms/linux/platform.json"
+cp -f platforms/arch/fplogin.sysusers "$linux_stage/platforms/arch/fplogin.sysusers"
 cp -f adapters/sddm/adapter.json "$linux_stage/adapters/sddm/adapter.json"
 cp -f scripts/install_linux.sh "$linux_stage/scripts/install_linux.sh"
 chmod 755 "$linux_stage/scripts/install_linux.sh"
