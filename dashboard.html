@@ -2380,24 +2380,38 @@
         sprint.status === 'done' ? 'DONE' :
         sprint.status === 'blocked' ? 'BLOQ' : 'ACTIVO';
 
-      qCard.innerHTML = `
-        <div class="quadrant-header">
-          <div class="quadrant-title-wrap">
-            <span class="quadrant-id mono">${sprint.id.toUpperCase()}</span>
-            <span class="quadrant-name">${sprint.name}</span>
-          </div>
-          <div class="mono" style="display: flex; align-items: center; gap: 8px;">
-            <span class="quadrant-counter">[${sDone}/${sTotal} · ${sPct}%]</span>
-            <span class="badge-status ${sprint.status}" style="font-size: 9px; padding: 2px 5px;">${statusBadge}</span>
-          </div>
-        </div>
-        <div class="quadrant-mini-bar">
-          <div style="width: ${sPct}%; background: ${sprint.status === 'done' ? 'var(--status-done-solid)' : sprint.status === 'blocked' ? 'var(--status-blocked-solid)' : 'var(--status-partial-solid)'}; height: 100%;"></div>
-        </div>
-        <div class="tiles-matrix" id="qmatrix-${sprint.id}"></div>
-      `;
+      const el = (tag, cls, text) => {
+        const node = document.createElement(tag);
+        if (cls) node.className = cls;
+        if (text !== undefined) node.textContent = text;
+        return node;
+      };
 
-      const tilesBox = qCard.querySelector(`#qmatrix-${sprint.id}`);
+      const qHeader = el('div', 'quadrant-header');
+      const qTitleWrap = el('div', 'quadrant-title-wrap');
+      qTitleWrap.append(
+        el('span', 'quadrant-id mono', sprint.id.toUpperCase()),
+        el('span', 'quadrant-name', sprint.name)
+      );
+      const qRight = el('div', 'mono');
+      qRight.style.cssText = 'display: flex; align-items: center; gap: 8px;';
+      const qBadge = el('span', `badge-status ${sprint.status}`, statusBadge);
+      qBadge.style.cssText = 'font-size: 9px; padding: 2px 5px;';
+      qRight.append(el('span', 'quadrant-counter', `[${sDone}/${sTotal} · ${sPct}%]`), qBadge);
+      qHeader.append(qTitleWrap, qRight);
+
+      const qBar = el('div', 'quadrant-mini-bar');
+      const qFill = document.createElement('div');
+      qFill.style.width = `${sPct}%`;
+      qFill.style.height = '100%';
+      qFill.style.background = sprint.status === 'done'
+        ? 'var(--status-done-solid)'
+        : sprint.status === 'blocked' ? 'var(--status-blocked-solid)' : 'var(--status-partial-solid)';
+      qBar.appendChild(qFill);
+
+      const tilesBox = el('div', 'tiles-matrix');
+      tilesBox.id = `qmatrix-${sprint.id}`;
+      qCard.replaceChildren(qHeader, qBar, tilesBox);
 
       sprint.items.forEach(item => {
         const tile = document.createElement('div');
@@ -2478,30 +2492,38 @@
       const sTotal = sprint.items.length;
       const sPct = ((sDone / sTotal) * 100).toFixed(0);
 
-      header.innerHTML = `
-        <div class="sprint-title-area">
-          <span class="sprint-id-pill mono">${sprint.id.toUpperCase()}</span>
-          <div class="sprint-names">
-            <h2>
-              ${sprint.name}
-              <span class="sprint-sub">${sprint.subtitle || ''}</span>
-            </h2>
-          </div>
-        </div>
-        <div class="sprint-meta-right mono">
-          <span class="sprint-counter-tag">[${sDone}/${sTotal} · ${sPct}%]</span>
-          <span class="badge-status ${sprint.status}">${sprint.status === 'done' ? 'COMPLETADO' : sprint.status === 'blocked' ? 'BLOQUEADO' : 'EN PROGRESO'}</span>
-          <span class="sprint-toggle-icon" id="toggle-icon-${sprint.id}">[ - ]</span>
-        </div>
-      `;
+      const mk = (tag, cls, text) => {
+        const node = document.createElement(tag);
+        if (cls) node.className = cls;
+        if (text !== undefined) node.textContent = text;
+        return node;
+      };
+
+      const titleArea = mk('div', 'sprint-title-area');
+      const namesDiv = mk('div', 'sprint-names');
+      const h2 = document.createElement('h2');
+      h2.append(document.createTextNode(`${sprint.name} `), mk('span', 'sprint-sub', sprint.subtitle || ''));
+      namesDiv.appendChild(h2);
+      titleArea.append(mk('span', 'sprint-id-pill mono', sprint.id.toUpperCase()), namesDiv);
+
+      const metaRight = mk('div', 'sprint-meta-right mono');
+      const toggleIcon = mk('span', 'sprint-toggle-icon', '[ - ]');
+      toggleIcon.id = `toggle-icon-${sprint.id}`;
+      metaRight.append(
+        mk('span', 'sprint-counter-tag', `[${sDone}/${sTotal} · ${sPct}%]`),
+        mk('span', `badge-status ${sprint.status}`, sprint.status === 'done' ? 'COMPLETADO' : sprint.status === 'blocked' ? 'BLOQUEADO' : 'EN PROGRESO'),
+        toggleIcon
+      );
+      header.replaceChildren(titleArea, metaRight);
 
       // Goal box
       const goalBox = document.createElement('div');
       goalBox.className = 'sprint-goal-box mono';
-      goalBox.innerHTML = `
-        <strong>OBJETIVO ARQUITECTÓNICO:</strong>
-        <span>${sprint.goal || 'Sin especificación de objetivo.'}</span>
-      `;
+      goalBox.append(
+        mk('strong', '', 'OBJETIVO ARQUITECTÓNICO:'),
+        document.createTextNode(' '),
+        mk('span', '', sprint.goal || 'Sin especificación de objetivo.')
+      );
 
       // Task container
       const taskList = document.createElement('div');
@@ -2518,28 +2540,24 @@
           item.status === 'partial' ? 'PARCIAL' :
           item.status === 'blocked' ? 'BLOQUEADO' : 'PENDIENTE';
 
-        row.innerHTML = `
-          <div class="task-id mono">[${item.id}]</div>
-          <div class="task-badge-cell">
-            <span class="badge-status ${item.status} mono">${statusLabel}</span>
-          </div>
-          <div class="task-body">
-            <div class="task-title">${item.title}</div>
-            <div class="task-desc">${item.description}</div>
-            <div class="task-evidence mono">
-              <span>EVIDENCIA:</span>
-              <code>${item.evidence || 'N/A'}</code>
-            </div>
-          </div>
-          <div class="task-action-cell mono">
-            <button class="btn-inspect" data-task-id="${item.id}">INSPECCIONAR</button>
-          </div>
-        `;
+        const badgeCell = mk('div', 'task-badge-cell');
+        badgeCell.appendChild(mk('span', `badge-status ${item.status} mono`, statusLabel));
 
-        row.querySelector('.btn-inspect').addEventListener('click', (e) => {
+        const body = mk('div', 'task-body');
+        const ev = mk('div', 'task-evidence mono');
+        ev.append(mk('span', '', 'EVIDENCIA:'), document.createTextNode(' '), mk('code', '', item.evidence || 'N/A'));
+        body.append(mk('div', 'task-title', item.title), mk('div', 'task-desc', item.description), ev);
+
+        const actionCell = mk('div', 'task-action-cell mono');
+        const btn = mk('button', 'btn-inspect', 'INSPECCIONAR');
+        btn.setAttribute('data-task-id', item.id);
+        btn.addEventListener('click', (e) => {
           e.stopPropagation();
           openModal(item, sprint);
         });
+        actionCell.appendChild(btn);
+
+        row.replaceChildren(mk('div', 'task-id mono', `[${item.id}]`), badgeCell, body, actionCell);
 
         taskList.appendChild(row);
       });
@@ -2572,9 +2590,11 @@
       item.status === 'partial' ? 'EN PROGRESO / PARCIALMENTE OBSERVADO' :
       item.status === 'blocked' ? 'BLOQUEADO POR GATE PENDIENTE' : 'PENDIENTE / PLANIFICADO';
 
-    document.getElementById('modal-badge-container').innerHTML = `
-      <span class="badge-status ${item.status} mono" style="font-size: 11px; padding: 4px 10px;">${statusLabel}</span>
-    `;
+    const modalBadge = document.createElement('span');
+    modalBadge.className = `badge-status ${item.status} mono`;
+    modalBadge.style.cssText = 'font-size: 11px; padding: 4px 10px;';
+    modalBadge.textContent = statusLabel;
+    document.getElementById('modal-badge-container').replaceChildren(modalBadge);
 
     document.getElementById('modal-criteria').textContent = 
       item.status === 'done' 
