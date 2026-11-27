@@ -8,9 +8,8 @@ This document defines the supported distributions, hardware, display managers, a
 
 | Distribution | Version | Support Level | Notes |
 |---|---|---|---|
-| **Arch Linux** | Rolling (`x86_64`, `glibc` 2.38+) | **Tier 1 (Official / Primary)** | Primary v1.0 target. Packaged via `platforms/arch/PKGBUILD` (`fplogin`) and `platforms/arch/sddm-fplogin/` (`sddm-fplogin`). |
-| Fedora | 39 / 40+ | Deferred (Post-v1) | Requires RPM/dnf platform provider adapter. |
-| Debian / Ubuntu | 24.04 LTS+ | Deferred (Post-v1) | Requires apt/dpkg platform provider adapter. |
+| **Arch Linux** | Rolling (`x86_64`, `glibc` 2.38+) | **Tier 1 (Official / Primary)** | Prebuilt `fplogin-git` and `sddm-fplogin` packages published on GitHub Releases (`platforms/arch/PKGBUILD` and `platforms/arch/sddm-fplogin/`). |
+| **Generic `systemd` Linux** (Debian, Ubuntu, Fedora, openSUSE, etc.) | `x86_64` & `aarch64` | **Supported (`v1.0.1+`, config-only)** | Portable static bundle (`fplogin-linux-<arch>.tar.gz` + `scripts/install_linux.sh`) via `org.fplogin.platform.linux`. Configures an existing fingerprint-capable SDDM build; distro-native `.deb`/`.rpm` packaging of patched SDDM is deferred. |
 
 ---
 
@@ -18,7 +17,7 @@ This document defines the supported distributions, hardware, display managers, a
 
 | Component | Supported Versions | Adapter / Integration | Status |
 |---|---|---|---|
-| **SDDM** | `0.21.0` (pinned upstream commit `63780fcd79f1dbf81a30eef48c28c699ab15aded` + `sddm-fplogin` patch series `0000..0005`) | `adapters/sddm`, `cmd/fplogin-adapter-sddm` | **Supported (v1.0)** — upstream PR series prepared (`adapters/sddm/upstream-pr/PR_DESCRIPTION.md`). |
+| **SDDM** | `0.21.0` (pinned upstream commit `63780fcd79f1dbf81a30eef48c28c699ab15aded` + `sddm-fplogin` patch series `0000..0006`) | `adapters/sddm`, `cmd/fplogin-adapter-sddm` | **Supported (v1.0+)** — upstream PR series prepared (`adapters/sddm/upstream-pr/PR_DESCRIPTION.md`). |
 | **Hyprland / hyprlock** | Current Arch Linux rolling | Reference desktop session & lock-screen handoff | **Supported (v1.0)** — SDDM releases the sensor before/after session handoff so `hyprlock` can claim it. |
 | GDM / LightDM / greetd | N/A | Deferred (Post-v1) | Conflicting enabled/active DMs (e.g., `greetd.service`) are detected and never replaced without explicit `--approve-replace-dm`. |
 

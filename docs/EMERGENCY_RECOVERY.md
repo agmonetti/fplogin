@@ -40,7 +40,7 @@ sudo fplogin uninstall --yes
 # sudo fplogin uninstall --yes --remove-shared-deps
 ```
 
-If you manually edited a manifest-owned file after installation, `fplogin uninstall` refuses to overwrite your edit silently; pass `--preserve-modified` (keep your file) or `--force` (remove anyway) after inspecting `fplogin status`.
+If you manually edited a manifest-owned file after installation, `fplogin uninstall` preserves your edit by default (`--modified-files preserve`); pass `--modified-files refuse` to abort on local edits or `--modified-files restore` to overwrite them back to the recorded baseline after inspecting `fplogin status`.
 
 ---
 
