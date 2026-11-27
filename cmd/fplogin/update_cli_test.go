@@ -228,3 +228,43 @@ func TestSelectUpdateCandidatesForArch_FiltersMismatchedArch(t *testing.T) {
 		t.Fatalf("expected 2 Arch candidates on x86_64, got %+v", got)
 	}
 }
+
+func TestUpdate_WebRedirectFlowWithoutAPI(t *testing.T) {
+	fploginBytes := []byte("web-release-fplogin-v1.0.2")
+	fploginSHA := sha256Hex(fploginBytes)
+
+	var srv *httptest.Server
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/agmonetti/fplogin/releases/latest":
+			http.Redirect(w, r, "/agmonetti/fplogin/releases/tag/v1.0.2", http.StatusFound)
+		case "/agmonetti/fplogin/releases/download/v1.0.2/SHA256SUMS":
+			fmt.Fprintf(w, "%s  fplogin-git-1.0.2-1-x86_64.pkg.tar.zst\n", fploginSHA)
+		case "/agmonetti/fplogin/releases/download/v1.0.2/fplogin-git-1.0.2-1-x86_64.pkg.tar.zst":
+			_, _ = w.Write(fploginBytes)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	statePath := filepath.Join(t.TempDir(), "release-state.json")
+	var installed []string
+	var out, errBuf bytes.Buffer
+	err := executeUpdate([]string{"--yes", "--web-base", srv.URL, "--state", statePath}, updateDeps{
+		httpClient:  srv.Client(),
+		getEuid:     func() int { return 0 },
+		hasPacman:   func() bool { return true },
+		queryPacman: func(string) (string, bool) { return "fplogin-git 1.0.1-1", true },
+		installPkgs: func(paths []string) error { installed = append([]string(nil), paths...); return nil },
+		stdin:       strings.NewReader(""),
+		stdout:      &out,
+		stderr:      &errBuf,
+	})
+	if err != nil {
+		t.Fatalf("web redirect update failed: %v", err)
+	}
+	if len(installed) != 1 || !strings.Contains(out.String(), "Updated successfully to v1.0.2") {
+		t.Fatalf("unexpected web update result installed=%v out=%q", installed, out.String())
+	}
+}

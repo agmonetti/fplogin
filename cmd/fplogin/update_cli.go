@@ -23,6 +23,7 @@ import (
 
 const (
 	defaultUpdateRepo      = "agmonetti/fplogin"
+	defaultGitHubWebBase   = "https://github.com"
 	defaultGitHubAPIBase   = "https://api.github.com"
 	defaultUpdateStatePath = "/var/lib/fplogin/release-state.json"
 	maxSHA256SumsBytes     = 64 * 1024
@@ -75,7 +76,15 @@ type updateDeps struct {
 
 func defaultUpdateDeps() updateDeps {
 	return updateDeps{
-		httpClient: &http.Client{Timeout: 30 * time.Second},
+		httpClient: &http.Client{
+			Timeout: 30 * time.Second,
+			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				if len(via) >= 10 {
+					return errors.New("stopped after 10 redirects")
+				}
+				return validateURL(req.URL.String())
+			},
+		},
 		getEuid:    os.Geteuid,
 		hasPacman: func() bool {
 			_, err := exec.LookPath("pacman")
@@ -140,7 +149,8 @@ func executeUpdate(args []string, deps updateDeps) error {
 	yes := fs.Bool("yes", false, "Skip interactive confirmation before running pacman -U")
 	repo := fs.String("repo", defaultUpdateRepo, "GitHub owner/repo to query for releases")
 	tag := fs.String("tag", "", "Specific release tag to fetch (default: latest)")
-	apiBase := fs.String("api-base", defaultGitHubAPIBase, "GitHub API base URL")
+	webBase := fs.String("web-base", defaultGitHubWebBase, "GitHub web base URL (used by default to avoid REST API rate limits)")
+	apiBase := fs.String("api-base", defaultGitHubAPIBase, "Optional GitHub REST API base URL override")
 	statePath := fs.String("state", defaultUpdateStatePath, "Path to local release SHA-256 state file")
 	fs.Usage = func() {
 		fmt.Fprintf(deps.stderr, `Usage:
@@ -171,22 +181,36 @@ Flags:
 	if !repoPattern.MatchString(*repo) {
 		return fmt.Errorf("invalid --repo %q (expected owner/repo)", *repo)
 	}
+	if err := validateURL(*webBase); err != nil {
+		return fmt.Errorf("invalid --web-base: %w", err)
+	}
 	if err := validateURL(*apiBase); err != nil {
 		return fmt.Errorf("invalid --api-base: %w", err)
 	}
 
-	rel, err := fetchGitHubRelease(deps.httpClient, strings.TrimRight(*apiBase, "/"), *repo, *tag)
-	if err != nil {
-		return err
-	}
-
-	sumsAsset, ok := findAssetByName(rel.Assets, "SHA256SUMS")
-	if !ok {
-		return fmt.Errorf("release %s does not include a SHA256SUMS asset", rel.TagName)
-	}
-	sums, err := fetchSHA256Sums(deps.httpClient, sumsAsset.BrowserDownloadURL)
-	if err != nil {
-		return fmt.Errorf("fetch SHA256SUMS: %w", err)
+	var (
+		rel  *githubRelease
+		sums map[string]string
+		err  error
+	)
+	if *apiBase != defaultGitHubAPIBase {
+		rel, err = fetchGitHubRelease(deps.httpClient, strings.TrimRight(*apiBase, "/"), *repo, *tag)
+		if err != nil {
+			return err
+		}
+		sumsAsset, ok := findAssetByName(rel.Assets, "SHA256SUMS")
+		if !ok {
+			return fmt.Errorf("release %s does not include a SHA256SUMS asset", rel.TagName)
+		}
+		sums, err = fetchSHA256Sums(deps.httpClient, sumsAsset.BrowserDownloadURL)
+		if err != nil {
+			return fmt.Errorf("fetch SHA256SUMS: %w", err)
+		}
+	} else {
+		rel, sums, err = fetchGitHubReleaseViaWeb(deps.httpClient, strings.TrimRight(*webBase, "/"), *repo, *tag)
+		if err != nil {
+			return err
+		}
 	}
 
 	state, err := loadReleaseState(*statePath)
@@ -319,6 +343,103 @@ func validateURL(raw string) error {
 		return nil
 	}
 	return fmt.Errorf("refusing non-HTTPS URL %q", raw)
+}
+
+func fetchGitHubReleaseViaWeb(client *http.Client, webBase, repo, tag string) (*githubRelease, map[string]string, error) {
+	resolvedTag := strings.TrimSpace(tag)
+	if resolvedTag == "" {
+		var err error
+		resolvedTag, err = resolveLatestTagViaRedirect(client, webBase, repo)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+	if err := validateReleaseTag(resolvedTag); err != nil {
+		return nil, nil, err
+	}
+
+	downloadBase := fmt.Sprintf("%s/%s/releases/download/%s", webBase, repo, url.PathEscape(resolvedTag))
+	sums, err := fetchSHA256Sums(client, downloadBase+"/SHA256SUMS")
+	if err != nil {
+		return nil, nil, fmt.Errorf("fetch SHA256SUMS for %s: %w", resolvedTag, err)
+	}
+
+	names := make([]string, 0, len(sums))
+	for name := range sums {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	assets := make([]githubReleaseAsset, 0, len(names))
+	for _, name := range names {
+		assets = append(assets, githubReleaseAsset{
+			Name:               name,
+			BrowserDownloadURL: downloadBase + "/" + url.PathEscape(name),
+		})
+	}
+	return &githubRelease{
+		TagName: resolvedTag,
+		HTMLURL: fmt.Sprintf("%s/%s/releases/tag/%s", webBase, repo, url.PathEscape(resolvedTag)),
+		Assets:  assets,
+	}, sums, nil
+}
+
+func resolveLatestTagViaRedirect(client *http.Client, webBase, repo string) (string, error) {
+	latestURL := fmt.Sprintf("%s/%s/releases/latest", webBase, repo)
+	if err := validateURL(latestURL); err != nil {
+		return "", err
+	}
+	noFollow := *client
+	noFollow.CheckRedirect = func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}
+	req, err := http.NewRequest(http.MethodHead, latestURL, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("User-Agent", "fplogin-updater")
+
+	resp, err := noFollow.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("resolve latest release: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 300 || resp.StatusCode >= 400 {
+		return "", fmt.Errorf("expected redirect from %s, got HTTP %d", latestURL, resp.StatusCode)
+	}
+	loc := resp.Header.Get("Location")
+	if loc == "" {
+		return "", fmt.Errorf("redirect from %s missing Location header", latestURL)
+	}
+	resolved, err := req.URL.Parse(loc)
+	if err != nil {
+		return "", fmt.Errorf("invalid redirect Location %q: %w", loc, err)
+	}
+	if err := validateURL(resolved.String()); err != nil {
+		return "", err
+	}
+	prefix := fmt.Sprintf("/%s/releases/tag/", repo)
+	idx := strings.Index(resolved.Path, prefix)
+	if idx < 0 {
+		return "", fmt.Errorf("unexpected release redirect path %q", resolved.Path)
+	}
+	rawTag := resolved.Path[idx+len(prefix):]
+	tag, err := url.PathUnescape(strings.TrimSuffix(rawTag, "/"))
+	if err != nil {
+		return "", fmt.Errorf("unescape release tag %q: %w", rawTag, err)
+	}
+	if err := validateReleaseTag(tag); err != nil {
+		return "", err
+	}
+	return tag, nil
+}
+
+func validateReleaseTag(tag string) error {
+	if tag == "" || strings.ContainsAny(tag, "/\\ \t\r\n") || strings.Contains(tag, "..") {
+		return fmt.Errorf("unsafe release tag %q", tag)
+	}
+	return nil
 }
 
 func fetchGitHubRelease(client *http.Client, apiBase, repo, tag string) (*githubRelease, error) {
