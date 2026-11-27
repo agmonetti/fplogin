@@ -1,6 +1,6 @@
 pkgbase = fplogin-git
 	pkgdesc = Native concurrent fingerprint and password login orchestrator for Linux Display Managers
-	pkgver = 1.0.1.r0.g0000000
+	pkgver = 1.0.2.r0.g0000000
 	pkgrel = 1
 	url = https://github.com/agmonetti/fplogin
 	arch = x86_64

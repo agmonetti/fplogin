@@ -1,6 +1,6 @@
 # Maintainer: Agustin Monetti <agmonetti@github>
 pkgname=fplogin-git
-pkgver=1.0.1.r0.g0000000
+pkgver=1.0.2.r0.g0000000
 pkgrel=1
 pkgdesc="Native concurrent fingerprint and password login orchestrator for Linux Display Managers"
 arch=('x86_64' 'aarch64')
