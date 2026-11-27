@@ -85,7 +85,7 @@ func defaultUpdateDeps() updateDeps {
 				return validateURL(req.URL.String())
 			},
 		},
-		getEuid:    os.Geteuid,
+		getEuid: os.Geteuid,
 		hasPacman: func() bool {
 			_, err := exec.LookPath("pacman")
 			return err == nil
