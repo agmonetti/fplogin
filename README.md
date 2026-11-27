@@ -23,9 +23,6 @@ fplogin analyze
 sudo fplogin install
 ```
 
-> **Note for `v1.0.1` prebuilt packages:** `sudo fplogin install` without `--artifacts-dir` on Arch requires a build from `main` (or the next release). On `v1.0.1` release packages, write the drop-in and enable SDDM directly after `pacman -U`:
-> `sudo fplogin config set --auto-legacy true && sudo systemctl enable sddm.service`
-
 ### Other `systemd` Linux (`x86_64` / `aarch64`)
 
 The portable bundle installs the CLI, generic `systemd` provider, and SDDM adapter—it does **not** patch stock SDDM. Install a fingerprint-capable SDDM build first (patches: `adapters/sddm/patches/` + `platforms/arch/sddm-fplogin/`), then download `fplogin-linux-<arch>.tar.gz` and `SHA256SUMS` from [GitHub Releases](https://github.com/agmonetti/fplogin/releases):
