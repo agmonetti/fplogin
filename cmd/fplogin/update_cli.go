@@ -418,11 +418,32 @@ func parseSHA256Sums(body string) (map[string]string, error) {
 	return sums, nil
 }
 
+func hostLinuxArch() string {
+	switch runtime.GOARCH {
+	case "amd64":
+		return "x86_64"
+	case "arm64":
+		return "aarch64"
+	default:
+		return runtime.GOARCH
+	}
+}
+
 func selectUpdateCandidates(
 	assets []githubReleaseAsset,
 	sums map[string]string,
 	state releaseState,
 	queryPacman func(pkg string) (string, bool),
+) []updateCandidate {
+	return selectUpdateCandidatesForArch(assets, sums, state, queryPacman, hostLinuxArch())
+}
+
+func selectUpdateCandidatesForArch(
+	assets []githubReleaseAsset,
+	sums map[string]string,
+	state releaseState,
+	queryPacman func(pkg string) (string, bool),
+	arch string,
 ) []updateCandidate {
 	type pkgRule struct {
 		name          string
@@ -433,6 +454,8 @@ func selectUpdateCandidates(
 		{name: "fplogin-git", prefix: "fplogin-git-", onlyIfPresent: false},
 		{name: "sddm-fplogin", prefix: "sddm-fplogin-", onlyIfPresent: true},
 	}
+	archSuffix := "-" + arch + ".pkg.tar.zst"
+	anySuffix := "-any.pkg.tar.zst"
 
 	var out []updateCandidate
 	for _, r := range rules {
@@ -443,7 +466,7 @@ func selectUpdateCandidates(
 		}
 		for _, a := range assets {
 			if !strings.HasPrefix(a.Name, r.prefix) ||
-				!strings.HasSuffix(a.Name, ".pkg.tar.zst") ||
+				(!strings.HasSuffix(a.Name, archSuffix) && !strings.HasSuffix(a.Name, anySuffix)) ||
 				strings.Contains(a.Name, "-debug-") {
 				continue
 			}
@@ -468,14 +491,7 @@ func selectUpdateCandidates(
 }
 
 func selectLinuxTarballCandidate(assets []githubReleaseAsset, sums map[string]string, state releaseState) []updateCandidate {
-	arch := runtime.GOARCH
-	switch arch {
-	case "amd64":
-		arch = "x86_64"
-	case "arm64":
-		arch = "aarch64"
-	}
-	wantName := fmt.Sprintf("fplogin-linux-%s.tar.gz", arch)
+	wantName := fmt.Sprintf("fplogin-linux-%s.tar.gz", hostLinuxArch())
 	localSHA := strings.ToLower(state.Packages["fplogin-linux"])
 	for _, a := range assets {
 		if a.Name != wantName {

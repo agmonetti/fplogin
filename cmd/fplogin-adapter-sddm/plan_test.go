@@ -204,4 +204,51 @@ func TestPlanExecutableInstall_Scenarios(t *testing.T) {
 			}
 		}
 	})
+
+	t.Run("arch configuration-only plan when sddm-fplogin already installed", func(t *testing.T) {
+		facts := adapterv1.PreflightFacts{
+			Packages: []platformv1.PackageCandidate{
+				{PackageReference: "sddm-fplogin", Installed: "yes", Version: json.RawMessage(`"0.21.0-6"`)},
+				{PackageReference: "fprintd", Installed: "yes", Version: json.RawMessage(`"1.94.5-1"`)},
+			},
+			Services: []platformv1.ServiceCandidate{
+				{ServiceReference: "sddm.service", Enabled: "no", Active: "no", Configurable: "yes"},
+			},
+		}
+		target := detectSDDMLive(facts)
+		req := makeLiveReq(t, facts, nil, map[string]string{"sddm-fplogin": "0.21.0-6"}, false)
+		plan, err := planExecutableInstall(req, facts, target, adapterv1.PlanInstallPayload{Mode: "fresh_install"})
+		if err != nil {
+			t.Fatalf("planExecutableInstall(arch config-only): %v", err)
+		}
+		if len(plan.ArtifactReferences) != 0 {
+			t.Fatalf("expected zero artifact refs in arch config-only mode, got %+v", plan.ArtifactReferences)
+		}
+		wantOps := []string{"write-theme", "enable-sddm"}
+		if len(plan.Operations) != len(wantOps) {
+			t.Fatalf("got %d ops (%+v), want %v", len(plan.Operations), plan.Operations, wantOps)
+		}
+		for i, want := range wantOps {
+			if plan.Operations[i].OperationID != want {
+				t.Fatalf("op[%d] = %q, want %q", i, plan.Operations[i].OperationID, want)
+			}
+		}
+	})
+
+	t.Run("arch refuses install without artifacts when sddm-fplogin is absent", func(t *testing.T) {
+		facts := adapterv1.PreflightFacts{
+			Packages: []platformv1.PackageCandidate{
+				{PackageReference: "sddm", Installed: "yes", Version: json.RawMessage(`"0.21.0-7"`)},
+				{PackageReference: "fprintd", Installed: "yes", Version: json.RawMessage(`"1.94.5-1"`)},
+			},
+			Services: []platformv1.ServiceCandidate{
+				{ServiceReference: "sddm.service", Enabled: "yes", Active: "no", Configurable: "yes"},
+			},
+		}
+		target := detectSDDMLive(facts)
+		req := makeLiveReq(t, facts, nil, map[string]string{"sddm": "0.21.0-7"}, false)
+		if _, err := planExecutableInstall(req, facts, target, adapterv1.PlanInstallPayload{Mode: "fresh_install"}); err == nil {
+			t.Fatal("expected refusal when sddm-fplogin is not installed and no artifacts provided")
+		}
+	})
 }

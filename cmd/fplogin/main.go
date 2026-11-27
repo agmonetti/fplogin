@@ -9,7 +9,7 @@ import (
 	"fplogin/internal/core/manifest"
 )
 
-const version = "0.2.0"
+const version = "1.0.1"
 
 func main() {
 	if len(os.Args) < 2 {
@@ -64,7 +64,7 @@ Usage:
   fplogin <subcommand> [flags]
 
 Subcommands:
-  install     Install fplogin (--dry-run unprivileged preview; live requires root + --artifacts-dir)
+  install     Install/configure fplogin (--dry-run preview; root required for live install)
   uninstall   Transactionally restore the pre-fplogin baseline from manifest (root required)
   recover     Reconcile any interrupted install or uninstall transaction from disk (root required)
   update      Check or apply GitHub Release updates verified by SHA-256 (--check unprivileged; apply requires root)

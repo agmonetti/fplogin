@@ -112,18 +112,47 @@ func planExecutableInstall(req adapterv1.Request, facts adapterv1.PreflightFacts
 	}
 
 	if isGenericLinux(req) {
-		return planGenericLinuxInstall(req, facts, target, state, payload, activate)
+		return planConfigOnlyInstall(req, facts, target, state, payload, activate, true)
 	}
 
-	var artifacts []artifactMeta
-	if err := json.Unmarshal(req.Context.Platform["artifacts"], &artifacts); err != nil || len(artifacts) == 0 {
-		return zero, fmt.Errorf("executable install requires offline signed artifacts metadata")
+	parent := filepath.Dir(themeDropIn)
+	if st, err := os.Lstat(parent); err != nil || !st.IsDir() {
+		return zero, fmt.Errorf("theme drop-in directory %s is missing or unsafe: %v", parent, err)
 	}
+
 	installedPkgs := map[string]string{}
 	if raw := req.Context.Platform["installed_packages"]; len(raw) > 0 {
 		if err := json.Unmarshal(raw, &installedPkgs); err != nil {
 			return zero, fmt.Errorf("invalid installed_packages context: %w", err)
 		}
+	}
+	stockInstalledVer, hasStock := installedPkgs["sddm"]
+	patchedInstalledVer, hasPatched := installedPkgs["sddm-fplogin"]
+	for _, p := range facts.Packages {
+		if p.PackageReference == "sddm" && p.Installed == "yes" {
+			hasStock = true
+			_ = json.Unmarshal(p.Version, &stockInstalledVer)
+		}
+		if p.PackageReference == "sddm-fplogin" && p.Installed == "yes" {
+			hasPatched = true
+			_ = json.Unmarshal(p.Version, &patchedInstalledVer)
+		}
+	}
+
+	var artifacts []artifactMeta
+	if raw := req.Context.Platform["artifacts"]; len(raw) > 0 {
+		if err := json.Unmarshal(raw, &artifacts); err != nil {
+			return zero, fmt.Errorf("invalid artifacts context: %w", err)
+		}
+	}
+	if len(artifacts) == 0 {
+		// Arch config-only mode: sddm-fplogin is already installed via pacman -U
+		// (which owns /etc/pam.d/sddm-fingerprint and the theme), so configure the
+		// drop-in and systemd service transactionally without offline signed bundles.
+		if hasPatched && !hasStock {
+			return planConfigOnlyInstall(req, facts, target, state, payload, activate, false)
+		}
+		return zero, fmt.Errorf("sddm-fplogin is not installed; install it first via 'sudo pacman -U sddm-fplogin-*.pkg.tar.zst' or pass --artifacts-dir with signed offline packages")
 	}
 
 	byPkg := make(map[string]artifactMeta, len(artifacts))
@@ -143,24 +172,6 @@ func planExecutableInstall(req adapterv1.Request, facts adapterv1.PreflightFacts
 	cand, hasCand := byPkg["sddm-fplogin"]
 	if !hasCand {
 		return zero, fmt.Errorf("missing sddm-fplogin artifact")
-	}
-
-	parent := filepath.Dir(themeDropIn)
-	if st, err := os.Lstat(parent); err != nil || !st.IsDir() {
-		return zero, fmt.Errorf("theme drop-in directory %s is missing or unsafe: %v", parent, err)
-	}
-
-	stockInstalledVer, hasStock := installedPkgs["sddm"]
-	patchedInstalledVer, hasPatched := installedPkgs["sddm-fplogin"]
-	for _, p := range facts.Packages {
-		if p.PackageReference == "sddm" && p.Installed == "yes" {
-			hasStock = true
-			_ = json.Unmarshal(p.Version, &stockInstalledVer)
-		}
-		if p.PackageReference == "sddm-fplogin" && p.Installed == "yes" {
-			hasPatched = true
-			_ = json.Unmarshal(p.Version, &patchedInstalledVer)
-		}
 	}
 
 	var stockArt artifactMeta
@@ -410,13 +421,14 @@ func planExecutableInstall(req adapterv1.Request, facts adapterv1.PreflightFacts
 	return plan, nil
 }
 
-func planGenericLinuxInstall(
+func planConfigOnlyInstall(
 	req adapterv1.Request,
 	facts adapterv1.PreflightFacts,
 	target adapterv1.DetectedTarget,
 	state adapterv1.DisplayManagerState,
 	payload adapterv1.PlanInstallPayload,
 	activate bool,
+	writePAM bool,
 ) (adapterv1.ChangePlan, error) {
 	var zero adapterv1.ChangePlan
 	hasCompatible := false
@@ -445,20 +457,22 @@ func planGenericLinuxInstall(
 		Compensation: json.RawMessage(fmt.Sprintf(`{"kind":"remove_file","path":%q}`, themeDropIn)),
 	})
 
-	pamBytes := genericPAMFingerprintContent()
-	ops = append(ops, protocol.Operation{
-		OperationID:    "write-pam-sddm-fingerprint",
-		Kind:           protocol.WriteFileAtomic,
-		Dependencies:   []string{},
-		Preconditions:  []json.RawMessage{},
-		ExpectedBefore: protocol.Object{},
-		ExpectedAfter:  protocol.Object{},
-		Parameters: json.RawMessage(fmt.Sprintf(
-			`{"destination_path":%q,"content_base64":%q,"sha256":%q,"mode":"0644","owner":"root","group":"root"}`,
-			pamFingerprintPath, base64.StdEncoding.EncodeToString(pamBytes), calcSHA256(pamBytes),
-		)),
-		Compensation: json.RawMessage(fmt.Sprintf(`{"kind":"remove_file","path":%q}`, pamFingerprintPath)),
-	})
+	if writePAM {
+		pamBytes := genericPAMFingerprintContent()
+		ops = append(ops, protocol.Operation{
+			OperationID:    "write-pam-sddm-fingerprint",
+			Kind:           protocol.WriteFileAtomic,
+			Dependencies:   []string{},
+			Preconditions:  []json.RawMessage{},
+			ExpectedBefore: protocol.Object{},
+			ExpectedAfter:  protocol.Object{},
+			Parameters: json.RawMessage(fmt.Sprintf(
+				`{"destination_path":%q,"content_base64":%q,"sha256":%q,"mode":"0644","owner":"root","group":"root"}`,
+				pamFingerprintPath, base64.StdEncoding.EncodeToString(pamBytes), calcSHA256(pamBytes),
+			)),
+			Compensation: json.RawMessage(fmt.Sprintf(`{"kind":"remove_file","path":%q}`, pamFingerprintPath)),
+		})
+	}
 
 	var conflicting []platformv1.ServiceCandidate
 	for _, svc := range facts.Services {
@@ -534,13 +548,19 @@ func planGenericLinuxInstall(
 	if mode == "" {
 		mode = "fresh_install"
 	}
+	distTag := "linux"
+	planPrefix := "sddm-linux-"
+	if !writePAM {
+		distTag = "arch-config-only"
+		planPrefix = "sddm-arch-"
+	}
 	refs := []adapterv1.ArtifactReference{}
 	inputRaw, _ := json.Marshal(struct {
 		Target   string `json:"target"`
 		Mode     string `json:"mode"`
 		Activate bool   `json:"activate"`
 		Dist     string `json:"dist"`
-	}{target.InstanceID, mode, activate, "linux"})
+	}{target.InstanceID, mode, activate, distTag})
 	canonicalRaw, _ := json.Marshal(struct {
 		Refs []adapterv1.ArtifactReference `json:"refs"`
 		Ops  []protocol.Operation          `json:"ops"`
@@ -549,7 +569,7 @@ func planGenericLinuxInstall(
 	canonicalDigest := calcSHA256(canonicalRaw)
 
 	plan := adapterv1.ChangePlan{
-		PlanID:               "sddm-linux-" + canonicalDigest[:16],
+		PlanID:               planPrefix + canonicalDigest[:16],
 		AdapterID:            "org.fplogin.adapter.sddm",
 		AdapterVersion:       "0.1.0",
 		ProtocolVersion:      req.ProtocolVersion,

@@ -209,3 +209,22 @@ func TestUpdate_GenericLinuxTarballFlow(t *testing.T) {
 		t.Fatalf("expected tarball install, got tar=%q out=%q", installedTar, out.String())
 	}
 }
+
+func TestSelectUpdateCandidatesForArch_FiltersMismatchedArch(t *testing.T) {
+	assets := []githubReleaseAsset{
+		{Name: "fplogin-git-1.0.1-1-x86_64.pkg.tar.zst", BrowserDownloadURL: "https://example.invalid/x86_64"},
+		{Name: "sddm-fplogin-0.21.0-6-x86_64.pkg.tar.zst", BrowserDownloadURL: "https://example.invalid/sddm-x86_64"},
+	}
+	sums := map[string]string{
+		"fplogin-git-1.0.1-1-x86_64.pkg.tar.zst":   sha256Hex([]byte("a")),
+		"sddm-fplogin-0.21.0-6-x86_64.pkg.tar.zst": sha256Hex([]byte("b")),
+	}
+	query := func(pkg string) (string, bool) { return pkg + " 1.0.0-1", true }
+
+	if got := selectUpdateCandidatesForArch(assets, sums, releaseState{Packages: map[string]string{}}, query, "aarch64"); len(got) != 0 {
+		t.Fatalf("expected no Arch candidates on aarch64 for x86_64-only release, got %+v", got)
+	}
+	if got := selectUpdateCandidatesForArch(assets, sums, releaseState{Packages: map[string]string{}}, query, "x86_64"); len(got) != 2 {
+		t.Fatalf("expected 2 Arch candidates on x86_64, got %+v", got)
+	}
+}

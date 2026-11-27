@@ -1,10 +1,10 @@
-# fplogin Sprint 3 — AUTHORIZED, UNACCEPTED; not a release artifact.
+# Arch package for SDDM with fplogin concurrent fingerprint authentication (dual Qt6 + Qt5).
 # Both Qt builds are tested; only allowlisted Qt5 files join canonical Qt6.
-# Accepted 0001+0002 plus supplemental 0003/0004, theme and dedicated PAM service.
+# Accepted 0001+0002 plus supplemental 0000/0003..0006, theme and dedicated PAM service.
 pkgname=sddm-fplogin
 pkgver=0.21.0
 pkgrel=6
-pkgdesc="QML based X11 and Wayland display manager with fplogin concurrent fingerprint authentication (unaccepted preview)"
+pkgdesc="QML based X11 and Wayland display manager with fplogin concurrent fingerprint authentication"
 arch=('x86_64')
 url="https://github.com/sddm/sddm"
 license=('GPL-2.0-or-later' 'CC-BY-3.0')

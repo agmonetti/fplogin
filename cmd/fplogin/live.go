@@ -472,7 +472,7 @@ func printExecutablePlanSummary(plan adapterv1.ChangePlan, target adapterv1.Dete
 
 func liveInstall(args []string) {
 	fs := flag.NewFlagSet("install", flag.ExitOnError)
-	artifactsDir := fs.String("artifacts-dir", "", "directory containing signed Arch package archives (.pkg.tar.zst/.xz + .sig)")
+	artifactsDir := fs.String("artifacts-dir", "", "optional directory containing signed Arch package archives (.pkg.tar.zst/.xz + .sig) for offline package replacement")
 	target := fs.String("target", "", "target DM ID or ADAPTER_ID/INSTANCE_ID")
 	activate := fs.Bool("activate", false, "start sddm.service immediately (and stop active conflicting DM) instead of waiting for next boot")
 	approvePlan := fs.String("approve-plan", "", "exact 64-hex SHA-256 plan digest to approve non-interactively")
@@ -480,7 +480,7 @@ func liveInstall(args []string) {
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, `Usage:
   fplogin install --dry-run [--target ADAPTER_ID/TARGET_ID]
-  sudo fplogin install --artifacts-dir DIR [flags]
+  sudo fplogin install [--artifacts-dir DIR] [flags]
 
 Flags for live installation (root required):
 `)
